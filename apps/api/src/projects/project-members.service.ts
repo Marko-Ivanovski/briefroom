@@ -22,8 +22,9 @@ import { and, asc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { canViewProject, type Scope } from '../access/scope.ts';
 import { DB } from '../database/database.module.ts';
+import { RevocationService } from '../members/revocation.service.ts';
 
-type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
+export type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 
 const PG_UNIQUE_VIOLATION = '23505';
 const PG_FOREIGN_KEY_VIOLATION = '23503';
@@ -39,7 +40,10 @@ function hasPgCode(err: unknown, code: string): boolean {
 
 @Injectable()
 export class ProjectMembersService {
-  constructor(@Inject(DB) private readonly db: Db) {}
+  constructor(
+    @Inject(DB) private readonly db: Db,
+    private readonly revocation: RevocationService,
+  ) {}
 
   async list(scope: Scope, projectId: string): Promise<ProjectMemberSummary[]> {
     await this.requireVisible(scope, projectId);
@@ -113,20 +117,65 @@ export class ProjectMembersService {
     await this.guardLinks(() =>
       this.db.transaction(async (tx) => {
         await this.lockProject(tx, scope, projectId);
-        const deleted = await tx
-          .delete(projectMembers)
-          .where(
-            and(
-              scoped(scope, projectMembers),
-              eq(projectMembers.projectId, projectId),
-              eq(projectMembers.userId, userId),
-            ),
-          )
-          .returning({ userId: projectMembers.userId });
-        if (deleted.length === 0) throw new NotFoundException('Not on this project');
+        const deleted = await this.deleteMembership(tx, scope, projectId, userId);
+        if (!deleted) throw new NotFoundException('Not on this project');
         await this.resetChecklist(tx, scope, projectId, userId, 'remove');
       }),
     );
+    await this.revocation.projectMemberRemoved(scope.workspaceId, projectId, userId);
+  }
+
+  /**
+   * Removes the person from every project they are on in this workspace, in one transaction that
+   * also runs `inTx`. If `inTx` throws, every project membership and checklist row is rolled back.
+   */
+  async removeFromWorkspace(
+    scope: Scope,
+    userId: string,
+    inTx: (tx: Tx) => Promise<void>,
+  ): Promise<string[]> {
+    const removed = await this.guardLinks(() =>
+      this.db.transaction(async (tx) => {
+        const rows = await tx
+          .select({ projectId: projectMembers.projectId })
+          .from(projectMembers)
+          .where(and(scoped(scope, projectMembers), eq(projectMembers.userId, userId)))
+          .orderBy(asc(projectMembers.projectId));
+        const ids: string[] = [];
+        for (const { projectId } of rows) {
+          await this.lockProject(tx, scope, projectId);
+          if (await this.deleteMembership(tx, scope, projectId, userId)) {
+            await this.resetChecklist(tx, scope, projectId, userId, 'remove');
+            ids.push(projectId);
+          }
+        }
+        await inTx(tx);
+        return ids;
+      }),
+    );
+    for (const projectId of removed) {
+      await this.revocation.projectMemberRemoved(scope.workspaceId, projectId, userId);
+    }
+    return removed;
+  }
+
+  private async deleteMembership(
+    tx: Tx,
+    scope: Scope,
+    projectId: string,
+    userId: string,
+  ): Promise<boolean> {
+    const deleted = await tx
+      .delete(projectMembers)
+      .where(
+        and(
+          scoped(scope, projectMembers),
+          eq(projectMembers.projectId, projectId),
+          eq(projectMembers.userId, userId),
+        ),
+      )
+      .returning({ userId: projectMembers.userId });
+    return deleted.length > 0;
   }
 
   // A concurrent project edit holds FOR UPDATE and may delete tool links. A shared lock makes this

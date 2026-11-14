@@ -7,6 +7,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   Param,
@@ -51,6 +52,17 @@ export class MembersController {
       throw new BadRequestException(parsed.error.issues.map((i) => i.message).join('; '));
     }
     return this.members.changeRole(scope, fromNodeHeaders(req.headers), userId, parsed.data.role);
+  }
+
+  @RequireRole('admin')
+  @Delete('members/:userId')
+  @HttpCode(204)
+  remove(
+    @CurrentScope() scope: Scope,
+    @Req() req: HeaderCarrier,
+    @Param('userId') userId: string,
+  ): Promise<void> {
+    return this.members.remove(scope, fromNodeHeaders(req.headers), userId);
   }
 
   @RequireRole('admin')

@@ -264,12 +264,12 @@ describe('workspaces, scope and roles', () => {
       expect((await leave('outsider')).status).toBe(404);
     });
 
-    it('lets a member leave, after which the workspace is gone for them', async () => {
+    it('lets a member leave, after which their sessions end (no other workspace)', async () => {
       const res = await leave('member');
       expect(res.status).toBe(204);
       expect(await roleOf(ids.member!)).toBeUndefined();
       const after = await http().get(`/api/v1/workspaces/${workspaceId}/members`).set(as('member'));
-      expect(after.status).toBe(404);
+      expect(after.status).toBe(401);
     });
 
     it('lets an admin leave', async () => {
