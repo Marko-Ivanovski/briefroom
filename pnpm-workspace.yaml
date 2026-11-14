@@ -5,6 +5,8 @@ packages:
   - plugins/*
 allowBuilds:
   '@swc/core': true
+  '@prisma/client': false
+  better-sqlite3: false
 minimumReleaseAgeExclude:
   - '@eslint/config-array@0.23.6'
   - eslint@10.15.0

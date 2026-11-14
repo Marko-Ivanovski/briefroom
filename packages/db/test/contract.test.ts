@@ -15,9 +15,19 @@ const AUDIT = [
 ];
 
 describe('schema contract', () => {
+  it('registers tables in the schema index', () => {
+    expect(allTables().length).toBeGreaterThan(0);
+  });
+
+  it('every Better Auth table is exported with its expected name', () => {
+    const names = allTables().map((t) => getTableName(t));
+    for (const name of BETTER_AUTH_TABLES) expect(names).toContain(name);
+  });
+
   it('every table outside Better Auth has the audit columns', () => {
-    for (const t of allTables()) {
-      if (BETTER_AUTH_TABLES.includes(getTableName(t))) continue;
+    const checked = allTables().filter((t) => !BETTER_AUTH_TABLES.includes(getTableName(t)));
+    expect(checked.map((t) => getTableName(t))).toContain('install');
+    for (const t of checked) {
       const cols = Object.keys(getTableColumns(t));
       for (const c of AUDIT) expect(cols, `${getTableName(t)}.${c}`).toContain(c);
     }
