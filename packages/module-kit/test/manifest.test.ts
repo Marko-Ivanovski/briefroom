@@ -56,4 +56,15 @@ describe('defineModule', () => {
       /needs a default \(greeting\)/,
     );
   });
+
+  it('accepts historyTables that name the module own tables', () => {
+    const m = manifest({ historyTables: ['kit_things'] });
+    expect(defineModule(m)).toBe(m);
+  });
+
+  it('rejects a historyTables entry the module does not own', () => {
+    expect(() => defineModule(manifest({ historyTables: ['other_things'] }))).toThrow(
+      /historyTables.*"other_things"/,
+    );
+  });
 });

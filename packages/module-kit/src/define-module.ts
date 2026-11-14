@@ -1,3 +1,4 @@
+import { getTableName } from 'drizzle-orm';
 import { z } from 'zod';
 import type { ModuleManifest } from './manifest.ts';
 
@@ -25,6 +26,7 @@ const ManifestShape = z.object({
   contentLevels: z.array(z.enum(['workspace', 'project'])).min(1, 'needs at least one level'),
   tables: z.array(z.custom((v) => typeof v === 'object' && v !== null)).min(1, 'must not be empty'),
   settings: z.instanceof(z.ZodObject).optional(),
+  historyTables: z.array(z.string()).optional(),
 });
 
 /** Validates a manifest at import time, so a bad module fails the boot rather than a request. */
@@ -46,6 +48,15 @@ export function defineModule(manifest: ModuleManifest): ModuleManifest {
       );
     }
     seen.add(key);
+  }
+
+  const owned = new Set(manifest.tables.map((t) => getTableName(t)));
+  for (const name of manifest.historyTables ?? []) {
+    if (!owned.has(name)) {
+      throw new ModuleManifestError(
+        `Invalid module manifest "${label}": historyTables "${name}" is not one of the module's tables`,
+      );
+    }
   }
 
   if (manifest.settings) {

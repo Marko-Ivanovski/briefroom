@@ -12,5 +12,6 @@ export const testkitManifest = defineModule({
   ],
   contentLevels: ['workspace', 'project'],
   tables: [testkitNotes],
+  historyTables: ['testkit_notes'],
   settings: z.object({ greeting: z.string().max(40).default('hello') }),
 });

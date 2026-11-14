@@ -7,6 +7,7 @@ import { EnvModule } from './config/env.module.ts';
 import type { Env } from './config/env.ts';
 import { DatabaseModule } from './database/database.module.ts';
 import { SafeExceptionFilter } from './errors/safe-exception.filter.ts';
+import { HistoryModule } from './history/history.module.ts';
 import { InstallModule } from './install/install.module.ts';
 import { InvitesModule } from './invites/invites.module.ts';
 import { ModuleRegistryModule } from './module-registry/module-registry.module.ts';
@@ -31,6 +32,7 @@ export class AppModule {
         DatabaseModule,
         InstallModule,
         ModuleRegistryModule,
+        HistoryModule,
         AuthModule,
         ...(accessAtRoot ? [AccessModule] : []),
         WorkspacesModule,
