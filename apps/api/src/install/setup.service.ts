@@ -49,16 +49,16 @@ export class SetupService {
   }
 
   async setup(req: SetupRequest): Promise<SetupResult> {
-    const row = await this.installs.getRow();
-    if (row.ownerUserId) throw new GoneException('Setup is already done');
-    if (row.failedSetupAttempts >= MAX_FAILED_SETUP_ATTEMPTS) {
+    await this.installs.getRow();
+    const attempt = await this.installs.reserveAttempt(MAX_FAILED_SETUP_ATTEMPTS);
+    if (attempt.status === 'done') throw new GoneException('Setup is already done');
+    if (attempt.status === 'locked') {
       throw new HttpException(
         'Too many wrong setup codes. Restart Briefroom to get a new code.',
         HttpStatus.TOO_MANY_REQUESTS,
       );
     }
-    if (!row.setupCodeHash || !setupCodeMatches(req.code, row.setupCodeHash)) {
-      await this.installs.registerFailedAttempt();
+    if (!attempt.setupCodeHash || !setupCodeMatches(req.code, attempt.setupCodeHash)) {
       throw new UnauthorizedException('Wrong setup code');
     }
 
@@ -71,6 +71,7 @@ export class SetupService {
         if ((await this.installs.getRow()).ownerUserId) {
           throw new GoneException('Setup is already done');
         }
+        await this.clearLeftovers();
         return await this.createOwner(req);
       } finally {
         await lock.query(`SELECT pg_advisory_unlock(${SETUP_LOCK})`);
@@ -78,6 +79,14 @@ export class SetupService {
     } finally {
       lock.release();
     }
+  }
+
+  // Public sign-up is off and setup is the only way to create users, so before an owner exists any
+  // user, workspace or key is debris from a crashed setup. FKs cascade member, session and account.
+  private async clearLeftovers(): Promise<void> {
+    await this.db.delete(authSchema.apikey);
+    await this.db.delete(authSchema.organization);
+    await this.db.delete(authSchema.user);
   }
 
   private async createOwner(req: SetupRequest): Promise<SetupResult> {

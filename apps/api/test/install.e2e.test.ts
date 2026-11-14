@@ -175,6 +175,71 @@ describe('setup concurrency', () => {
   });
 });
 
+describe('setup attempt cap', () => {
+  it('counts exactly 10 of 15 concurrent wrong codes and answers 429 to the rest', async () => {
+    const t = await createTestApp();
+    try {
+      const code = (await t.app.get(InstallService).ensureInstall()).setupCode!;
+      const wrong = () =>
+        request(t.app.getHttpServer())
+          .post('/api/v1/setup')
+          .send({ code: 'AAAA-AAAA', name: 'Ada', email: 'ada@example.com', password: PASSWORD });
+      const results = await Promise.all(Array.from({ length: 15 }, wrong));
+      const statuses = results.map((r) => r.status);
+      expect(statuses.filter((s) => s === 401)).toHaveLength(10);
+      expect(statuses.filter((s) => s === 429)).toHaveLength(5);
+      const [inst] = await t.db.db.select().from(install);
+      expect(inst!.failedSetupAttempts).toBe(10);
+      const right = await request(t.app.getHttpServer())
+        .post('/api/v1/setup')
+        .send({ code, name: 'Ada', email: 'ada@example.com', password: PASSWORD });
+      expect(right.status).toBe(429);
+    } finally {
+      await t.close();
+    }
+  });
+});
+
+describe('setup leftovers', () => {
+  it('clears a half-finished earlier setup and lets the same email finish', async () => {
+    const t = await createTestApp();
+    try {
+      const code = (await t.app.get(InstallService).ensureInstall()).setupCode!;
+      const { user: ghost } = await t.auth.api.createUser({
+        body: { email: 'ada@example.com', password: 'an old password 123', name: 'Old Ada' },
+      });
+      await t.db.db.insert(authSchema.organization).values({
+        id: 'ghost-org',
+        name: 'Ghost',
+        slug: 'ghost',
+        createdAt: new Date(),
+      });
+      await t.db.db.insert(authSchema.member).values({
+        id: 'ghost-member',
+        organizationId: 'ghost-org',
+        userId: ghost.id,
+        role: 'owner',
+        createdAt: new Date(),
+      });
+
+      const res = await request(t.app.getHttpServer())
+        .post('/api/v1/setup')
+        .send({ code, name: 'Ada', email: 'ada@example.com', password: PASSWORD });
+      expect(res.status).toBe(201);
+      const users = await t.db.db.select().from(authSchema.user);
+      expect(users.map((u) => u.id)).toEqual([res.body.userId]);
+      const orgs = await t.db.db.select().from(authSchema.organization);
+      expect(orgs.map((o) => o.id)).toEqual([res.body.workspaceId]);
+      const members = await t.db.db.select().from(authSchema.member);
+      expect(members).toHaveLength(1);
+      expect(members[0]!.userId).toBe(res.body.userId);
+      expect(await t.db.db.select().from(authSchema.account)).toHaveLength(1);
+    } finally {
+      await t.close();
+    }
+  });
+});
+
 describe('setup rollback', () => {
   it('removes the user and leaves no owner when workspace creation fails', async () => {
     const t = await createTestApp();

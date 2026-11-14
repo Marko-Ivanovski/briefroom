@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { install, updatedStamp, type Db } from '@briefroom/db';
 import { Inject, Injectable } from '@nestjs/common';
-import { eq, isNull, and, sql } from 'drizzle-orm';
+import { and, eq, isNull, lt, sql } from 'drizzle-orm';
 import { DB } from '../database/database.module.ts';
 import { generateSetupCode, hashSetupCode } from './setup-code.ts';
 
@@ -59,11 +59,23 @@ export class InstallService {
     return this.settingUp.run(userId, fn);
   }
 
-  async registerFailedAttempt(): Promise<void> {
-    await this.db.update(install).set({
-      failedSetupAttempts: sql`${install.failedSetupAttempts} + 1`,
-      ...updatedStamp(SYSTEM),
-    });
+  /** Counts one guess in a single statement, so parallel requests cannot exceed the cap. */
+  async reserveAttempt(
+    max: number,
+  ): Promise<
+    { status: 'reserved'; setupCodeHash: string | null } | { status: 'locked' } | { status: 'done' }
+  > {
+    const [reserved] = await this.db
+      .update(install)
+      .set({
+        failedSetupAttempts: sql`${install.failedSetupAttempts} + 1`,
+        ...updatedStamp(SYSTEM),
+      })
+      .where(and(isNull(install.ownerUserId), lt(install.failedSetupAttempts, max)))
+      .returning({ setupCodeHash: install.setupCodeHash });
+    if (reserved) return { status: 'reserved', setupCodeHash: reserved.setupCodeHash };
+    const row = await this.getRow();
+    return { status: row.ownerUserId ? 'done' : 'locked' };
   }
 
   async completeSetup(ownerUserId: string): Promise<void> {
