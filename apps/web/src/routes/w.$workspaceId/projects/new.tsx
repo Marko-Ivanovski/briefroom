@@ -3,14 +3,14 @@ import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router';
 import { api } from '../../../api/client.ts';
 import { invalidateProjects, settingsQuery, workspacesQuery } from '../../../api/queries.ts';
 import { ProjectForm, type ProjectFormValues } from '../../../components/project-form.tsx';
-import { messageFor, PROJECT_ERRORS } from '../../../lib/errors.ts';
+import { messageFor, PROJECT_ERRORS, PROJECT_FORM_CODES } from '../../../lib/errors.ts';
 import { isAdminRole } from '../../../lib/roles.ts';
 
 export const Route = createFileRoute('/w/$workspaceId/projects/new')({
   loader: async ({ context: { queryClient }, params }) => {
     const [workspaces, settings] = await Promise.all([
-      queryClient.query(workspacesQuery),
-      queryClient.query(settingsQuery(params.workspaceId)),
+      queryClient.query({ ...workspacesQuery, staleTime: 'static' }),
+      queryClient.query({ ...settingsQuery(params.workspaceId), staleTime: 'static' }),
     ]);
     const role = workspaces.find((w) => w.id === params.workspaceId)?.role;
     if (!isAdminRole(role) && !settings.membersCanCreateProjects) {
@@ -51,15 +51,7 @@ function NewProjectPage() {
       <ProjectForm
         submitLabel="Create project"
         pending={create.isPending}
-        error={
-          create.error
-            ? messageFor(create.error, {
-                ...PROJECT_ERRORS,
-                400: 'Check the project details and try again.',
-                409: 'This repo remote is already registered in this workspace.',
-              })
-            : null
-        }
+        error={create.error ? messageFor(create.error, PROJECT_ERRORS, PROJECT_FORM_CODES) : null}
         onSubmit={(v) => create.mutate(v)}
       />
     </section>

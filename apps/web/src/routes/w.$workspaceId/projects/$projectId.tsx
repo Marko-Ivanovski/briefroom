@@ -5,7 +5,10 @@ import { messageFor, PROJECT_ERRORS } from '../../../lib/errors.ts';
 
 export const Route = createFileRoute('/w/$workspaceId/projects/$projectId')({
   loader: ({ context: { queryClient }, params }) =>
-    queryClient.query(projectQuery(params.workspaceId, params.projectId)),
+    queryClient.query({
+      ...projectQuery(params.workspaceId, params.projectId),
+      staleTime: 'static',
+    }),
   errorComponent: ({ error }) => (
     <p role="alert" className="text-destructive text-sm">
       {messageFor(error, PROJECT_ERRORS)}

@@ -11,12 +11,15 @@ import {
 } from '../../../api/queries.ts';
 import { FormError } from '../../../components/form-error.tsx';
 import { ProjectForm, type ProjectFormValues } from '../../../components/project-form.tsx';
-import { messageFor, PROJECT_ERRORS } from '../../../lib/errors.ts';
+import { messageFor, PROJECT_ERRORS, PROJECT_FORM_CODES } from '../../../lib/errors.ts';
 import { useIsAdmin } from '../../../lib/roles.ts';
 
 export const Route = createFileRoute('/w/$workspaceId/projects/$projectId/')({
   loader: ({ context: { queryClient }, params }) =>
-    queryClient.query(projectMembersQuery(params.workspaceId, params.projectId)),
+    queryClient.query({
+      ...projectMembersQuery(params.workspaceId, params.projectId),
+      staleTime: 'static',
+    }),
   component: ProjectOverview,
 });
 
@@ -81,15 +84,7 @@ function ProjectOverview() {
         }}
         submitLabel="Save changes"
         pending={update.isPending}
-        error={
-          update.error
-            ? messageFor(update.error, {
-                ...PROJECT_ERRORS,
-                400: 'Check the project details and try again.',
-                409: 'This repo remote is already registered in this workspace.',
-              })
-            : null
-        }
+        error={update.error ? messageFor(update.error, PROJECT_ERRORS, PROJECT_FORM_CODES) : null}
         onSubmit={(v) => update.mutate(v)}
         onCancel={() => setEditing(false)}
       />

@@ -21,16 +21,21 @@ import {
 } from '../../../api/queries.ts';
 import { AccessChecklist } from '../../../components/access-checklist.tsx';
 import { FormError } from '../../../components/form-error.tsx';
-import { messageFor, PROJECT_ERRORS } from '../../../lib/errors.ts';
+import { ADD_MEMBER_CODES, messageFor, PROJECT_ERRORS } from '../../../lib/errors.ts';
 import { isAdminRole, useIsAdmin } from '../../../lib/roles.ts';
 
 export const Route = createFileRoute('/w/$workspaceId/projects/$projectId/members')({
   loader: async ({ context: { queryClient }, params }) => {
-    const workspaces = await queryClient.query(workspacesQuery);
+    const workspaces = await queryClient.query({ ...workspacesQuery, staleTime: 'static' });
     const admin = isAdminRole(workspaces.find((w) => w.id === params.workspaceId)?.role);
     await Promise.all([
-      queryClient.query(projectMembersQuery(params.workspaceId, params.projectId)),
-      admin ? queryClient.query(membersQuery(params.workspaceId)) : undefined,
+      queryClient.query({
+        ...projectMembersQuery(params.workspaceId, params.projectId),
+        staleTime: 'static',
+      }),
+      admin
+        ? queryClient.query({ ...membersQuery(params.workspaceId), staleTime: 'static' })
+        : undefined,
     ]);
   },
   component: ProjectMembersPage,
@@ -52,6 +57,7 @@ function ProjectMembersPage() {
     enabled: isAdmin,
   });
   const [selected, setSelected] = useState('');
+  const [confirmingRemove, setConfirmingRemove] = useState<string | null>(null);
   const [checklist, setChecklist] = useState<OpenChecklist | null>(null);
 
   const candidates = workspaceMembers.filter((w) => !members.some((m) => m.userId === w.userId));
@@ -69,6 +75,7 @@ function ProjectMembersPage() {
     mutationFn: (member: { userId: string; name: string }) =>
       api.removeProjectMember(workspaceId, projectId, member.userId),
     onSuccess: async (_, member) => {
+      setConfirmingRemove(null);
       setChecklist({ userId: member.userId, name: member.name, kind: 'remove' });
       await invalidateProjects(queryClient, workspaceId);
     },
@@ -108,11 +115,7 @@ function ProjectMembersPage() {
       <FormError
         message={
           add.error
-            ? messageFor(add.error, {
-                ...PROJECT_ERRORS,
-                400: "That person isn't in this workspace.",
-                409: 'Already on this project.',
-              })
+            ? messageFor(add.error, PROJECT_ERRORS, ADD_MEMBER_CODES)
             : remove.error
               ? messageFor(remove.error, PROJECT_ERRORS)
               : null
@@ -134,15 +137,35 @@ function ProjectMembersPage() {
               <TableCell>{m.email}</TableCell>
               {isAdmin ? (
                 <TableCell>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    aria-label={`Remove ${m.name}`}
-                    disabled={remove.isPending}
-                    onClick={() => remove.mutate({ userId: m.userId, name: m.name })}
-                  >
-                    Remove
-                  </Button>
+                  {confirmingRemove === m.userId ? (
+                    <div
+                      role="group"
+                      aria-label={`Confirm removing ${m.name}`}
+                      className="flex gap-2"
+                    >
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        aria-label={`Confirm remove ${m.name}`}
+                        disabled={remove.isPending}
+                        onClick={() => remove.mutate({ userId: m.userId, name: m.name })}
+                      >
+                        Confirm remove
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => setConfirmingRemove(null)}>
+                        Cancel
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      aria-label={`Remove ${m.name}`}
+                      onClick={() => setConfirmingRemove(m.userId)}
+                    >
+                      Remove
+                    </Button>
+                  )}
                 </TableCell>
               ) : null}
             </TableRow>

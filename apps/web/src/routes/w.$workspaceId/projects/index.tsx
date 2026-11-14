@@ -15,8 +15,8 @@ import { useIsAdmin } from '../../../lib/roles.ts';
 export const Route = createFileRoute('/w/$workspaceId/projects/')({
   loader: async ({ context: { queryClient }, params }) => {
     await Promise.all([
-      queryClient.query(projectsQuery(params.workspaceId)),
-      queryClient.query(settingsQuery(params.workspaceId)),
+      queryClient.query({ ...projectsQuery(params.workspaceId), staleTime: 'static' }),
+      queryClient.query({ ...settingsQuery(params.workspaceId), staleTime: 'static' }),
     ]);
   },
   component: ProjectsPage,

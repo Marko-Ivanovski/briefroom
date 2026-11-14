@@ -66,6 +66,7 @@ test('owner manages project access, member sees only their project', async ({ pa
   await expect(page.getByRole('heading', { name: 'Beta' })).toBeVisible();
 
   await page.getByRole('link', { name: 'Projects' }).click();
+  await expect(page.getByRole('link', { name: 'Beta' })).toBeVisible();
   await page.getByRole('link', { name: 'Alpha' }).click();
   await page.getByRole('link', { name: 'Project members' }).click();
   await page.getByLabel('Add a member').selectOption({ label: `${MEMBER.name} (${MEMBER.email})` });
@@ -86,4 +87,13 @@ test('owner manages project access, member sees only their project', async ({ pa
   await expect(memberPage.getByRole('link', { name: 'Beta' })).toHaveCount(0);
   await expect(memberPage.getByRole('link', { name: 'New project' })).toHaveCount(0);
   await memberContext.close();
+
+  await page.reload();
+  await page.getByRole('button', { name: `Remove ${MEMBER.name}` }).click();
+  await expect(page.getByRole('row', { name: new RegExp(MEMBER.email) })).toBeVisible();
+  await page.getByRole('button', { name: `Confirm remove ${MEMBER.name}` }).click();
+  await expect(
+    page.getByRole('region', { name: `Access to remove for ${MEMBER.name}` }),
+  ).toBeVisible();
+  await expect(page.getByRole('row', { name: new RegExp(MEMBER.email) })).toHaveCount(0);
 });
