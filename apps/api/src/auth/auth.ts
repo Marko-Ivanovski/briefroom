@@ -5,6 +5,7 @@ import { betterAuth } from 'better-auth';
 import { APIError, createAuthMiddleware } from 'better-auth/api';
 import { admin, organization } from 'better-auth/plugins';
 import type { Env } from '../config/env.ts';
+import { CLIENT_IP_HEADER } from './client-ip.middleware.ts';
 
 export const API_KEY_PREFIX = 'brf_';
 
@@ -26,7 +27,10 @@ export function createAuth(db: Db, env: Env) {
     trustedOrigins: [env.publicUrl],
     database: drizzleAdapter(db, { provider: 'pg', schema: authSchema }),
     emailAndPassword: { enabled: true, disableSignUp: true },
-    advanced: { useSecureCookies: env.publicUrl.startsWith('https://') },
+    advanced: {
+      useSecureCookies: env.publicUrl.startsWith('https://'),
+      ipAddress: { ipAddressHeaders: [CLIENT_IP_HEADER] },
+    },
     rateLimit: {
       enabled: true,
       customRules: { '/sign-in/email': { window: 60, max: 5 } },

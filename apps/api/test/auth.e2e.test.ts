@@ -31,13 +31,13 @@ describe('auth', () => {
     return user.id;
   }
 
-  async function signIn(email: string, ip = '10.0.0.1'): Promise<string> {
-    const res = await http()
-      .post('/api/auth/sign-in/email')
-      .set('x-forwarded-for', ip)
-      .send({ email, password: PASSWORD });
-    expect(res.status).toBe(200);
-    const cookies = (res.headers['set-cookie'] as unknown as string[]).map((c) => c.split(';')[0]);
+  // Server-side sign-in: the HTTP sign-in route is rate limited by socket address, shared by all tests here.
+  async function signIn(email: string): Promise<string> {
+    const res = await t.auth.api.signInEmail({
+      body: { email, password: PASSWORD },
+      asResponse: true,
+    });
+    const cookies = res.headers.getSetCookie().map((c) => c.split(';')[0]);
     expect(cookies.join(';')).toContain('better-auth.session_token=');
     return cookies.join('; ');
   }
@@ -52,6 +52,10 @@ describe('auth', () => {
 
   it('lets a user created through the admin plugin sign in and get a session', async () => {
     await createUser('member@example.com');
+    const signedIn = await http()
+      .post('/api/auth/sign-in/email')
+      .send({ email: 'member@example.com', password: PASSWORD });
+    expect(signedIn.status).toBe(200);
     const cookie = await signIn('member@example.com');
     const res = await http().get('/api/auth/get-session').set('cookie', cookie);
     expect(res.status).toBe(200);
@@ -73,7 +77,7 @@ describe('auth', () => {
       await t.auth.api.addMember({
         body: { userId: memberId, role: 'member', organizationId: org.id },
       });
-      const cookie = await signIn('ws-admin@example.com', '10.0.0.2');
+      const cookie = await signIn('ws-admin@example.com');
 
       const res = await http()
         .post('/api/auth/organization/remove-member')
@@ -94,7 +98,7 @@ describe('auth', () => {
       async (action) => {
         const email = `blocked-${action}@example.com`;
         await createUser(email);
-        const cookie = await signIn(email, `10.0.1.${action.length}`);
+        const cookie = await signIn(email);
         const res = await http()
           .post(`/api/auth/organization/${action}`)
           .set('cookie', cookie)
@@ -121,7 +125,7 @@ describe('auth', () => {
     ])('denies %s /api/auth%s with 403 for a signed-in user', async (method, path) => {
       const email = `deny-${path.replace(/\W/g, '')}@example.com`;
       await createUser(email);
-      const cookie = await signIn(email, `10.0.2.${path.length}`);
+      const cookie = await signIn(email);
       const req =
         method === 'GET' ? http().get(`/api/auth${path}`) : http().post(`/api/auth${path}`);
       const res = await req.set('cookie', cookie).set('origin', ORIGIN).send({});
@@ -141,18 +145,6 @@ describe('auth', () => {
     const userId = await createUser('keys@example.com');
     const created = await t.auth.api.createApiKey({ body: { name: 'cli', userId } });
     expect(created.key.startsWith('brf_')).toBe(true);
-  });
-
-  it('rate limits repeated sign-in attempts from one address', async () => {
-    const statuses: number[] = [];
-    for (let i = 0; i < 8; i++) {
-      const res = await http()
-        .post('/api/auth/sign-in/email')
-        .set('x-forwarded-for', '10.9.9.9')
-        .send({ email: 'nobody@example.com', password: 'wrong-password' });
-      statuses.push(res.status);
-    }
-    expect(statuses).toContain(429);
   });
 
   describe('createAuth config', () => {
@@ -211,5 +203,59 @@ describe('userFromRequest', () => {
   it('throws 401 without a session', () => {
     expect(() => userFromRequest({})).toThrow(UnauthorizedException);
     expect(() => userFromRequest({ session: null })).toThrow(UnauthorizedException);
+  });
+});
+
+describe('sign-in rate limit', () => {
+  let t: TestApp;
+
+  beforeAll(async () => {
+    t = await createTestApp();
+  });
+
+  afterAll(async () => {
+    await t.close();
+  });
+
+  async function attempts(headersFor: (i: number) => Record<string, string>): Promise<number[]> {
+    const statuses: number[] = [];
+    for (let i = 0; i < 6; i++) {
+      const res = await request(t.app.getHttpServer())
+        .post('/api/auth/sign-in/email')
+        .set(headersFor(i))
+        .send({ email: 'nobody@example.com', password: 'wrong-password' });
+      statuses.push(res.status);
+    }
+    return statuses;
+  }
+
+  it('limits by socket address even when X-Forwarded-For changes on every attempt', async () => {
+    const statuses = await attempts((i) => ({ 'x-forwarded-for': `10.8.0.${i + 1}` }));
+    expect(statuses[5]).toBe(429);
+    expect(statuses.slice(0, 4)).not.toContain(429);
+  });
+});
+
+describe('client ip header', () => {
+  let t: TestApp;
+
+  beforeAll(async () => {
+    t = await createTestApp();
+  });
+
+  afterAll(async () => {
+    await t.close();
+  });
+
+  it('ignores a client-sent x-briefroom-client-ip value', async () => {
+    const statuses: number[] = [];
+    for (let i = 0; i < 6; i++) {
+      const res = await request(t.app.getHttpServer())
+        .post('/api/auth/sign-in/email')
+        .set('x-briefroom-client-ip', `10.7.0.${i + 1}`)
+        .send({ email: 'nobody@example.com', password: 'wrong-password' });
+      statuses.push(res.status);
+    }
+    expect(statuses[5]).toBe(429);
   });
 });
