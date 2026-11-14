@@ -5,6 +5,17 @@ packages:
   - plugins/*
 allowBuilds:
   '@swc/core': true
+  '@prisma/client': false
+  better-sqlite3: false
 minimumReleaseAgeExclude:
   - '@eslint/config-array@0.23.6'
   - eslint@10.15.0
+  - '@better-auth/api-key@1.7.23'
+  - '@better-auth/core@1.7.23'
+  - '@better-auth/drizzle-adapter@1.7.23'
+  - '@better-auth/kysely-adapter@1.7.23'
+  - '@better-auth/memory-adapter@1.7.23'
+  - '@better-auth/mongo-adapter@1.7.23'
+  - '@better-auth/prisma-adapter@1.7.23'
+  - '@better-auth/telemetry@1.7.23'
+  - better-auth@1.7.23

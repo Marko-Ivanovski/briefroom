@@ -1,11 +1,13 @@
 import { readFileSync } from 'node:fs';
 import type { VersionResponse } from '@briefroom/contracts';
 import { Controller, Get } from '@nestjs/common';
+import { AllowAnonymous } from '@thallesp/nestjs-better-auth';
 
 const { version } = JSON.parse(
   readFileSync(new URL('../../package.json', import.meta.url), 'utf8'),
 ) as { version: string };
 
+@AllowAnonymous()
 @Controller()
 export class SystemController {
   @Get('health')

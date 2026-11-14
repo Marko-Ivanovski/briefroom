@@ -1,9 +1,47 @@
 import { DEV_DATABASE_URL } from '@briefroom/db';
 import { describe, expect, it } from 'vitest';
-import { loadEnv } from '../src/config/env.ts';
+import { DEV_AUTH_SECRET, loadEnv } from '../src/config/env.ts';
 
 const PROD = { NODE_ENV: 'production' };
 const BASE = { DATABASE_URL: 'postgres://x/y', BRIEFROOM_PUBLIC_URL: 'http://localhost:4300' };
+
+describe('loadEnv BETTER_AUTH_SECRET', () => {
+  const LONG = 'x'.repeat(32);
+
+  it('is required in production', () => {
+    expect(() => loadEnv({ ...PROD, ...BASE })).toThrow(/BETTER_AUTH_SECRET is required/);
+  });
+
+  it('must be at least 32 characters in production', () => {
+    expect(() => loadEnv({ ...PROD, ...BASE, BETTER_AUTH_SECRET: 'short' })).toThrow(
+      /BETTER_AUTH_SECRET: .*32/,
+    );
+  });
+
+  it('is used as given in production', () => {
+    const env = loadEnv({ ...PROD, ...BASE, BETTER_AUTH_SECRET: LONG });
+    expect(env.authSecret).toBe(LONG);
+    expect(env.usingDevAuthSecret).toBe(false);
+  });
+
+  it('falls back to the dev-only constant outside production', () => {
+    const env = loadEnv({});
+    expect(env.authSecret).toBe(DEV_AUTH_SECRET);
+    expect(env.authSecret).toMatch(/dev-only/);
+    expect(env.authSecret.length).toBeGreaterThanOrEqual(32);
+    expect(env.usingDevAuthSecret).toBe(true);
+  });
+
+  it('treats an empty value as unset outside production', () => {
+    expect(loadEnv({ BETTER_AUTH_SECRET: '' }).usingDevAuthSecret).toBe(true);
+  });
+
+  it('uses a provided value outside production', () => {
+    const env = loadEnv({ BETTER_AUTH_SECRET: 'my-own-secret' });
+    expect(env.authSecret).toBe('my-own-secret');
+    expect(env.usingDevAuthSecret).toBe(false);
+  });
+});
 
 describe('loadEnv', () => {
   it('defaults the database url and public url outside production', () => {

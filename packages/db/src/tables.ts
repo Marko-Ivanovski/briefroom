@@ -14,5 +14,6 @@ export const BETTER_AUTH_TABLES: readonly string[] = [
 ];
 
 export function allTables(): PgTable[] {
-  return Object.values(schema).filter((v): v is PgTable => is(v, PgTable));
+  const exports: unknown[] = Object.values(schema);
+  return exports.filter((v): v is PgTable => is(v, PgTable));
 }

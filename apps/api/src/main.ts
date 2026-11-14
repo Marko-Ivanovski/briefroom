@@ -16,7 +16,9 @@ async function main(): Promise<void> {
     await db.$client.end();
   }
 
-  const app = await NestFactory.create(AppModule.register(env), new NodeAdapter());
+  const app = await NestFactory.create(AppModule.register(env), new NodeAdapter(), {
+    bodyParser: false,
+  });
   configureApp(app);
   await app.listen(env.port, env.host);
 }
