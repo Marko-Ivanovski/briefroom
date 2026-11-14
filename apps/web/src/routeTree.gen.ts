@@ -23,6 +23,7 @@ import { Route as WWorkspaceIdProjectsNewRouteImport } from './routes/w.$workspa
 import { Route as WWorkspaceIdSettingsInvitesRouteImport } from './routes/w.$workspaceId/settings/invites'
 import { Route as WWorkspaceIdSettingsJoinRequestsRouteImport } from './routes/w.$workspaceId/settings/join-requests'
 import { Route as WWorkspaceIdSettingsMembersRouteImport } from './routes/w.$workspaceId/settings/members'
+import { Route as WWorkspaceIdSettingsModulesRouteImport } from './routes/w.$workspaceId/settings/modules'
 import { Route as WWorkspaceIdProjectsProjectIdIndexRouteImport } from './routes/w.$workspaceId/projects/$projectId.index'
 import { Route as WWorkspaceIdProjectsProjectIdMembersRouteImport } from './routes/w.$workspaceId/projects/$projectId.members'
 
@@ -102,6 +103,12 @@ const WWorkspaceIdSettingsMembersRoute =
     path: '/settings/members',
     getParentRoute: () => WWorkspaceIdRouteRoute,
   } as any)
+const WWorkspaceIdSettingsModulesRoute =
+  WWorkspaceIdSettingsModulesRouteImport.update({
+    id: '/settings/modules',
+    path: '/settings/modules',
+    getParentRoute: () => WWorkspaceIdRouteRoute,
+  } as any)
 const WWorkspaceIdProjectsProjectIdIndexRoute =
   WWorkspaceIdProjectsProjectIdIndexRouteImport.update({
     id: '/',
@@ -129,6 +136,7 @@ export interface FileRoutesByFullPath {
   '/w/$workspaceId/settings/invites': typeof WWorkspaceIdSettingsInvitesRoute
   '/w/$workspaceId/settings/join-requests': typeof WWorkspaceIdSettingsJoinRequestsRoute
   '/w/$workspaceId/settings/members': typeof WWorkspaceIdSettingsMembersRoute
+  '/w/$workspaceId/settings/modules': typeof WWorkspaceIdSettingsModulesRoute
   '/w/$workspaceId/projects/': typeof WWorkspaceIdProjectsIndexRoute
   '/w/$workspaceId/projects/$projectId/members': typeof WWorkspaceIdProjectsProjectIdMembersRoute
   '/w/$workspaceId/projects/$projectId/': typeof WWorkspaceIdProjectsProjectIdIndexRoute
@@ -145,6 +153,7 @@ export interface FileRoutesByTo {
   '/w/$workspaceId/settings/invites': typeof WWorkspaceIdSettingsInvitesRoute
   '/w/$workspaceId/settings/join-requests': typeof WWorkspaceIdSettingsJoinRequestsRoute
   '/w/$workspaceId/settings/members': typeof WWorkspaceIdSettingsMembersRoute
+  '/w/$workspaceId/settings/modules': typeof WWorkspaceIdSettingsModulesRoute
   '/w/$workspaceId/projects': typeof WWorkspaceIdProjectsIndexRoute
   '/w/$workspaceId/projects/$projectId/members': typeof WWorkspaceIdProjectsProjectIdMembersRoute
   '/w/$workspaceId/projects/$projectId': typeof WWorkspaceIdProjectsProjectIdIndexRoute
@@ -164,6 +173,7 @@ export interface FileRoutesById {
   '/w/$workspaceId/settings/invites': typeof WWorkspaceIdSettingsInvitesRoute
   '/w/$workspaceId/settings/join-requests': typeof WWorkspaceIdSettingsJoinRequestsRoute
   '/w/$workspaceId/settings/members': typeof WWorkspaceIdSettingsMembersRoute
+  '/w/$workspaceId/settings/modules': typeof WWorkspaceIdSettingsModulesRoute
   '/w/$workspaceId/projects/': typeof WWorkspaceIdProjectsIndexRoute
   '/w/$workspaceId/projects/$projectId/members': typeof WWorkspaceIdProjectsProjectIdMembersRoute
   '/w/$workspaceId/projects/$projectId/': typeof WWorkspaceIdProjectsProjectIdIndexRoute
@@ -184,6 +194,7 @@ export interface FileRouteTypes {
     | '/w/$workspaceId/settings/invites'
     | '/w/$workspaceId/settings/join-requests'
     | '/w/$workspaceId/settings/members'
+    | '/w/$workspaceId/settings/modules'
     | '/w/$workspaceId/projects/'
     | '/w/$workspaceId/projects/$projectId/members'
     | '/w/$workspaceId/projects/$projectId/'
@@ -200,6 +211,7 @@ export interface FileRouteTypes {
     | '/w/$workspaceId/settings/invites'
     | '/w/$workspaceId/settings/join-requests'
     | '/w/$workspaceId/settings/members'
+    | '/w/$workspaceId/settings/modules'
     | '/w/$workspaceId/projects'
     | '/w/$workspaceId/projects/$projectId/members'
     | '/w/$workspaceId/projects/$projectId'
@@ -218,6 +230,7 @@ export interface FileRouteTypes {
     | '/w/$workspaceId/settings/invites'
     | '/w/$workspaceId/settings/join-requests'
     | '/w/$workspaceId/settings/members'
+    | '/w/$workspaceId/settings/modules'
     | '/w/$workspaceId/projects/'
     | '/w/$workspaceId/projects/$projectId/members'
     | '/w/$workspaceId/projects/$projectId/'
@@ -332,6 +345,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WWorkspaceIdSettingsMembersRouteImport
       parentRoute: typeof WWorkspaceIdRouteRoute
     }
+    '/w/$workspaceId/settings/modules': {
+      id: '/w/$workspaceId/settings/modules'
+      path: '/settings/modules'
+      fullPath: '/w/$workspaceId/settings/modules'
+      preLoaderRoute: typeof WWorkspaceIdSettingsModulesRouteImport
+      parentRoute: typeof WWorkspaceIdRouteRoute
+    }
     '/w/$workspaceId/projects/$projectId/': {
       id: '/w/$workspaceId/projects/$projectId/'
       path: '/'
@@ -375,6 +395,7 @@ interface WWorkspaceIdRouteRouteChildren {
   WWorkspaceIdSettingsInvitesRoute: typeof WWorkspaceIdSettingsInvitesRoute
   WWorkspaceIdSettingsJoinRequestsRoute: typeof WWorkspaceIdSettingsJoinRequestsRoute
   WWorkspaceIdSettingsMembersRoute: typeof WWorkspaceIdSettingsMembersRoute
+  WWorkspaceIdSettingsModulesRoute: typeof WWorkspaceIdSettingsModulesRoute
   WWorkspaceIdProjectsIndexRoute: typeof WWorkspaceIdProjectsIndexRoute
 }
 
@@ -387,6 +408,7 @@ const WWorkspaceIdRouteRouteChildren: WWorkspaceIdRouteRouteChildren = {
   WWorkspaceIdSettingsInvitesRoute: WWorkspaceIdSettingsInvitesRoute,
   WWorkspaceIdSettingsJoinRequestsRoute: WWorkspaceIdSettingsJoinRequestsRoute,
   WWorkspaceIdSettingsMembersRoute: WWorkspaceIdSettingsMembersRoute,
+  WWorkspaceIdSettingsModulesRoute: WWorkspaceIdSettingsModulesRoute,
   WWorkspaceIdProjectsIndexRoute: WWorkspaceIdProjectsIndexRoute,
 }
 

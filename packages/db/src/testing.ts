@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import pg from 'pg';
 import { DEV_DATABASE_URL } from './dev-url.ts';
 import { createDb, type Db } from './client.ts';
@@ -11,7 +12,12 @@ export interface TestDb {
   close(): Promise<void>;
 }
 
-export async function createTestDb(): Promise<TestDb> {
+export interface TestDbOptions {
+  /** SQL files applied after the migrations, for tables that must never enter the migration history. */
+  extraSqlFiles?: readonly string[];
+}
+
+export async function createTestDb(options: TestDbOptions = {}): Promise<TestDb> {
   const adminUrl = process.env.DATABASE_URL ?? DEV_DATABASE_URL;
   const name = `briefroom_test_${randomBytes(6).toString('hex')}`;
   const testUrl = new URL(adminUrl);
@@ -45,6 +51,8 @@ export async function createTestDb(): Promise<TestDb> {
   const db = createDb(url);
   try {
     await runMigrations(db);
+    for (const file of options.extraSqlFiles ?? [])
+      await db.$client.query(await readFile(file, 'utf8'));
   } catch (err) {
     await db.$client.end();
     await drop();

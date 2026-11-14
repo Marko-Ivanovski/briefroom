@@ -1,11 +1,12 @@
 import { Button } from '@briefroom/ui';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useState, type FormEvent } from 'react';
 import { api } from '../../api/client.ts';
-import { workspacesQuery } from '../../api/queries.ts';
+import { modulesQuery, workspacesQuery } from '../../api/queries.ts';
 import { Field } from '../../components/field.tsx';
 import { FormError } from '../../components/form-error.tsx';
+import { StartingModules, useStartingModules } from '../../components/starting-modules.tsx';
 import { messageFor } from '../../lib/errors.ts';
 
 export const Route = createFileRoute('/w/$workspaceId/new-workspace')({
@@ -15,9 +16,13 @@ export const Route = createFileRoute('/w/$workspaceId/new-workspace')({
 function NewWorkspacePage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { workspaceId } = Route.useParams();
   const [name, setName] = useState('');
+  const { data: modules = [] } = useQuery(modulesQuery(workspaceId));
+  const available = modules.map((m) => ({ id: m.id, name: m.name, description: m.description }));
+  const starting = useStartingModules(available);
   const create = useMutation({
-    mutationFn: () => api.createWorkspace(name),
+    mutationFn: () => api.createWorkspace(name, starting.selected),
     onSuccess: async ({ id }) => {
       await queryClient.invalidateQueries(workspacesQuery);
       await navigate({ to: '/w/$workspaceId', params: { workspaceId: id } });
@@ -40,6 +45,11 @@ function NewWorkspacePage() {
           onChange={(e) => setName(e.target.value)}
           maxLength={100}
           required
+        />
+        <StartingModules
+          available={available}
+          selected={starting.selected}
+          onToggle={starting.toggle}
         />
         <FormError
           message={

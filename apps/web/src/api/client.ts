@@ -1,4 +1,5 @@
 import {
+  AvailableModule,
   BookmarkCreated,
   BookmarkSummary,
   ChecklistItem,
@@ -7,8 +8,11 @@ import {
   JoinLookup,
   JoinRequestSummary,
   JoinResult,
+  MemberPermission,
   MeResponse,
   MemberSummary,
+  ModuleDetail,
+  ModuleSummary,
   PendingRemoval,
   ProjectDetail,
   ProjectMemberSummary,
@@ -24,7 +28,9 @@ import {
   type ProjectInput,
   type ProjectPatch,
   type SetChecklistItemInput,
+  type SetPermissionRequest,
   type SetupRequest,
+  type UpdateModuleRequest,
 } from '@briefroom/contracts';
 import { z } from 'zod';
 
@@ -65,7 +71,7 @@ async function toApiError(res: Response): Promise<ApiError> {
 
 async function request<T>(
   schema: z.ZodType<T> | null,
-  method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
   path: string,
   body?: unknown,
 ): Promise<T> {
@@ -96,8 +102,37 @@ export const api = {
   setup: (body: SetupRequest) => request(SetupResponse, 'POST', '/api/v1/setup', body),
   me: () => request(MeResponse, 'GET', '/api/v1/me'),
   workspaces: () => request(WorkspaceSummary.array(), 'GET', '/api/v1/workspaces'),
-  createWorkspace: (name: string) =>
-    request(WorkspaceSummary, 'POST', '/api/v1/workspaces', { name }),
+  createWorkspace: (name: string, modules?: string[]) =>
+    request(WorkspaceSummary, 'POST', '/api/v1/workspaces', { name, modules }),
+  setupModules: () => request(AvailableModule.array(), 'GET', '/api/v1/setup/modules'),
+  modules: (workspaceId: string) =>
+    request(ModuleSummary.array(), 'GET', `${workspacePath(workspaceId)}/modules`),
+  module: (workspaceId: string, moduleId: string) =>
+    request(
+      ModuleDetail,
+      'GET',
+      `${workspacePath(workspaceId)}/modules/${encodeURIComponent(moduleId)}`,
+    ),
+  updateModule: (workspaceId: string, moduleId: string, body: UpdateModuleRequest) =>
+    request(
+      ModuleSummary,
+      'PUT',
+      `${workspacePath(workspaceId)}/modules/${encodeURIComponent(moduleId)}`,
+      body,
+    ),
+  memberPermissions: (workspaceId: string, userId: string) =>
+    request(
+      MemberPermission.array(),
+      'GET',
+      `${workspacePath(workspaceId)}/members/${encodeURIComponent(userId)}/permissions`,
+    ),
+  setMemberPermission: (workspaceId: string, userId: string, body: SetPermissionRequest) =>
+    request(
+      MemberPermission,
+      'PUT',
+      `${workspacePath(workspaceId)}/members/${encodeURIComponent(userId)}/permissions`,
+      body,
+    ),
   bookmarks: () => request(BookmarkSummary.array(), 'GET', '/api/v1/bookmarks'),
   createBookmark: (inviteUrl: string) =>
     request(BookmarkCreated, 'POST', '/api/v1/bookmarks', { inviteUrl }),

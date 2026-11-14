@@ -86,3 +86,28 @@ export const MEMBER_CODES: Record<string, string> = {
   cannot_remove_owner: "The owner can't be removed from the workspace.",
   use_leave: 'Use Leave workspace to remove yourself.',
 };
+
+export const MODULE_OFF_MESSAGE = 'This module is off in this workspace';
+
+export const MODULE_CHECK_FAILED_MESSAGE =
+  'Could not check whether this module is on. Reload the page and try again.';
+
+export const MODULE_ERRORS: Record<number, string> = {
+  400: 'Check the module settings and try again.',
+  403: "You don't have permission to change modules.",
+  404: 'That module no longer exists.',
+};
+
+export const MODULE_CODES: Record<string, string> = {
+  module_off: MODULE_OFF_MESSAGE,
+};
+
+export const PERMISSION_ERRORS: Record<number, string> = {
+  400: 'That permission no longer exists.',
+  403: "You don't have permission to change that.",
+  404: 'That person is no longer in this workspace.',
+};
+
+export const PERMISSION_CODES: Record<string, string> = {
+  implied_by_role: 'Owners and admins have every module permission.',
+};

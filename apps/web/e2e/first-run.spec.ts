@@ -14,6 +14,7 @@ test('first run: setup, sign out, sign in, switcher and members', async ({ page 
   await page.getByLabel('Name').fill(NAME);
   await page.getByLabel('Email').fill(EMAIL);
   await page.getByLabel('Password').fill(PASSWORD);
+  await expect(page.getByRole('checkbox', { name: 'Testkit' })).toBeChecked();
   await page.getByRole('button', { name: 'Create workspace' }).click();
 
   const switcher = page.getByRole('button', { name: WORKSPACE });

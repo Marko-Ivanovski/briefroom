@@ -1,8 +1,9 @@
 import { createDb, type Db } from '@briefroom/db';
+import { DB } from '@briefroom/module-kit';
 import { Global, Inject, Injectable, Module, type OnApplicationShutdown } from '@nestjs/common';
 import { ENV, type Env } from '../config/env.ts';
 
-export const DB = Symbol('DB');
+export { DB };
 
 @Injectable()
 class DbLifecycle implements OnApplicationShutdown {

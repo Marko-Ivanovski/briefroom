@@ -1,6 +1,7 @@
 import { fileURLToPath } from 'node:url';
 import { NodeAdapter } from '@nestjs/platform-node';
 import { install } from '@briefroom/db';
+import { TESTKIT_SQL_PATH } from '@briefroom/module-testkit/sql';
 import { createTestDb, type TestDb } from '@briefroom/db/testing';
 import type { INestApplication, Type } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
@@ -38,7 +39,9 @@ export async function createTestApp(
   extraImports: Type[] = [],
   accessAtRoot = true,
 ): Promise<TestApp> {
-  const db = await createTestDb();
+  const db = await createTestDb({
+    extraSqlFiles: process.env.BRIEFROOM_TESTKIT === '1' ? [TESTKIT_SQL_PATH] : [],
+  });
   const env = loadEnv({
     DATABASE_URL: db.url,
     BRIEFROOM_PUBLIC_URL: 'http://localhost:4300',

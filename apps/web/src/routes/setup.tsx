@@ -1,12 +1,13 @@
 import { Button } from '@briefroom/ui';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router';
 import { useState, type FormEvent } from 'react';
 import { api } from '../api/client.ts';
-import { setupStatusQuery } from '../api/queries.ts';
+import { setupModulesQuery, setupStatusQuery } from '../api/queries.ts';
 import { AuthCard } from '../components/auth-card.tsx';
 import { Field } from '../components/field.tsx';
 import { FormError } from '../components/form-error.tsx';
+import { StartingModules, useStartingModules } from '../components/starting-modules.tsx';
 import { messageFor } from '../lib/errors.ts';
 import { writeLastWorkspace } from '../lib/last-workspace.ts';
 
@@ -14,6 +15,9 @@ export const Route = createFileRoute('/setup')({
   beforeLoad: async ({ context: { queryClient } }) => {
     const { needsSetup } = await queryClient.query(setupStatusQuery);
     if (!needsSetup) throw redirect({ to: '/' });
+  },
+  loader: async ({ context: { queryClient } }) => {
+    await queryClient.query(setupModulesQuery);
   },
   component: SetupPage,
 });
@@ -25,6 +29,8 @@ function SetupPage() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const { data: available = [] } = useQuery(setupModulesQuery);
+  const starting = useStartingModules(available);
 
   const setup = useMutation({
     mutationFn: api.setup,
@@ -37,7 +43,7 @@ function SetupPage() {
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    setup.mutate({ code: code.trim(), name, email, password });
+    setup.mutate({ code: code.trim(), name, email, password, modules: starting.selected });
   }
 
   return (
@@ -83,6 +89,11 @@ function SetupPage() {
           required
         />
         <p className="text-muted-foreground -mt-2 text-xs">At least 12 characters.</p>
+        <StartingModules
+          available={available}
+          selected={starting.selected}
+          onToggle={starting.toggle}
+        />
         <FormError
           message={
             setup.isError

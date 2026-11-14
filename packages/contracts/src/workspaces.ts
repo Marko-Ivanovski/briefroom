@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { StartingModules } from './modules.ts';
 
 export const Role = z.enum(['owner', 'admin', 'member']);
 export type Role = z.infer<typeof Role>;
@@ -14,5 +15,8 @@ export const MeResponse = z.object({
 });
 export type MeResponse = z.infer<typeof MeResponse>;
 
-export const CreateWorkspaceRequest = z.object({ name: z.string().trim().min(1).max(100) });
+export const CreateWorkspaceRequest = z.object({
+  name: z.string().trim().min(1).max(100),
+  modules: StartingModules,
+});
 export type CreateWorkspaceRequest = z.infer<typeof CreateWorkspaceRequest>;

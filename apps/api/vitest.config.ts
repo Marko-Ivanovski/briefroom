@@ -6,6 +6,7 @@ export default defineConfig({
     pool: 'forks',
     maxWorkers: 4,
     globals: true,
+    env: { BRIEFROOM_TESTKIT: '1' },
     globalSetup: './test/global-setup.ts',
     root: './',
     testTimeout: 20_000,

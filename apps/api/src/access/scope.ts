@@ -1,17 +1,7 @@
 import type { Role } from '@briefroom/contracts';
-import type { Actor } from '@briefroom/db';
+import type { Scope } from '@briefroom/module-kit';
 
-export type { Role };
-
-export interface Scope {
-  userId: string;
-  workspaceId: string;
-  role: Role;
-  visibleProjectIds: 'all' | string[];
-  /** Keys look like `<moduleId>:<key>`. */
-  permissions: ReadonlySet<string>;
-  actor: Actor;
-}
+export type { Role, Scope };
 
 const RANK: Record<Role, number> = { member: 0, admin: 1, owner: 2 };
 

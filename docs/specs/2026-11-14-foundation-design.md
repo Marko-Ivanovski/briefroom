@@ -4,7 +4,7 @@ Design doc, 2026-11-14. Written from the rebase session with Marko on 2026-11-14
 
 **Status:** approved by Marko on 2026-11-14.
 
-**Release:** the foundation is not v1. Once the first modules are added it becomes roughly v0.3. Marko has more he wants in v1 (Marko, 2026-11-14).
+**Release:** the foundation plus the main module (the design library) is v0.1, the first release. v1 is a long way off (Marko, 2026-11-14).
 
 **Supersedes** parts of `2026-11-11-workspaces-and-connection-design.md`. That doc still holds for invite links, browser joining, bookmarks, password resets, connection modes and connecting agents, except where this doc says otherwise. "What this replaces" at the end lists every change.
 

@@ -102,3 +102,19 @@ describe('loadEnv', () => {
     expect(env.publicUrl).toBe('https://a.example');
   });
 });
+
+describe('loadEnv BRIEFROOM_TESTKIT', () => {
+  const SECRET = { BETTER_AUTH_SECRET: 'x'.repeat(32) };
+
+  it('refuses the testkit in production with a clear message', () => {
+    expect(() => loadEnv({ ...PROD, ...BASE, ...SECRET, BRIEFROOM_TESTKIT: '1' })).toThrow(
+      /BRIEFROOM_TESTKIT: .*production/,
+    );
+  });
+
+  it('allows the testkit outside production and an unset flag in production', () => {
+    expect(() => loadEnv({ ...BASE, BRIEFROOM_TESTKIT: '1' })).not.toThrow();
+    expect(() => loadEnv({ ...PROD, ...BASE, ...SECRET })).not.toThrow();
+    expect(() => loadEnv({ ...PROD, ...BASE, ...SECRET, BRIEFROOM_TESTKIT: '' })).not.toThrow();
+  });
+});

@@ -5,8 +5,12 @@ import { defineConfig } from 'vite';
 
 const API_ORIGIN = 'http://localhost:4300';
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [tanstackRouter({ target: 'react', autoCodeSplitting: true }), react(), tailwindcss()],
+  // The e2e build always includes the testkit. Any other build includes it only when
+  // VITE_BRIEFROOM_TESTKIT=1 is set, so a release bundle carries no testkit code.
+  define:
+    mode === 'e2e' ? { 'import.meta.env.VITE_BRIEFROOM_TESTKIT': JSON.stringify('1') } : undefined,
   server: {
     port: 5173,
     proxy: {
@@ -14,4 +18,4 @@ export default defineConfig({
       '/mcp': API_ORIGIN,
     },
   },
-});
+}));

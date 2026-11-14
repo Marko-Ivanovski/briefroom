@@ -28,6 +28,12 @@ export const workspacesQuery = queryOptions({
   staleTime: 30_000,
 });
 
+export const setupModulesQuery = queryOptions({
+  queryKey: ['setup-modules'],
+  queryFn: api.setupModules,
+  staleTime: 0,
+});
+
 export const bookmarksQuery = queryOptions({
   queryKey: ['bookmarks'],
   queryFn: api.bookmarks,
@@ -38,6 +44,25 @@ export const membersQuery = (workspaceId: string) =>
   queryOptions({
     queryKey: ['workspaces', workspaceId, 'members'],
     queryFn: () => api.members(workspaceId),
+  });
+
+export const modulesQuery = (workspaceId: string) =>
+  queryOptions({
+    queryKey: ['workspaces', workspaceId, 'modules'],
+    queryFn: () => api.modules(workspaceId),
+    staleTime: 30_000,
+  });
+
+export const moduleDetailQuery = (workspaceId: string, moduleId: string) =>
+  queryOptions({
+    queryKey: ['workspaces', workspaceId, 'modules', moduleId],
+    queryFn: () => api.module(workspaceId, moduleId),
+  });
+
+export const memberPermissionsQuery = (workspaceId: string, userId: string) =>
+  queryOptions({
+    queryKey: ['workspaces', workspaceId, 'members', userId, 'permissions'],
+    queryFn: () => api.memberPermissions(workspaceId, userId),
   });
 
 export const invitesQuery = (workspaceId: string) =>
@@ -104,3 +129,6 @@ export const checklistQuery = (
 // Every project query shares this prefix, so one call refreshes lists, details, members and checklists.
 export const invalidateProjects = (queryClient: QueryClient, workspaceId: string) =>
   queryClient.invalidateQueries({ queryKey: projectsKey(workspaceId) });
+
+export const isModulesQuery = (query: { queryKey: readonly unknown[] }): boolean =>
+  query.queryKey[0] === 'workspaces' && query.queryKey[2] === 'modules';

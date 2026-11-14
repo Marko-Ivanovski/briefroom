@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, Link, Outlet, redirect } from '@tanstack/react-router';
 import { useState } from 'react';
 import { api } from '../../api/client.ts';
-import { bookmarksQuery, meQuery, workspacesQuery } from '../../api/queries.ts';
+import { bookmarksQuery, meQuery, modulesQuery, workspacesQuery } from '../../api/queries.ts';
 import { FormError } from '../../components/form-error.tsx';
 import { JoinWorkspaceDialog } from '../../components/join-workspace-dialog.tsx';
 import { WorkspaceSwitcher } from '../../components/workspace-switcher.tsx';
@@ -11,6 +11,7 @@ import { writeLastWorkspace } from '../../lib/last-workspace.ts';
 import { BOOKMARK_CODES, BOOKMARK_ERRORS, messageFor } from '../../lib/errors.ts';
 import { isAdminRole } from '../../lib/roles.ts';
 import { useSignOut } from '../../lib/use-sign-out.ts';
+import { WEB_MODULES } from '../../modules.ts';
 
 export const Route = createFileRoute('/w/$workspaceId')({
   beforeLoad: async ({ context: { queryClient }, params }) => {
@@ -19,6 +20,9 @@ export const Route = createFileRoute('/w/$workspaceId')({
     if (!workspaces.some((w) => w.id === params.workspaceId)) throw redirect({ to: '/' });
     writeLastWorkspace(params.workspaceId);
   },
+  loader: async ({ context: { queryClient }, params }) => {
+    await queryClient.query({ ...modulesQuery(params.workspaceId), staleTime: 'static' });
+  },
   component: WorkspaceLayout,
 });
 
@@ -26,6 +30,9 @@ function WorkspaceLayout() {
   const { workspaceId } = Route.useParams();
   const { data: me } = useQuery(meQuery);
   const { data: workspaces = [] } = useQuery(workspacesQuery);
+
+  const { data: modules = [] } = useQuery(modulesQuery(workspaceId));
+  const enabledIds = new Set(modules.filter((m) => m.enabled).map((m) => m.id));
 
   const { data: bookmarks = [] } = useQuery(bookmarksQuery);
   const queryClient = useQueryClient();
@@ -63,6 +70,25 @@ function WorkspaceLayout() {
             className="[&.active]:font-semibold"
           >
             Members
+          </Link>
+          {WEB_MODULES.filter((w) => enabledIds.has(w.id)).flatMap((w) =>
+            w.nav.map((item) => (
+              <Link
+                key={`${w.id}${item.to}`}
+                to={item.to as string}
+                params={{ workspaceId }}
+                className="[&.active]:font-semibold"
+              >
+                {item.label}
+              </Link>
+            )),
+          )}
+          <Link
+            to="/w/$workspaceId/settings/modules"
+            params={{ workspaceId }}
+            className="[&.active]:font-semibold"
+          >
+            Modules
           </Link>
           {isAdminRole(workspaces.find((w) => w.id === workspaceId)?.role) ? (
             <>
