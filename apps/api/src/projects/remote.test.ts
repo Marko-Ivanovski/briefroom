@@ -41,6 +41,40 @@ describe('normalizeRemote', () => {
   ])('rejects %j', (u) => expect(() => normalizeRemote(u)).toThrow(InvalidRemoteError));
 });
 
+describe('normalizeRemote hardening', () => {
+  it('refuses a remote over 1000 characters', () => {
+    expect(() => normalizeRemote(`https://github.com/o/${'a'.repeat(1001 - 21)}`)).toThrow(
+      InvalidRemoteError,
+    );
+    expect(() => stripCredentials(`https://github.com/o/${'a'.repeat(1001 - 21)}`)).toThrow(
+      InvalidRemoteError,
+    );
+  });
+
+  it('refuses a long run of slashes fast', () => {
+    const start = performance.now();
+    expect(() => normalizeRemote(`h:a${'/'.repeat(20000)}x`)).toThrow(InvalidRemoteError);
+    expect(performance.now() - start).toBeLessThan(100);
+  });
+
+  it.each([
+    ['git@github.com:./marko/briefroom.git'],
+    ['git@github.com:marko/%2e%2e/marko/briefroom.git'],
+  ])('refuses dot segments in %s', (u) =>
+    expect(() => normalizeRemote(u)).toThrow(InvalidRemoteError),
+  );
+
+  it('strips one trailing dot from the host', () =>
+    expect(normalizeRemote('https://github.com./marko/briefroom')).toBe(
+      'github.com/marko/briefroom',
+    ));
+
+  it('resolves dot segments in a URL the way git does', () =>
+    expect(normalizeRemote('https://github.com/marko/x/../briefroom')).toBe(
+      'github.com/marko/briefroom',
+    ));
+});
+
 describe('stripCredentials', () => {
   it.each([
     ['https://user:tok@github.com/o/r.git', 'https://github.com/o/r.git'],

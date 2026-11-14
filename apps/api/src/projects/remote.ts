@@ -58,9 +58,12 @@ function parseScpForm(input: string): ParsedRemote {
   return { host: scp[2]!, path, stored: input };
 }
 
+// findByRemote takes unbounded agent input, so the parse is bounded before any scan.
+const MAX_REMOTE_LENGTH = 1000;
+
 function parseRemote(remote: string): ParsedRemote {
   const input = remote.trim();
-  if (!input) throw new InvalidRemoteError();
+  if (!input || input.length > MAX_REMOTE_LENGTH) throw new InvalidRemoteError();
   return URL_FORM.test(input) ? parseUrlForm(input) : parseScpForm(input);
 }
 
@@ -70,6 +73,7 @@ function decode(part: string): string {
   try {
     const decoded = decodeURIComponent(part);
     if (decoded.includes('/') || decoded.includes('\\')) throw new InvalidRemoteError();
+    if (decoded === '.' || decoded === '..') throw new InvalidRemoteError();
     return decoded;
   } catch {
     throw new InvalidRemoteError();
@@ -79,12 +83,15 @@ function decode(part: string): string {
 /** `host/owner/repo` in lowercase, without credentials, port, scheme or a trailing `.git`. */
 export function normalizeRemote(remote: string): string {
   const parsed = parseRemote(remote);
-  const segments = parsed.path
-    .replace(/^\/+|\/+$/g, '')
+  const raw = parsed.path.split('/');
+  while (raw[0] === '') raw.shift();
+  while (raw.at(-1) === '') raw.pop();
+  const segments = raw
+    .join('/')
     .replace(/\.git$/i, '')
     .split('/')
     .map(decode);
-  const host = decode(parsed.host);
+  const host = decode(parsed.host.replace(/\.$/, ''));
   if (!host || segments.length < 2 || segments.some((s) => !s)) throw new InvalidRemoteError();
   return `${host}/${segments.join('/')}`.toLowerCase();
 }
