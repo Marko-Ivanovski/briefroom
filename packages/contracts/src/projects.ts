@@ -73,5 +73,25 @@ export type ProjectMemberSummary = z.infer<typeof ProjectMemberSummary>;
 export const AddProjectMemberInput = z.object({ userId: z.string().min(1).max(200) });
 export type AddProjectMemberInput = z.infer<typeof AddProjectMemberInput>;
 
+export const ChecklistKind = z.enum(['add', 'remove']);
+export type ChecklistKind = z.infer<typeof ChecklistKind>;
+
+export const ChecklistItem = z.object({
+  toolLinkId: z.string(),
+  label: z.string(),
+  url: z.string(),
+  done: z.boolean(),
+  doneBy: z.string().nullable(),
+  doneAt: z.string().nullable(),
+});
+export type ChecklistItem = z.infer<typeof ChecklistItem>;
+
+export const SetChecklistItemInput = z.object({
+  toolLinkId: z.uuid(),
+  kind: ChecklistKind,
+  done: z.boolean(),
+});
+export type SetChecklistItemInput = z.infer<typeof SetChecklistItemInput>;
+
 export const WorkspaceSettings = z.object({ membersCanCreateProjects: z.boolean() });
 export type WorkspaceSettings = z.infer<typeof WorkspaceSettings>;
