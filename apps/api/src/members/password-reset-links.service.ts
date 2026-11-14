@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { authSchema, createdStamp, passwordResetLinks, type Actor, type Db } from '@briefroom/db';
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, InternalServerErrorException } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import { ENV, type Env } from '../config/env.ts';
 import { DB } from '../database/database.module.ts';
@@ -28,13 +28,17 @@ export class PasswordResetLinks {
   async issue(userId: string, workspaceId: string | null, actor: Actor): Promise<IssuedLink> {
     const token = randomBytes(32).toString('base64url');
     const expiresAt = new Date(Date.now() + RESET_LINK_TTL_MS);
-    await this.db.insert(passwordResetLinks).values({
-      workspaceId,
-      userId,
-      tokenHash: hashResetToken(token),
-      expiresAt,
-      ...createdStamp(actor),
-    });
+    try {
+      await this.db.insert(passwordResetLinks).values({
+        workspaceId,
+        userId,
+        tokenHash: hashResetToken(token),
+        expiresAt,
+        ...createdStamp(actor),
+      });
+    } catch {
+      throw new InternalServerErrorException('Could not create the reset link');
+    }
     return { url: `${this.env.publicUrl}/reset/${token}`, expiresAt };
   }
 

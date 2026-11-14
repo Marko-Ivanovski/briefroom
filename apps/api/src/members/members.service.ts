@@ -1,7 +1,13 @@
 import { Role, type MemberSummary } from '@briefroom/contracts';
-import { authSchema, type Db } from '@briefroom/db';
-import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { and, asc, eq } from 'drizzle-orm';
+import { authSchema, passwordResetLinks, updatedStamp, type Db } from '@briefroom/db';
+import {
+  ConflictException,
+  ForbiddenException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { and, asc, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 import type { Scope } from '../access/scope.ts';
 import { AUTH } from '../auth/auth.module.ts';
 import type { Auth } from '../auth/auth.ts';
@@ -38,10 +44,27 @@ export class MembersService {
     if (!target) throw new NotFoundException('Member not found');
     if (target.role === 'owner') throw new ConflictException("The owner's role cannot be changed");
 
+    // Only the owner demotes: an admin who could demote another admin could then issue a reset
+    // link for them and take the account back over.
+    if (target.role === 'admin' && role === 'member' && scope.role !== 'owner') {
+      throw new ForbiddenException('Only the owner can demote an admin');
+    }
+
     await this.auth.api.updateMemberRole({
       headers,
       body: { memberId: target.id, role, organizationId: scope.workspaceId },
     });
+    // Admin-issued links were authorised against the old role. Removal (Task 4.3) must do the same.
+    await this.db
+      .update(passwordResetLinks)
+      .set({ usedAt: sql`now()`, ...updatedStamp(scope.actor) })
+      .where(
+        and(
+          eq(passwordResetLinks.userId, targetUserId),
+          isNotNull(passwordResetLinks.workspaceId),
+          isNull(passwordResetLinks.usedAt),
+        ),
+      );
     const [updated] = await this.select(scope.workspaceId, targetUserId);
     if (!updated) throw new NotFoundException('Member not found');
     return updated;

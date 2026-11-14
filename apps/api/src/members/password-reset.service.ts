@@ -4,8 +4,10 @@ import {
   BadRequestException,
   ForbiddenException,
   GoneException,
+  HttpException,
   Inject,
   Injectable,
+  InternalServerErrorException,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
@@ -16,6 +18,11 @@ import type { Auth } from '../auth/auth.ts';
 import { DB } from '../database/database.module.ts';
 import { InstallService } from '../install/install.service.ts';
 import { hashResetToken, PasswordResetLinks } from './password-reset-links.service.ts';
+
+const ADMIN_ROLES: ReadonlySet<string> = new Set(['admin', 'owner']);
+
+/** The password is install-wide, so a failed query here must never reach a log: its message carries the parameters. */
+class PasswordWriteFailed extends Error {}
 
 @Injectable()
 export class PasswordResetService {
@@ -42,8 +49,8 @@ export class PasswordResetService {
         ),
       );
     if (!target) throw new NotFoundException('Member not found');
-    if (target.role !== 'member' && !(await this.installs.isInstallOwner(scope.userId))) {
-      throw new ForbiddenException('Only the install owner can reset an admin or owner');
+    if (!(await this.mayReset(scope.userId, targetUserId))) {
+      throw new ForbiddenException('You cannot reset this account');
     }
 
     const { url, expiresAt } = await this.links.issue(targetUserId, scope.workspaceId, scope.actor);
@@ -51,7 +58,46 @@ export class PasswordResetService {
     return { url, expiresAt: expiresAt.toISOString() };
   }
 
+  /**
+   * Passwords are install-wide, so the rule is too: the install owner may reset anyone. An admin may
+   * reset only a plain member whose every workspace is one the admin also administers.
+   */
+  private async mayReset(issuerId: string, targetUserId: string): Promise<boolean> {
+    if (await this.installs.isInstallOwner(issuerId)) return true;
+    if (await this.installs.isInstallOwner(targetUserId)) return false;
+
+    const targetRows = await this.db
+      .select({ workspaceId: authSchema.member.organizationId, role: authSchema.member.role })
+      .from(authSchema.member)
+      .where(eq(authSchema.member.userId, targetUserId));
+    if (targetRows.length === 0 || targetRows.some((r) => r.role !== 'member')) return false;
+
+    const issuerRows = await this.db
+      .select({ workspaceId: authSchema.member.organizationId, role: authSchema.member.role })
+      .from(authSchema.member)
+      .where(eq(authSchema.member.userId, issuerId));
+    const administered = new Set(
+      issuerRows.filter((r) => ADMIN_ROLES.has(r.role)).map((r) => r.workspaceId),
+    );
+    return targetRows.every((r) => administered.has(r.workspaceId));
+  }
+
   async redeem(token: string, password: string): Promise<void> {
+    try {
+      await this.redeemUnsafe(token, password);
+    } catch (err) {
+      if (err instanceof HttpException) throw err;
+      this.log.error(
+        `password reset failed: ${err instanceof PasswordWriteFailed ? 'write' : 'error'}`,
+      );
+      throw new InternalServerErrorException();
+    }
+  }
+
+  private async redeemUnsafe(token: string, password: string): Promise<void> {
+    const ctx = await this.auth.$context;
+    const hash = await ctx.password.hash(password);
+
     // One statement claims the link, so two parallel uses cannot both pass.
     const [claimed] = await this.db
       .update(passwordResetLinks)
@@ -63,21 +109,55 @@ export class PasswordResetService {
           gt(passwordResetLinks.expiresAt, sql`now()`),
         ),
       )
-      .returning({ id: passwordResetLinks.id, userId: passwordResetLinks.userId });
+      .returning({
+        id: passwordResetLinks.id,
+        userId: passwordResetLinks.userId,
+        workspaceId: passwordResetLinks.workspaceId,
+        issuerId: passwordResetLinks.createdBy,
+      });
     if (!claimed) throw new GoneException('This reset link is no longer valid');
 
+    if (claimed.workspaceId && !(await this.issuerStillMayReset(claimed))) {
+      this.log.warn(`reset link for user ${claimed.userId} refused: issuer no longer allowed`);
+      throw new GoneException('This reset link is no longer valid');
+    }
+
     try {
-      const ctx = await this.auth.$context;
-      await ctx.internalAdapter.updatePassword(claimed.userId, await ctx.password.hash(password));
-      await ctx.internalAdapter.deleteUserSessions(claimed.userId);
+      if (!(await ctx.internalAdapter.findCredentialAccount(claimed.userId))) {
+        throw new PasswordWriteFailed();
+      }
+      await ctx.internalAdapter.updatePassword(claimed.userId, hash);
     } catch (err) {
       await this.db
         .update(passwordResetLinks)
         .set({ usedAt: null })
         .where(eq(passwordResetLinks.id, claimed.id));
-      this.log.error(`password reset failed for user ${claimed.userId}`);
-      throw err;
+      throw err instanceof PasswordWriteFailed ? err : new PasswordWriteFailed();
     }
+
+    await this.db
+      .update(passwordResetLinks)
+      .set({ usedAt: sql`now()`, ...updatedStamp({ userId: 'reset-link', via: 'web' }) })
+      .where(and(eq(passwordResetLinks.userId, claimed.userId), isNull(passwordResetLinks.usedAt)));
+    await ctx.internalAdapter.deleteUserSessions(claimed.userId);
     this.log.log(`password reset for user ${claimed.userId}`);
+  }
+
+  private async issuerStillMayReset(link: {
+    userId: string;
+    workspaceId: string | null;
+    issuerId: string;
+  }): Promise<boolean> {
+    if (await this.installs.isInstallOwner(link.issuerId)) return true;
+    const [stillMember] = await this.db
+      .select({ id: authSchema.member.id })
+      .from(authSchema.member)
+      .where(
+        and(
+          eq(authSchema.member.userId, link.userId),
+          eq(authSchema.member.organizationId, link.workspaceId!),
+        ),
+      );
+    return !!stillMember && (await this.mayReset(link.issuerId, link.userId));
   }
 }

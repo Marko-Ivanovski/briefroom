@@ -196,6 +196,16 @@ describe('workspaces, scope and roles', () => {
       expect(await roleOf(ids.member!)).toBe('member');
     });
 
+    it('lets only the owner demote an admin: 403 for an admin, 200 for the owner', async () => {
+      await patch('owner', ids.member!, { role: 'admin' });
+      const byAdmin = await patch('admin', ids.member!, { role: 'member' });
+      expect(byAdmin.status).toBe(403);
+      expect(await roleOf(ids.member!)).toBe('admin');
+      const byOwner = await patch('owner', ids.member!, { role: 'member' });
+      expect(byOwner.status).toBe(200);
+      expect(await roleOf(ids.member!)).toBe('member');
+    });
+
     it('returns 404 when the target is not a member of that workspace', async () => {
       const res = await patch('owner', ids.outsider!, { role: 'admin' });
       expect(res.status).toBe(404);

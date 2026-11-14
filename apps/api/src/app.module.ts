@@ -1,7 +1,8 @@
-import { Global, Module, type DynamicModule, type Type } from '@nestjs/common';
+import { Module, type DynamicModule, type Type } from '@nestjs/common';
 import { ServeStaticModule } from '@nestjs/serve-static';
 import { AuthModule } from './auth/auth.module.ts';
-import { ENV, type Env } from './config/env.ts';
+import { EnvModule } from './config/env.module.ts';
+import type { Env } from './config/env.ts';
 import { DatabaseModule } from './database/database.module.ts';
 import { InstallModule } from './install/install.module.ts';
 import { SystemController } from './system/system.controller.ts';
@@ -25,18 +26,6 @@ export class AppModule {
         }),
       ],
       controllers: [SystemController, ...extraControllers],
-    };
-  }
-}
-
-@Global()
-@Module({})
-export class EnvModule {
-  static register(env: Env): DynamicModule {
-    return {
-      module: EnvModule,
-      providers: [{ provide: ENV, useValue: env }],
-      exports: [ENV],
     };
   }
 }

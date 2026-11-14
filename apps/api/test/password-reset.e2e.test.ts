@@ -1,8 +1,8 @@
 import { ResetLinkResponse } from '@briefroom/contracts';
-import { passwordResetLinks } from '@briefroom/db';
-import { eq } from 'drizzle-orm';
+import { authSchema, passwordResetLinks } from '@briefroom/db';
+import { and, eq } from 'drizzle-orm';
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { PasswordResetLinks } from '../src/members/password-reset-links.service.ts';
 import { runResetPassword } from '../src/admin-cli.ts';
 import { createTestApp, makeInstallOwner, type TestApp } from './helpers.ts';
@@ -38,6 +38,25 @@ describe('password reset links', () => {
     expect(res.status).toBe(201);
     return ResetLinkResponse.parse(res.body).url;
   }
+
+  async function newUser(key: string): Promise<string> {
+    const { user } = await t.auth.api.createUser({
+      body: { email: `${key}@example.com`, password: PASSWORD, name: key },
+    });
+    ids[key] = user.id;
+    cookies[key] = await signIn(`${key}@example.com`, PASSWORD);
+    return user.id;
+  }
+
+  async function join(key: string, role: 'admin' | 'member', ws = workspaceId): Promise<void> {
+    if (!ids[key]) await newUser(key);
+    await t.auth.api.addMember({ body: { userId: ids[key]!, role, organizationId: ws } });
+  }
+
+  const redeem = (url: string, password = NEW_PASSWORD) =>
+    http()
+      .post(`/api/v1/reset/${tokenOf(url)}`)
+      .send({ password });
 
   beforeAll(async () => {
     t = await createTestApp();
@@ -190,6 +209,140 @@ describe('password reset links', () => {
     it('returns 404 to a non-member of the workspace and 401 without a session', async () => {
       expect((await http().post(linkPath(ids.member!)).set(as('outsider'))).status).toBe(404);
       expect((await http().post(linkPath(ids.member!))).status).toBe(401);
+    });
+  });
+
+  describe('install-wide authorization (R46)', () => {
+    it('refuses a link for a user who is member here but admin in another workspace', async () => {
+      await join('dual', 'member');
+      await join('dual', 'admin', otherWorkspaceId);
+      const res = await http().post(linkPath(ids.dual!)).set(as('admin'));
+      expect(res.status).toBe(403);
+    });
+
+    it('refuses a link when the target also belongs to a workspace the caller does not administer', async () => {
+      const third = (
+        await t.auth.api.createOrganization({
+          body: { name: 'Third', slug: 'third', userId: ids.owner! },
+        })
+      ).id;
+      await join('multi', 'member');
+      await join('multi', 'member', third);
+      const res = await http().post(linkPath(ids.multi!)).set(as('admin'));
+      expect(res.status).toBe(403);
+      const byOwner = await http().post(linkPath(ids.multi!)).set(as('owner'));
+      expect(byOwner.status).toBe(201);
+    });
+
+    it('allows a member who belongs only to this workspace', async () => {
+      await join('solo', 'member');
+      expect((await http().post(linkPath(ids.solo!)).set(as('admin'))).status).toBe(201);
+    });
+  });
+
+  describe('authorization at redeem (R48)', () => {
+    it('returns 410 after the owner promotes the target to admin', async () => {
+      await join('promoted', 'member');
+      const url = await issue('admin', 'promoted');
+      const res = await http()
+        .patch(`/api/v1/workspaces/${workspaceId}/members/${ids.promoted}`)
+        .set(as('owner'))
+        .send({ role: 'admin' });
+      expect(res.status).toBe(200);
+      expect((await redeem(url)).status).toBe(410);
+    });
+
+    it('invalidates outstanding links when the role changes', async () => {
+      await join('rolechg', 'member');
+      const url = await issue('admin', 'rolechg');
+      await http()
+        .patch(`/api/v1/workspaces/${workspaceId}/members/${ids.rolechg}`)
+        .set(as('admin'))
+        .send({ role: 'admin' });
+      const [row] = await t.db.db
+        .select()
+        .from(passwordResetLinks)
+        .where(eq(passwordResetLinks.userId, ids.rolechg!));
+      expect(row!.usedAt).not.toBeNull();
+      expect((await redeem(url)).status).toBe(410);
+    });
+
+    it('re-checks the target role at use time even if the invalidation was bypassed', async () => {
+      await join('bypass', 'member');
+      const url = await issue('admin', 'bypass');
+      await t.db.db
+        .update(authSchema.member)
+        .set({ role: 'admin' })
+        .where(eq(authSchema.member.userId, ids.bypass!));
+      expect((await redeem(url)).status).toBe(410);
+      await expect(signIn('bypass@example.com', PASSWORD)).resolves.toBeTruthy();
+    });
+
+    it('returns 410 when the issuing admin was demoted before use', async () => {
+      await join('issuer1', 'admin');
+      await join('t1', 'member');
+      const url = await issue('issuer1', 't1');
+      await t.db.db
+        .update(authSchema.member)
+        .set({ role: 'member' })
+        .where(eq(authSchema.member.userId, ids.issuer1!));
+      expect((await redeem(url)).status).toBe(410);
+    });
+
+    it('returns 410 when the issuing admin was removed before use', async () => {
+      await join('issuer2', 'admin');
+      await join('t2', 'member');
+      const url = await issue('issuer2', 't2');
+      await t.db.db.delete(authSchema.member).where(eq(authSchema.member.userId, ids.issuer2!));
+      expect((await redeem(url)).status).toBe(410);
+    });
+
+    it('still honours a link issued by the install owner for an admin', async () => {
+      await join('adm5', 'admin');
+      const url = await issue('owner', 'adm5');
+      expect((await redeem(url)).status).toBe(204);
+    });
+  });
+
+  describe('redeem failure handling', () => {
+    it('keeps the link used when deleting sessions fails after the password was set', async () => {
+      await join('sessfail', 'member');
+      const url = await issue('admin', 'sessfail');
+      const ctx = await t.auth.$context;
+      vi.spyOn(ctx.internalAdapter, 'deleteUserSessions').mockRejectedValueOnce(new Error('boom'));
+      const first = await redeem(url);
+      expect(first.status).toBe(500);
+      expect(JSON.stringify(first.body)).not.toContain('boom');
+      expect((await redeem(url, PASSWORD)).status).toBe(410);
+      vi.restoreAllMocks();
+    });
+
+    it('fails with 500 and un-claims the link when the user has no credential account', async () => {
+      await join('nocred', 'member');
+      const url = await issue('admin', 'nocred');
+      await t.db.db
+        .delete(authSchema.account)
+        .where(
+          and(
+            eq(authSchema.account.userId, ids.nocred!),
+            eq(authSchema.account.providerId, 'credential'),
+          ),
+        );
+      const res = await redeem(url);
+      expect(res.status).toBe(500);
+      const [row] = await t.db.db
+        .select()
+        .from(passwordResetLinks)
+        .where(eq(passwordResetLinks.userId, ids.nocred!));
+      expect(row!.usedAt).toBeNull();
+    });
+
+    it('expires the other outstanding links for the user after a successful use', async () => {
+      await join('older', 'member');
+      const first = await issue('admin', 'older');
+      const second = await issue('admin', 'older');
+      expect((await redeem(second)).status).toBe(204);
+      expect((await redeem(first)).status).toBe(410);
     });
   });
 

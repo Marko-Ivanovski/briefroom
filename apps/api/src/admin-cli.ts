@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { pathToFileURL } from 'node:url';
 import { Module } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
-import { EnvModule } from './app.module.ts';
+import { EnvModule } from './config/env.module.ts';
 import { loadEnv } from './config/env.ts';
 import { DatabaseModule } from './database/database.module.ts';
 import { PasswordResetLinks } from './members/password-reset-links.service.ts';
@@ -59,8 +59,8 @@ async function main(argv: string[]): Promise<number> {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main(process.argv.slice(2)).then(
     (code) => process.exit(code),
-    (err: unknown) => {
-      console.error(err instanceof Error ? err.message : err);
+    () => {
+      console.error('The command failed. Check that the database is reachable and migrated.');
       process.exit(1);
     },
   );
