@@ -1,6 +1,7 @@
 import {
   authSchema,
   inviteLinks,
+  joinRequests,
   projectAccessChecklist,
   projectMembers,
   type Db,
@@ -10,6 +11,7 @@ import { and, eq } from 'drizzle-orm';
 import request from 'supertest';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { DB } from '../src/database/database.module.ts';
+import { JoinService } from '../src/invites/join.service.ts';
 import { ProjectMembersService } from '../src/projects/project-members.service.ts';
 import { createTestApp, makeInstallOwner, type TestApp } from './helpers.ts';
 
@@ -53,6 +55,10 @@ describe('joining under races and failures', () => {
     });
     cookies[key] = cookieOf(res.headers.getSetCookie());
   };
+  const missPreCheckOnce = () =>
+    vi
+      .spyOn(JoinService.prototype as unknown as { isMember: () => Promise<boolean> }, 'isMember')
+      .mockResolvedValueOnce(false);
   const project = async (body: object) => {
     const res = await http().post(`${base}/${ws}/projects`).set(as('admin')).send(body);
     return res.body.id as string;
@@ -113,15 +119,54 @@ describe('joining under races and failures', () => {
   });
 
   it('refuses a second member row for the same user and workspace at the database', async () => {
-    await expect(
-      t.db.db.insert(authSchema.member).values({
+    const err = await t.db.db
+      .insert(authSchema.member)
+      .values({
         id: 'dup-member-row',
         organizationId: ws,
         userId: ids.admin!,
         role: 'member',
         createdAt: new Date(),
-      }),
-    ).rejects.toThrow();
+      })
+      .then(
+        () => undefined,
+        (e: unknown) => e,
+      );
+    const pg = (err as { cause?: { code?: string; constraint?: string } } | undefined)?.cause;
+    expect(pg).toMatchObject({ code: '23505', constraint: 'member_organization_user_key' });
+  });
+
+  it('answers 409 already_member and releases the use when the pre-check misses a member', async () => {
+    const { id, token } = await invite({ maxUses: 5 });
+    const before = await members(ids.admin!);
+    missPreCheckOnce();
+    const res = await accept(token, 'admin');
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe('already_member');
+    expect((await link(id)).uses).toBe(0);
+    expect(await members(ids.admin!)).toEqual(before);
+  });
+
+  it('marks a request approved when a concurrent join made the user a member', async () => {
+    await makeAccount('raced');
+    const { token } = await invite({ requiresApproval: true });
+    expect((await accept(token, 'raced')).body).toEqual({ status: 'pending' });
+    await t.auth.api.addMember({
+      body: { userId: ids.raced!, role: 'member', organizationId: ws },
+    });
+    const [req] = await t.db.db
+      .select()
+      .from(joinRequests)
+      .where(eq(joinRequests.userId, ids.raced!));
+    missPreCheckOnce();
+    const res = await http()
+      .post(`${base}/${ws}/join-requests/${req!.id}/approve`)
+      .set(as('admin'));
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe('already_member');
+    const [after] = await t.db.db.select().from(joinRequests).where(eq(joinRequests.id, req!.id));
+    expect(after!.status).toBe('approved');
+    expect(await members(ids.raced!)).toHaveLength(1);
   });
 
   it('refuses an admin link without approval at the database', async () => {

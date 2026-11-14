@@ -154,8 +154,10 @@ export class JoinService {
     try {
       await this.admit(scope, request.userId, request.role, request.projectIds);
     } catch (err) {
-      await this.reopen(scope, id);
-      throw this.sanitize(err, 'Approving the request failed');
+      const failure = this.sanitize(err, 'Approving the request failed');
+      // A concurrent join already made them a member, so the request is settled as it is.
+      if (codeOf(failure) !== 'already_member') await this.reopen(scope, id);
+      throw failure;
     }
     return { status: 'joined', workspaceId: scope.workspaceId };
   }
@@ -418,7 +420,13 @@ export class JoinService {
       return alreadyMember();
     }
     if (constraint === PENDING_UNIQUE) return alreadyRequested();
-    if (err instanceof HttpException && JOINER_CODES.has(codeOf(err))) return err;
+    // join_failed passes through so an error sanitized once is not logged twice.
+    if (
+      err instanceof HttpException &&
+      (JOINER_CODES.has(codeOf(err)) || codeOf(err) === 'join_failed')
+    ) {
+      return err;
+    }
     this.logger.error(`${logLine}: ${describeError(err)}`);
     return new InternalServerErrorException({
       code: 'join_failed',

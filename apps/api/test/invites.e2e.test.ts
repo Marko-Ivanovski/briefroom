@@ -107,17 +107,22 @@ describe('invite links', () => {
     // Stored state the CHECK normally forbids: regenerate must still force approval on it.
     const pool = t.db.db.$client;
     await pool.query('ALTER TABLE invite_links DROP CONSTRAINT invite_links_admin_needs_approval');
-    await pool.query('UPDATE invite_links SET requires_approval = false WHERE id = $1', [
-      regen.body.id,
-    ]);
-    const again = await http()
-      .post(`${base}/${ws}/invites/${regen.body.id}/regenerate`)
-      .set(as('admin'));
-    expect((await row(again.body.id)).requiresApproval).toBe(true);
-    await pool.query('UPDATE invite_links SET requires_approval = true WHERE role = $1', ['admin']);
-    await pool.query(
-      `ALTER TABLE invite_links ADD CONSTRAINT invite_links_admin_needs_approval CHECK (role <> 'admin' or requires_approval)`,
-    );
+    try {
+      await pool.query('UPDATE invite_links SET requires_approval = false WHERE id = $1', [
+        regen.body.id,
+      ]);
+      const again = await http()
+        .post(`${base}/${ws}/invites/${regen.body.id}/regenerate`)
+        .set(as('admin'));
+      expect((await row(again.body.id)).requiresApproval).toBe(true);
+    } finally {
+      await pool.query('UPDATE invite_links SET requires_approval = true WHERE role = $1', [
+        'admin',
+      ]);
+      await pool.query(
+        `ALTER TABLE invite_links ADD CONSTRAINT invite_links_admin_needs_approval CHECK (role <> 'admin' or requires_approval)`,
+      );
+    }
   });
 
   it('refuses a member with 403', async () => {
