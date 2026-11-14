@@ -109,6 +109,20 @@ describe('StreamRegistry', () => {
     expect(res.destroyed).toBe(true);
   });
 
+  it('destroys the socket captured before end(), because Node detaches it after finish', () => {
+    const registry = new StreamRegistry();
+    const res = fakeResponse();
+    const socket = { destroy: vi.fn() };
+    (res as { socket: unknown }).socket = socket;
+    registry.open(snapshot('all'), res)!;
+    res.end = () => {
+      (res as { socket: unknown }).socket = null;
+    };
+    registry.closeFor('w', 'u');
+    vi.advanceTimersByTime(1000);
+    expect(socket.destroy).toHaveBeenCalledTimes(1);
+  });
+
   it('destroys the socket at once on backpressure, where ending would wait for a reader', () => {
     const registry = new StreamRegistry();
     const res = fakeResponse();

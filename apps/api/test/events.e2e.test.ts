@@ -1,3 +1,4 @@
+import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { Global, Module } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
@@ -685,5 +686,35 @@ describe('workspace event stream', () => {
     } finally {
       spy.mockRestore();
     }
+  });
+
+  it('closes the client\u2019s socket within 2 s of a server-side closeFor, for a client that reads', async () => {
+    const agent = new http.Agent({ keepAlive: true, maxSockets: 1 });
+    const url = new URL(`${base}/api/v1/workspaces/${ws}/events`);
+    const socketClosed = new Promise<'closed'>((resolve) => {
+      const req = http.get(
+        {
+          host: url.hostname,
+          port: url.port,
+          path: url.pathname,
+          agent,
+          headers: { cookie: cookies.owner! },
+        },
+        (res) => {
+          res.resume();
+          res.once('end', () => req.socket?.once('close', () => resolve('closed')));
+        },
+      );
+      req.on('error', () => undefined);
+    });
+    const registry = t.app.get(StreamRegistry);
+    await vi.waitFor(() => expect(registry.count(ws, ids.owner!)).toBe(1));
+    registry.closeFor(ws, ids.owner!);
+    const outcome = await Promise.race([
+      socketClosed,
+      new Promise<'open'>((r) => setTimeout(() => r('open'), 2000)),
+    ]);
+    agent.destroy();
+    expect(outcome).toBe('closed');
   });
 });

@@ -2,12 +2,21 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createTestDb } from '@briefroom/db/testing';
-import { EVENTS, JOBS, moduleEnabledGuard, type ModuleManifest } from '@briefroom/module-kit';
+import {
+  EVENTS,
+  JOBS,
+  moduleEnabledGuard,
+  systemScope,
+  type EventPublisher,
+  type JobQueue,
+  type ModuleManifest,
+} from '@briefroom/module-kit';
 import { TESTKIT_SQL_PATH } from '@briefroom/module-testkit/sql';
 import { GUARDS_METADATA, PATH_METADATA } from '@nestjs/common/constants';
 import { getTableColumns, getTableName } from 'drizzle-orm';
 import { getTableConfig, pgTable, uuid, type PgTable } from 'drizzle-orm/pg-core';
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { createTestApp, type TestApp } from './helpers.ts';
 import { REGISTERED_MODULES } from '../src/module-registry/registered-modules.ts';
 
 const MODULES_DIR = fileURLToPath(new URL('../../../modules', import.meta.url));
@@ -54,6 +63,15 @@ function foreignModuleImports(source: string, file: string, moduleId: string): s
     }
     if (spec.startsWith('@briefroom/')) {
       const name = spec.slice('@briefroom/'.length).split('/')[0]!;
+      // The kit's subpath for the core (`/core`) holds the unbound publisher and queue: never for modules.
+      if (
+        name === 'module-kit' &&
+        spec !== '@briefroom/module-kit' &&
+        spec !== '@briefroom/module-kit/web'
+      ) {
+        offenders.push(spec);
+        continue;
+      }
       if (!ALLOWED_CORE.includes(name) && name !== `module-${moduleId}`) offenders.push(spec);
       continue;
     }
@@ -65,6 +83,22 @@ function foreignModuleImports(source: string, file: string, moduleId: string): s
 const allModuleDirs = readdirSync(MODULES_DIR, { withFileTypes: true })
   .filter((e) => e.isDirectory() && e.name !== 'node_modules')
   .map((e) => e.name);
+
+/**
+ * Problems with how a module's source reaches its publisher and queue (R138): it must call
+ * `provideModuleServices` with its own manifest id, and never touch the core tokens or binders.
+ */
+function serviceBindingProblems(source: string, moduleId: string): string[] {
+  const problems: string[] = [];
+  for (const [, arg] of source.matchAll(/provideModuleServices\(\s*([^)]*?)\s*\)/g)) {
+    if (arg !== `'${moduleId}'` && arg !== `"${moduleId}"`) {
+      problems.push(`provideModuleServices(${arg}) is not '${moduleId}'`);
+    }
+  }
+  if (/\bCORE_[A-Z]+/.test(source)) problems.push('references a CORE_ token');
+  if (/\bbind(Events|Jobs)\b/.test(source)) problems.push('references bindEvents or bindJobs');
+  return problems;
+}
 
 const moduleDirs = allModuleDirs.filter((d) => existsSync(join(MODULES_DIR, d, 'manifest.ts')));
 
@@ -219,6 +253,17 @@ describe('module contract', () => {
         expect(provided).toContain(JOBS);
       });
 
+      it('calls provideModuleServices with its own id and never touches the core tokens', () => {
+        const problems = sourceFiles(join(MODULES_DIR, id)).flatMap((file) =>
+          serviceBindingProblems(readFileSync(file, 'utf8'), id).map((p) => `${file}: ${p}`),
+        );
+        expect(problems).toEqual([]);
+        const calls = sourceFiles(join(MODULES_DIR, id)).filter((file) =>
+          readFileSync(file, 'utf8').includes(`provideModuleServices('${id}')`),
+        );
+        expect(calls.length).toBeGreaterThan(0);
+      });
+
       it('prefixes its table names with the module id', () => {
         for (const t of manifest.tables) {
           expect(getTableName(t).startsWith(`${id}_`), getTableName(t)).toBe(true);
@@ -371,6 +416,8 @@ describe('module contract', () => {
       `import x from 'modules/other/x';`,
       `import x from '@briefroom/api';`,
       `const w = require('@briefroom/web');`,
+      `import { CORE_EVENTS } from '@briefroom/module-kit/core';`,
+      `import { bindEvents } from '@briefroom/module-kit/src/core.ts';`,
       `import x from '/abs/path';`,
     ]) {
       expect(flagged(line), line).toBe(true);
@@ -388,4 +435,49 @@ describe('module contract', () => {
       expect(flagged(line), line).toBe(false);
     }
   });
+});
+
+describe('the service binding check', () => {
+  it('flags a wrong id, a core token and a binder, and passes the right call', () => {
+    expect(
+      serviceBindingProblems(`providers: [...provideModuleServices('notes')]`, 'notes'),
+    ).toEqual([]);
+    expect(serviceBindingProblems(`...provideModuleServices('other')`, 'notes')).toHaveLength(1);
+    expect(serviceBindingProblems(`...provideModuleServices(id)`, 'notes')).toHaveLength(1);
+    expect(serviceBindingProblems(`@Inject(CORE_EVENTS) e`, 'notes')).toHaveLength(1);
+    expect(serviceBindingProblems(`bindJobs('notes', core)`, 'notes')).toHaveLength(1);
+  });
+});
+
+describe('registered modules get a bound publisher and queue (R138)', () => {
+  let t: TestApp;
+
+  beforeAll(async () => {
+    t = await createTestApp();
+  });
+
+  afterAll(async () => {
+    await t.close();
+  });
+
+  it.each(REGISTERED_MODULES.map((m) => [m.manifest.id, m.nestModule] as const))(
+    '%s: its EVENTS and JOBS refuse another prefix and accept its own',
+    async (id, nestModule) => {
+      const scope = systemScope('contract-check');
+      const module = t.app.select(nestModule as never);
+      const events = module.get<EventPublisher>(EVENTS, { strict: true });
+      const jobs = module.get<JobQueue>(JOBS, { strict: true });
+      await expect(events.publish(scope, { type: 'zz.x' })).rejects.toThrow(/can only use/);
+      await expect(jobs.enqueue(scope, 'zz.x', {})).rejects.toThrow(/can only use/);
+      for (const attempt of [
+        () => events.publish(scope, { type: `${id}.x` }),
+        () => jobs.enqueue(scope, `${id}.x`, {}),
+      ]) {
+        // Past the binding, the core may still refuse for its own reasons (no pg-boss schema here).
+        await attempt().catch((err: unknown) => {
+          expect(String(err instanceof Error ? err.message : err)).not.toMatch(/can only use/);
+        });
+      }
+    },
+  );
 });

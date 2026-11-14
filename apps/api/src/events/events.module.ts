@@ -1,4 +1,4 @@
-import { CORE_EVENTS } from '@briefroom/module-kit';
+import { CORE_EVENTS } from '@briefroom/module-kit/core';
 import {
   Global,
   Module,

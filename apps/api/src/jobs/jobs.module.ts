@@ -1,4 +1,4 @@
-import { CORE_JOBS } from '@briefroom/module-kit';
+import { CORE_JOBS } from '@briefroom/module-kit/core';
 import { Global, Module, type DynamicModule } from '@nestjs/common';
 import { JOBS_MODE, JobsService, type JobsMode } from './jobs.service.ts';
 

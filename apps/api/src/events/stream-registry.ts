@@ -13,6 +13,7 @@ const DESTROY_DELAY_MS = 1000;
 export interface StreamTarget {
   readonly writableLength: number;
   readonly destroyed: boolean;
+  readonly socket?: { destroy(): unknown } | null;
   write(chunk: string): unknown;
   end(): unknown;
   destroy(): unknown;
@@ -89,13 +90,18 @@ export class OpenStream {
       this.res.destroy();
       return;
     }
+    // Node detaches the socket from the response once it has finished, so it is captured first.
+    const socket = this.res.socket;
     try {
       this.res.end();
     } catch {
       this.res.destroy();
       return;
     }
-    setTimeout(() => this.res.destroy(), DESTROY_DELAY_MS).unref();
+    setTimeout(() => {
+      this.res.destroy();
+      socket?.destroy();
+    }, DESTROY_DELAY_MS).unref();
   }
 }
 

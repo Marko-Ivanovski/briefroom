@@ -1,14 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import {
-  CORE_EVENTS,
-  CORE_JOBS,
-  EVENTS,
-  JOBS,
-  bindEvents,
-  bindJobs,
-  provideModuleServices,
-  systemScope,
-} from '../src/index.ts';
+import { EVENTS, JOBS, provideModuleServices, systemScope } from '../src/index.ts';
+import { CORE_EVENTS, CORE_JOBS, bindEvents, bindJobs } from '../src/core.ts';
 
 const scope = systemScope('w');
 
