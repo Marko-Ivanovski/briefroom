@@ -22,6 +22,8 @@ export class FilesController {
   @Get(':fileId')
   @Header('X-Content-Type-Options', 'nosniff')
   @Header('Cache-Control', 'private, max-age=86400')
+  @Header('Content-Security-Policy', "default-src 'none'; sandbox")
+  @Header('Cross-Origin-Resource-Policy', 'same-origin')
   async read(
     @CurrentScope() scope: Scope,
     @Param('fileId') fileId: string,

@@ -26,7 +26,8 @@ import { ENV, type Env } from '../config/env.ts';
 import { DB } from '../database/database.module.ts';
 import { ModuleRegistryService } from '../module-registry/module-registry.service.ts';
 import { WorkspaceModulesService } from '../module-registry/workspace-modules.service.ts';
-import { detectImage, ImageRejected, makeVariants } from './image.ts';
+import { ImageRejected, makeVariants } from './image.ts';
+import { Semaphore } from './semaphore.ts';
 
 export type FileSize = 'thumb' | 'reduced' | 'original';
 
@@ -46,6 +47,8 @@ const moduleOff = (moduleId: string) =>
 @Injectable()
 export class FilesService implements FileStore {
   private readonly log = new Logger('Files');
+  /** Process-wide: two image jobs at once, eight waiting, then 503. Replaceable by tests. */
+  jobs = new Semaphore(2, 8);
 
   constructor(
     @Inject(DB) private readonly db: Db,
@@ -60,11 +63,9 @@ export class FilesService implements FileStore {
   }
 
   async store(scope: Scope, input: FileStoreInput): Promise<FileRecord> {
-    const { moduleId, projectId, bytes } = input;
+    const { moduleId, projectId } = input;
     if (!this.registry.get(moduleId)) throw new BadRequestException('Unknown module');
     if (!(await this.modules.isEnabled(scope.workspaceId, moduleId))) throw moduleOff(moduleId);
-    if (bytes.length > MAX_UPLOAD_BYTES)
-      throw new PayloadTooLargeException('The upload is too big');
     if (projectId) {
       const [visible] = await this.db
         .select({ id: projects.id })
@@ -72,12 +73,24 @@ export class FilesService implements FileStore {
         .where(and(scopedProjects(scope), eq(projects.id, projectId)));
       if (!visible) throw new NotFoundException('Project not found');
     }
+    // The body is read inside the slot, so at most a few uploads sit in memory at once.
+    return this.jobs.run(async () => {
+      const bytes = typeof input.bytes === 'function' ? await input.bytes() : input.bytes;
+      if (bytes.length > MAX_UPLOAD_BYTES) {
+        throw new PayloadTooLargeException('The upload is too big');
+      }
+      return this.save(scope, moduleId, projectId, bytes);
+    });
+  }
 
-    let mime: string;
-    let ext: string;
+  private async save(
+    scope: Scope,
+    moduleId: string,
+    projectId: string | undefined,
+    bytes: Buffer,
+  ): Promise<FileRecord> {
     let variants: Awaited<ReturnType<typeof makeVariants>>;
     try {
-      ({ mime, ext } = await detectImage(bytes));
       variants = await makeVariants(bytes);
     } catch (err) {
       if (err instanceof ImageRejected && err.reason === 'too_large') {
@@ -93,11 +106,13 @@ export class FilesService implements FileStore {
     const dir = this.dir(scope.workspaceId, id);
     try {
       // Files first, row second: a row never points at files that are not there.
-      await mkdir(dir, { recursive: true });
+      await mkdir(dir, { recursive: true, mode: 0o700 });
+      const write = (name: string, data: Buffer) =>
+        writeFile(join(dir, name), data, { mode: 0o600 });
       await Promise.all([
-        writeFile(join(dir, `original.${ext}`), bytes),
-        writeFile(join(dir, 'thumb.webp'), variants.thumb),
-        writeFile(join(dir, 'reduced.webp'), variants.reduced),
+        write(`original.${variants.ext}`, bytes),
+        write('thumb.webp', variants.thumb),
+        write('reduced.webp', variants.reduced),
       ]);
       const [row] = await this.db.transaction((tx) =>
         tx
@@ -107,7 +122,7 @@ export class FilesService implements FileStore {
               id,
               projectId: projectId ?? null,
               moduleId,
-              mime,
+              mime: variants.mime,
               bytes: bytes.length,
               sha256: createHash('sha256').update(bytes).digest('hex'),
               width: variants.width,

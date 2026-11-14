@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   createParamDecorator,
   PayloadTooLargeException,
   type ExecutionContext,
@@ -11,6 +12,9 @@ export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 const DRAIN_BYTES = 2 * 1024 * 1024;
 
 const TOO_LARGE = `The upload is over ${MAX_UPLOAD_BYTES / 1024 / 1024} MB`;
+
+/** Reads the body on first call. Call it only after the handler's own checks pass. */
+export type UploadReader = () => Promise<Buffer>;
 
 async function drain(req: IncomingMessage, already: number): Promise<void> {
   let seen = already;
@@ -36,17 +40,33 @@ export async function readUpload(req: IncomingMessage): Promise<Buffer> {
   }
   const chunks: Buffer[] = [];
   let size = 0;
-  for await (const chunk of req as AsyncIterable<Buffer>) {
-    size += chunk.length;
-    if (size > MAX_UPLOAD_BYTES) {
-      await drain(req, size);
-      throw new PayloadTooLargeException(TOO_LARGE);
+  try {
+    for await (const chunk of req as AsyncIterable<Buffer>) {
+      size += chunk.length;
+      if (size > MAX_UPLOAD_BYTES) {
+        await drain(req, size);
+        throw new PayloadTooLargeException(TOO_LARGE);
+      }
+      chunks.push(chunk);
     }
-    chunks.push(chunk);
+  } catch (err) {
+    if (err instanceof PayloadTooLargeException) throw err;
+    throw new BadRequestException({
+      code: 'upload_aborted',
+      message: 'The upload was interrupted',
+    });
   }
   return Buffer.concat(chunks);
 }
 
-export const UploadBytes = createParamDecorator((_data: unknown, context: ExecutionContext) =>
-  readUpload(context.switchToHttp().getRequest<IncomingMessage>()),
+/**
+ * Lazy on purpose: the handler checks permission and the target first, so a caller who may not
+ * upload never makes the server buffer 20 MB.
+ */
+export const UploadBody = createParamDecorator(
+  (_data: unknown, context: ExecutionContext): UploadReader => {
+    const req = context.switchToHttp().getRequest<IncomingMessage>();
+    let reading: Promise<Buffer> | undefined;
+    return () => (reading ??= readUpload(req));
+  },
 );

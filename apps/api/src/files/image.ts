@@ -32,11 +32,25 @@ export interface DetectedImage {
 const swapsAxes = (orientation: number | undefined) =>
   orientation !== undefined && orientation >= 5;
 
+/** PNG, JPEG or WebP signature. Anything else never reaches libvips. */
+function hasImageMagic(b: Buffer): boolean {
+  const png =
+    b.length >= 8 &&
+    b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  const jpeg = b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff;
+  const webp =
+    b.length >= 12 &&
+    b.toString('latin1', 0, 4) === 'RIFF' &&
+    b.toString('latin1', 8, 12) === 'WEBP';
+  return png || jpeg || webp;
+}
+
 /**
  * Decides the type from the bytes. The header is read, not the pixels, so a huge claimed size is
  * refused before anything is decoded.
  */
 export async function detectImage(bytes: Buffer): Promise<DetectedImage> {
+  if (!hasImageMagic(bytes)) throw new ImageRejected('unsupported');
   let meta: Metadata;
   try {
     meta = await sharp(bytes, { limitInputPixels: MAX_PIXELS }).metadata();
@@ -58,6 +72,8 @@ export async function detectImage(bytes: Buffer): Promise<DetectedImage> {
 export interface Variants {
   thumb: Buffer;
   reduced: Buffer;
+  mime: ImageMime;
+  ext: string;
   width: number;
   height: number;
 }
@@ -68,7 +84,7 @@ export interface Variants {
  * once it is gone the picture would otherwise show sideways.
  */
 export async function makeVariants(bytes: Buffer): Promise<Variants> {
-  const { width, height } = await detectImage(bytes);
+  const { mime, ext, width, height } = await detectImage(bytes);
   const resized = (target: number) =>
     sharp(bytes, { limitInputPixels: MAX_PIXELS })
       .autoOrient()
@@ -76,8 +92,9 @@ export async function makeVariants(bytes: Buffer): Promise<Variants> {
       .webp()
       .toBuffer();
   try {
-    const [thumb, reduced] = await Promise.all([resized(THUMB_WIDTH), resized(REDUCED_WIDTH)]);
-    return { thumb, reduced, width, height };
+    const thumb = await resized(THUMB_WIDTH);
+    const reduced = await resized(REDUCED_WIDTH);
+    return { thumb, reduced, mime, ext, width, height };
   } catch {
     throw new ImageRejected('unsupported');
   }

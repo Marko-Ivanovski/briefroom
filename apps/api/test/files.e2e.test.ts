@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm, stat } from 'node:fs/promises';
+import nodeHttp from 'node:http';
+import { Readable } from 'node:stream';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { files, projectMembers, scopedInsert } from '@briefroom/db';
@@ -9,6 +11,8 @@ import { eq } from 'drizzle-orm';
 import sharp from 'sharp';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { FilesService } from '../src/files/files.service.ts';
+import { Semaphore } from '../src/files/semaphore.ts';
 import { WorkspaceModulesService } from '../src/module-registry/workspace-modules.service.ts';
 import { pngClaiming } from './image-fixtures.ts';
 import { createTestApp, makeInstallOwner, type TestApp } from './helpers.ts';
@@ -52,6 +56,38 @@ describe('file store', () => {
       .set(as(who))
       .set('Content-Type', contentType)
       .send(bytes);
+  /**
+   * Streams the body over a real socket and reports the status as soon as the response arrives.
+   * A server that answers without reading a large body may reset the connection afterwards, which
+   * is fine here, so errors after the response are ignored.
+   */
+  const rawUpload = async (who: string, body: Readable, query: string, withLength: boolean) => {
+    const server = t.app.getHttpServer();
+    if (!server.listening) await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
+    const { port } = server.address() as { port: number };
+    return new Promise<{ status: number }>((resolve, reject) => {
+      const req = nodeHttp.request(
+        {
+          port,
+          host: '127.0.0.1',
+          method: 'POST',
+          path: `${base()}/m/testkit/files${query}`,
+          headers: {
+            cookie: cookies[who]!,
+            'content-type': 'application/octet-stream',
+            ...(withLength ? { 'content-length': String(21 * MB) } : {}),
+          },
+        },
+        (res) => {
+          resolve({ status: res.statusCode ?? 0 });
+          res.resume();
+        },
+      );
+      req.on('error', (err) => reject(err));
+      body.on('error', () => undefined);
+      body.pipe(req);
+    });
+  };
   const get = (who: string, id: string, size?: string, w = ws) =>
     http()
       .get(`${base(w)}/files/${id}${size ? `?size=${size}` : ''}`)
@@ -183,7 +219,55 @@ describe('file store', () => {
       expect(res.headers['cache-control']).toBe('private, max-age=86400');
       expect(res.headers['content-disposition']).toMatch(/^inline/);
       expect(Number(res.headers['content-length'])).toBe(res.body.length);
+      expect(res.headers['content-security-policy']).toBe("default-src 'none'; sandbox");
+      expect(res.headers['cross-origin-resource-policy']).toBe('same-origin');
     }
+  });
+
+  it(
+    'stores directories as 0700 and files as 0600',
+    { skip: process.platform === 'win32' },
+    async () => {
+      const record = await stored(small);
+      const dir = join(dataDir, 'files', ws, record.id);
+      expect((await stat(dir)).mode & 0o777).toBe(0o700);
+      for (const name of await readdir(dir)) {
+        expect((await stat(join(dir, name))).mode & 0o777, name).toBe(0o600);
+      }
+    },
+  );
+
+  it('refuses a chunked upload over the limit that declares no length', async () => {
+    const chunks = Array.from({ length: 21 }, () => Buffer.alloc(MB, 1));
+    const res = await rawUpload('writer', Readable.from(chunks), '', false);
+    expect(res.status).toBe(413);
+  });
+
+  it('answers 503 busy with Retry-After when the image queue is full', async () => {
+    const service = t.app.get(FilesService);
+    const original = service.jobs;
+    service.jobs = new Semaphore(0, 0);
+    try {
+      const res = await upload('writer', small);
+      expect(res.status).toBe(503);
+      expect(res.body).toMatchObject({ code: 'busy' });
+      expect(res.headers['retry-after']).toBe('5');
+    } finally {
+      service.jobs = original;
+    }
+  });
+
+  it('does not read the body of a caller without the permission', async () => {
+    const res = await rawUpload('reader', Readable.from([Buffer.alloc(21 * MB, 1)]), '', true);
+    expect(res.status).toBe(403);
+  });
+
+  it('does not read the body when the project is not visible', async () => {
+    const hidden = (await http().post(`${base()}/projects`).set(as('owner')).send({ name: 'H2' }))
+      .body.id as string;
+    const body = Readable.from([Buffer.alloc(21 * MB, 1)]);
+    const res = await rawUpload('writer', body, `?projectId=${hidden}`, true);
+    expect(res.status).toBe(404);
   });
 
   it('serves the original when no size is given and refuses an unknown size', async () => {

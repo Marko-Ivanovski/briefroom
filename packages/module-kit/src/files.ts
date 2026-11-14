@@ -1,11 +1,13 @@
 import type { Scope } from './scope.ts';
+import type { UploadReader } from './upload.ts';
 
 export interface FileStoreInput {
   /** Must be registered and switched on in the workspace. */
   moduleId: string;
   /** The project the file belongs to, or omitted for a workspace-level file. */
   projectId?: string;
-  bytes: Buffer;
+  /** Pass the upload reader as it is: the store reads the body only after its own checks pass. */
+  bytes: Buffer | UploadReader;
 }
 
 export interface FileRecord {

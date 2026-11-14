@@ -1,4 +1,5 @@
-import { STATUS_CODES } from 'node:http';
+import { STATUS_CODES, type ServerResponse } from 'node:http';
+import { BUSY_RETRY_AFTER_SECONDS, BusyException } from '../files/semaphore.ts';
 import { Catch, HttpStatus, Logger, type ArgumentsHost, type HttpServer } from '@nestjs/common';
 import { BaseExceptionFilter, type AbstractHttpAdapter } from '@nestjs/core';
 import { isAPIError } from 'better-auth/api';
@@ -13,6 +14,16 @@ import { describeError } from './safe-error.ts';
 @Catch()
 export class SafeExceptionFilter extends BaseExceptionFilter {
   private readonly log = new Logger('ExceptionsHandler');
+
+  override catch(exception: unknown, host: ArgumentsHost): void {
+    if (exception instanceof BusyException) {
+      host
+        .switchToHttp()
+        .getResponse<ServerResponse>()
+        .setHeader('Retry-After', String(BUSY_RETRY_AFTER_SECONDS));
+    }
+    super.catch(exception, host);
+  }
 
   override handleUnknownError(
     exception: unknown,

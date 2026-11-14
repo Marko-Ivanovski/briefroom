@@ -3,10 +3,11 @@ import {
   FILE_STORE,
   hasPermission,
   ModuleController,
-  UploadBytes,
+  UploadBody,
   type FileRecord,
   type FileStore,
   type Scope,
+  type UploadReader,
 } from '@briefroom/module-kit';
 import { BadRequestException, ForbiddenException, Inject, Post, Query } from '@nestjs/common';
 import { z } from 'zod';
@@ -18,7 +19,7 @@ export class FilesController {
   @Post()
   upload(
     @CurrentScope() scope: Scope,
-    @UploadBytes() bytes: Buffer,
+    @UploadBody() bytes: UploadReader,
     @Query('projectId') projectId?: string,
   ): Promise<FileRecord> {
     if (!hasPermission(scope, 'testkit', 'write-notes')) throw new ForbiddenException();
