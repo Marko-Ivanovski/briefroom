@@ -25,15 +25,15 @@ Run on 2026-11-14, Windows 11, Node v24.15.0, Docker 29.9.3 (Linux engine). Spik
 | `@nestjs/mcp` | 0.0.4 |
 | `@modelcontextprotocol/server` (pulled in by `@nestjs/mcp`) | 2.4.0 |
 | `zod` | 4.6.7 |
-| `drizzle-orm`, `drizzle-kit` (rc tag) | 1.0.0-rc.5 |
+| `drizzle-orm`, `drizzle-kit` (rc tag, registry versions only, not spiked) | 1.0.0-rc.5 |
 | `vitest` | 5.1.0 (Vite 8.3.8) |
 | `unplugin-swc` | 2.0.0 |
 | `@swc/core` | 1.16.22 |
-| `express` (needed at runtime, see Step 1) | 5.x |
+| `express` (needed at runtime, see Step 1) | 5.3.0 |
 | `pg` | 8.23.1 |
 | `typescript` | 6.0.3 in the auth spike, 7.0.2 pulled by the Vitest spike |
-| Tailscale (`tailscaled`, `tailscale`) | 1.104.7 |
-| `cloudflared` | 2026.11.0 |
+| Tailscale (`tailscaled`, `tailscale`) | 1.104.7, static tarball `https://pkgs.tailscale.com/stable/tailscale_1.104.7_amd64.tgz` |
+| `cloudflared` | 2026.11.0, binary `https://github.com/cloudflare/cloudflared/releases/download/2026.11.0/cloudflared-linux-amd64` |
 
 All Nest 12 packages and `@thallesp/nestjs-better-auth` are ESM only (`"type": "module"`). The app must be ESM.
 
@@ -75,6 +75,14 @@ All Nest 12 packages and `@thallesp/nestjs-better-auth` are ESM only (`"type": "
     - `auth.api.setUserPassword({ body: { userId, newPassword }, headers })` (admin plugin). Needs a session whose `user.role` is `admin`. A normal user gets `You are not allowed to set users password`. Returns `{ status: true }`.
     - `(await auth.$context).password.hash(plain)` then `ctx.internalAdapter.updatePassword(userId, hash)`. No session needed, sign-in with the new password worked. `ctx.password` also has `verify`, `config`, `checkPassword`.
     - Reset by link is `auth.api.requestPasswordReset` and `auth.api.resetPassword`, but both depend on an email callback (`sendResetPassword`), so the "no email" rule means Task 2.x should use the first two.
+  - Exact `createUser` call used in the spike (no headers, no session):
+    ```ts
+    const r = await auth.api.createUser({
+      body: { email: 'owner@x.dev', password: 'password123', name: 'Owner', role: 'user' },
+    });
+    // r.user.id, r.user.role === 'user'
+    ```
+    `role` can be omitted (the second user in the spike had no `role`). Sign-in then works with `auth.api.signInEmail({ body: { email, password } })`.
   - Other server functions present in `auth.api`: `signInEmail`, `getSession`, `setRole`, `listUsers`, `banUser`, `unbanUser`, `removeUser`, `impersonateUser`, `revokeUserSessions`, `listUserSessions`, `createInvitation`, `removeMember`, `updateMemberRole`, `changePassword`, `setPassword`, `verifyPassword`.
   - **The `apiKey` plugin is no longer in `better-auth`.** It is `@better-auth/api-key` (`import { apiKey } from '@better-auth/api-key'`), peer `better-auth ^1.7.23`. Options seen in the types: `enableMetadata`, `references: 'user' | 'organization'`, `apiKeyHeaders`, `customAPIKeyGetter`, `enableSessionForAPIKeys`, `startingCharactersConfig`.
   - API keys: `auth.api.createApiKey({ body: { name, userId, metadata: {...}, permissions, expiresIn, organizationId } })` returned `{ id, key, metadata, referenceId (the user id), configId: 'default' }`. The plain key is only in the create response. The database stores a hash (stored value differed from the returned key). `metadata` is stored as a JSON string in the `metadata` column and returned as an object.
@@ -106,7 +114,7 @@ All Nest 12 packages and `@thallesp/nestjs-better-auth` are ESM only (`"type": "
 ## Step 4: Remote access from inside a container
 
 - **Verdict:** partial. Both tools start and run in the restricted container. The end-to-end Tailscale check and the named-tunnel check need real credentials and are **deferred to Task 8.4 manual check with real credentials**.
-- **Method:** spike in Docker. Image `node:24` (Debian, the task ruling says node:24 not node:22), tailscale 1.104.7 static binaries from `pkgs.tailscale.com`, `cloudflared` 2026.11.0 from the GitHub release. Run as user `node` (uid 1000), no `--cap-add`, no `/dev/net/tun`, not `--privileged`. Inside: `CapEff: 0000000000000000` and `/dev/net/tun` absent.
+- **Method:** spike in Docker. Image `node:24` (Debian; node:24 is the project's Node version, active LTS), tailscale 1.104.7 static binaries from `pkgs.tailscale.com`, `cloudflared` 2026.11.0 from the GitHub release. Run as user `node` (uid 1000), no `--cap-add`, no `/dev/net/tun`, not `--privileged`. Inside: `CapEff: 0000000000000000` and `/dev/net/tun` absent.
 - **Findings:**
   - `tailscaled --tun=userspace-networking --state=/home/node/ts/tailscaled.state --socket=/home/node/ts/tailscaled.sock` starts as non-root and stayed alive for the whole run (checked after 4 s and again after the CLI commands). Without credentials it sits at `Logged out.` and prints an auth URL.
   - `tailscale up` without a key prints a login URL and times out as expected. `tailscale serve --bg 3000` and `tailscale funnel --bg 3000` are accepted as syntax and answer `Logged out. Log in at: <url>`, so they need an authenticated node. Not verified: an actual serve or funnel connection.
@@ -168,7 +176,7 @@ All Nest 12 packages and `@thallesp/nestjs-better-auth` are ESM only (`"type": "
 - **Drizzle:**
   - `drizzle-orm` dist-tags: `latest` = 0.45.4 (2026-10-08), `rc` = **1.0.0-rc.5** (2026-10-21), `beta` = 1.0.0-beta.22. `drizzle-kit`: `latest` = 0.31.11, `rc` = 1.0.0-rc.5. There is no stable 1.0.0 yet. The v1 line has been in RC since 1.0.0-rc.1 (2026-04-30).
   - Compatible: `@better-auth/drizzle-adapter` 1.7.23 accepts `drizzle-orm ^0.45.2 || >=1.0.0-rc.1 <2`. `@nestjs/drizzle` 0.0.2 accepts `>=0.35.0 || >=1.0.0-0` (not needed, the plan uses a `packages/db` layer).
-  - Pin choice: either `drizzle-orm@1.0.0-rc.5` with `drizzle-kit@1.0.0-rc.5` (exact versions, no caret), or the stable `0.45.4` with `drizzle-kit@0.31.11`. Both satisfy the Better Auth adapter. I did not exercise Drizzle itself in a spike.
+  - Decision: pin exactly `drizzle-orm@1.0.0-rc.5` and `drizzle-kit@1.0.0-rc.5` (no caret). This satisfies the Better Auth adapter range. Drizzle itself was not exercised in a spike.
 - **Vitest with Nest:**
   - Nest's recipe (docs.nestjs.com/recipes/swc) is `npm i -D vitest unplugin-swc @swc/core @vitest/coverage-v8` and:
     ```ts
@@ -181,10 +189,10 @@ All Nest 12 packages and `@thallesp/nestjs-better-auth` are ESM only (`"type": "
     ```
   - Spike result with that config (`vitest@5.1.0`, `unplugin-swc@2.0.0`, `@swc/core@1.16.22`, `@nestjs/testing@12.5.0`): 5 tests in 2 files passed. They covered constructor injection by emitted metadata with no `@Inject`, a cross-file provider, `overrideProvider`, `design:paramtypes` present, and a real HTTP request on `NodeAdapter`. `tsconfig.json` had `experimentalDecorators` and `emitDecoratorMetadata`.
   - Control: with no swc plugin and no tsconfig, the same-file test passed but a test importing a decorated class from another file failed with `SyntaxError: Invalid or unexpected token`. So keep the SWC plugin. It is what makes decorators reliable, not Vite's own transform.
-- **What the plan does next:** Task 1.1 setup pins the Drizzle choice (recommend `1.0.0-rc.5` exact for both packages if the plan wants v1, otherwise `0.45.4`/`0.31.11`, and note the choice in the PR). Test setup uses the recipe above with `unplugin-swc` 2.0.0 and `@swc/core` 1.16.22.
+- **What the plan does next:** Task 1.1 setup pins `drizzle-orm` and `drizzle-kit` to exactly `1.0.0-rc.5`. Test setup uses the recipe above with `unplugin-swc` 2.0.0 and `@swc/core` 1.16.22.
 
 ---
 
 ## Spike cleanup
 
-Spikes were under `C:/Users/Marko/.claude/jobs/0d156514/tmp/spikes/` (auth, mcp, vitest, remote). Docker artifacts: container `spikepg` (Postgres 17) and image `briefroom-remote-spike`, both removed after the run.
+Spikes lived in a scratch folder outside the repo (auth, mcp, vitest, remote). Docker artifacts: container `spikepg` (Postgres 17) and image `briefroom-remote-spike`, both removed after the run.
