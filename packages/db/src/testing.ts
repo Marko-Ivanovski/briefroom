@@ -25,7 +25,10 @@ export async function createTestDb(): Promise<TestDb> {
     console.error('Postgres admin connection error', err);
   });
   await admin.connect();
+  let dropped = false;
   const drop = async () => {
+    if (dropped) return;
+    dropped = true;
     try {
       await admin.query(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`);
     } finally {
@@ -36,7 +39,7 @@ export async function createTestDb(): Promise<TestDb> {
   try {
     await admin.query(`CREATE DATABASE "${name}"`);
   } catch (err) {
-    await admin.end();
+    await admin.end().catch(() => {});
     throw err;
   }
   const db = createDb(url);
@@ -60,6 +63,7 @@ export async function createTestDb(): Promise<TestDb> {
       await db.$client.query(`TRUNCATE ${list} RESTART IDENTITY CASCADE`);
     },
     async close() {
+      if (dropped) return;
       await db.$client.end();
       await drop();
     },
@@ -68,12 +72,18 @@ export async function createTestDb(): Promise<TestDb> {
 
 const STALE_AFTER_HOURS = 1;
 
-/** Drops test databases left behind by crashed workers. Only exact `briefroom_test_<12 hex>` names. */
+/**
+ * Drops test databases left behind by crashed workers. Only exact `briefroom_test_<12 hex>` names.
+ * Ageing reads the data directory through pg_stat_file, which needs superuser. Without it, or
+ * without a reachable server, the sweep warns once and skips.
+ */
 export async function sweepStaleTestDbs(): Promise<number> {
   const adminUrl = process.env.DATABASE_URL ?? DEV_DATABASE_URL;
   const client = new pg.Client({ connectionString: adminUrl });
-  await client.connect();
+  client.on('error', () => {});
+  let stale: string[];
   try {
+    await client.connect();
     const { rows } = await client.query<{ datname: string }>(
       `SELECT datname FROM pg_database
        WHERE datname ~ '^briefroom_test_[0-9a-f]{12}$'
@@ -81,11 +91,25 @@ export async function sweepStaleTestDbs(): Promise<number> {
              < now() - make_interval(hours => $1)`,
       [STALE_AFTER_HOURS],
     );
-    for (const { datname } of rows) {
-      await client.query(`DROP DATABASE IF EXISTS "${datname}" WITH (FORCE)`);
-    }
-    return rows.length;
-  } finally {
-    await client.end();
+    stale = rows.map((r) => r.datname);
+  } catch (err) {
+    console.warn(
+      'Skipping the stale test database sweep:',
+      err instanceof Error ? err.message : err,
+    );
+    await client.end().catch(() => {});
+    return 0;
   }
+
+  let dropped = 0;
+  for (const name of stale) {
+    try {
+      await client.query(`DROP DATABASE IF EXISTS "${name}"`);
+      dropped++;
+    } catch {
+      // In use, or already dropped by a concurrent sweep.
+    }
+  }
+  await client.end().catch(() => {});
+  return dropped;
 }

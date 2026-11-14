@@ -1,14 +1,13 @@
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { retryableCrashes } from './crash-gate.mjs';
 
 // On Windows, Node 24 intermittently kills a test worker with exit 3221226505 (0xC0000409) around
 // Postgres socket teardown. Vitest then drops that file's results. On Windows only, this reruns
-// the files whose worker died. Elsewhere a crashed worker fails the run. A file with a failing
-// test is never retried.
+// the crashed files when that crash is the run's only failure. Elsewhere a crashed worker fails
+// the run.
 const MAX_RERUNS = 2;
 const vitest = fileURLToPath(new URL('../node_modules/vitest/vitest.mjs', import.meta.url));
-const crashPattern =
-  /Worker exited unexpectedly with exit code (\d+) during \w+ state while running test files? ([^\n]+)/g;
 
 function runVitest(args) {
   return new Promise((resolve) => {
@@ -26,41 +25,26 @@ function runVitest(args) {
         sink.write(chunk);
       });
     }
-    child.on('exit', (code, signal) => resolve({ code: code ?? (signal ? 1 : 0), output }));
+    child.on('close', (code, signal) => resolve({ code: code ?? (signal ? 1 : 0), output }));
   });
 }
 
-function crashedFiles(output) {
-  const crashes = new Map();
-  for (const match of output.matchAll(crashPattern)) {
-    for (const file of match[2].split(',')) crashes.set(file.trim(), match[1]);
-  }
-  return crashes;
-}
-
-function hasFailedTests(output) {
-  return /^\s*FAIL\s/m.test(output);
-}
-
-let args = process.argv.slice(2);
-let result = await runVitest(args);
+const userArgs = process.argv.slice(2);
+let result = await runVitest(userArgs);
 
 for (
   let rerun = 1;
   process.platform === 'win32' && result.code !== 0 && rerun <= MAX_RERUNS;
   rerun++
 ) {
-  const crashes = crashedFiles(result.output);
-  if (crashes.size === 0 || hasFailedTests(result.output)) break;
-  for (const [file, exitCode] of crashes) {
+  const files = retryableCrashes(result.output);
+  if (!files) break;
+  for (const file of files) {
     process.stderr.write(
-      `
-[run-vitest] worker crashed with exit code ${exitCode} in ${file}, rerun ${rerun}/${MAX_RERUNS}
-`,
+      `\n[run-vitest] worker crashed with exit code 3221226505 in ${file}, rerun ${rerun}/${MAX_RERUNS}\n`,
     );
   }
-  args = [...crashes.keys()];
-  result = await runVitest(args);
+  result = await runVitest([...userArgs, ...files]);
 }
 
 process.exit(result.code);
