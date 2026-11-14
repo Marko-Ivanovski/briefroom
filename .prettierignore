@@ -6,3 +6,4 @@ pnpm-lock.yaml
 .claude/worktrees
 .superpowers
 docs
+packages/db/migrations
