@@ -461,6 +461,44 @@ describe('access checklists', () => {
       expect((await pending('admin', p)).body).toEqual([]);
     });
 
+    it('shows a person as pending again after remove, tick all, re-add and remove (R80)', async () => {
+      const p = await newProject();
+      await join(p, 'member');
+      await http()
+        .delete(`${members(p)}/${ids.member}`)
+        .set(as('admin'));
+      for (const l of await links(p)) {
+        await tick('admin', ids.member!, { toolLinkId: l.id, kind: 'remove', done: true }, p);
+      }
+      expect((await pending('admin', p)).body).toEqual([]);
+      await join(p, 'member');
+      await http()
+        .delete(`${members(p)}/${ids.member}`)
+        .set(as('admin'));
+      const res = await pending('admin', p);
+      expect(res.body).toHaveLength(1);
+      expect(res.body[0]).toMatchObject({ userId: ids.member, undone: 2 });
+      const rows = await removeRows(p);
+      expect(rows.every((r) => r.updatedBy === ids.admin)).toBe(true);
+    });
+
+    it('resets the add checklist on each add (R80)', async () => {
+      const p = await newProject();
+      await join(p, 'member');
+      const [first] = await links(p);
+      await tick('admin', ids.member!, { toolLinkId: first!.id, kind: 'add', done: true }, p);
+      expect(((await get('admin', ids.member!, 'add', p)).body as Item[]).some((i) => i.done)).toBe(
+        true,
+      );
+      await http()
+        .delete(`${members(p)}/${ids.member}`)
+        .set(as('admin'));
+      await join(p, 'member');
+      const items: Item[] = (await get('admin', ids.member!, 'add', p)).body;
+      expect(items).toHaveLength(2);
+      expect(items.every((i) => !i.done)).toBe(true);
+    });
+
     it('creates nothing when the project has no tool links', async () => {
       const p = await newProject([]);
       await join(p, 'member');

@@ -1,4 +1,4 @@
-import type { ProjectMemberSummary } from '@briefroom/contracts';
+import type { ChecklistKind, ProjectMemberSummary } from '@briefroom/contracts';
 import {
   authSchema,
   projectAccessChecklist,
@@ -8,6 +8,7 @@ import {
   scoped,
   scopedInsert,
   scopedProjects,
+  scopedUpdate,
   type Db,
 } from '@briefroom/db';
 import {
@@ -21,6 +22,8 @@ import { and, asc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { canViewProject, type Scope } from '../access/scope.ts';
 import { DB } from '../database/database.module.ts';
+
+type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 
 const PG_UNIQUE_VIOLATION = '23505';
 const PG_FOREIGN_KEY_VIOLATION = '23503';
@@ -73,11 +76,15 @@ export class ProjectMembersService {
       });
 
     try {
-      const [row] = await this.db
-        .insert(projectMembers)
-        .values(scopedInsert(scope, { projectId, userId }))
-        .onConflictDoNothing()
-        .returning({ addedAt: projectMembers.createdAt });
+      const row = await this.db.transaction(async (tx) => {
+        const [added] = await tx
+          .insert(projectMembers)
+          .values(scopedInsert(scope, { projectId, userId }))
+          .onConflictDoNothing()
+          .returning({ addedAt: projectMembers.createdAt });
+        if (added) await this.resetChecklist(tx, scope, projectId, userId, 'add');
+        return added;
+      });
       if (!row)
         throw new ConflictException({ code: 'already_on_project', message: 'already_on_project' });
       return {
@@ -114,20 +121,35 @@ export class ProjectMembersService {
         )
         .returning({ userId: projectMembers.userId });
       if (deleted.length === 0) throw new NotFoundException('Not on this project');
-      const links = await tx
-        .select({ id: projectToolLinks.id })
-        .from(projectToolLinks)
-        .where(and(scoped(scope, projectToolLinks), eq(projectToolLinks.projectId, projectId)));
-      if (links.length === 0) return;
-      await tx
-        .insert(projectAccessChecklist)
-        .values(
-          links.map((l) =>
-            scopedInsert(scope, { projectId, userId, toolLinkId: l.id, kind: 'remove' as const }),
-          ),
-        )
-        .onConflictDoNothing();
+      await this.resetChecklist(tx, scope, projectId, userId, 'remove');
     });
+  }
+
+  // Each add is a new grant and each removal a new revocation, so the items start undone again (R80).
+  private async resetChecklist(
+    tx: Tx,
+    scope: Scope,
+    projectId: string,
+    userId: string,
+    kind: ChecklistKind,
+  ): Promise<void> {
+    const links = await tx
+      .select({ id: projectToolLinks.id })
+      .from(projectToolLinks)
+      .where(and(scoped(scope, projectToolLinks), eq(projectToolLinks.projectId, projectId)));
+    if (links.length === 0) return;
+    await tx
+      .insert(projectAccessChecklist)
+      .values(links.map((l) => scopedInsert(scope, { projectId, userId, toolLinkId: l.id, kind })))
+      .onConflictDoUpdate({
+        target: [
+          projectAccessChecklist.projectId,
+          projectAccessChecklist.userId,
+          projectAccessChecklist.toolLinkId,
+          projectAccessChecklist.kind,
+        ],
+        set: scopedUpdate(scope, { done: false }),
+      });
   }
 
   leave(scope: Scope, projectId: string): Promise<void> {
