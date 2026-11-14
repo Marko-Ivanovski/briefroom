@@ -1,10 +1,10 @@
-import { REGISTERED_MODULES } from '@briefroom/api/worker-kit';
 import { OnJob } from '@briefroom/module-kit';
+import { Module } from '@nestjs/common';
 import type { DiscoveryService } from '@nestjs/core';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { CoreServicesModule } from '../src/core-services.module.ts';
 import { HandlersExplorer } from '../src/handlers.explorer.ts';
-
-const testkit = REGISTERED_MODULES.find((m) => m.manifest.id === 'testkit')!;
+import { JobRunner } from '../src/job-runner.ts';
 
 class Stranger {
   @OnJob('other.steal')
@@ -12,8 +12,13 @@ class Stranger {
 }
 
 class Claimant {
-  @OnJob('testkit.thing')
+  @OnJob('fix.thing')
   thing(): void {}
+}
+
+class Nested {
+  @OnJob('fix.deep')
+  deep(): void {}
 }
 
 class CoreHandler {
@@ -22,9 +27,23 @@ class CoreHandler {
 }
 
 class WrongCore {
-  @OnJob('testkit.thing')
+  @OnJob('fix.thing')
   thing(): void {}
 }
+
+@Module({ providers: [Nested] })
+class DeepModule {}
+
+@Module({ imports: [DeepModule] })
+class SubModule {}
+
+@Module({ imports: [{ module: SubModule }] })
+class FixtureModule {}
+
+@Module({})
+class LooseModule {}
+
+const registered = [{ manifest: { id: 'fix' }, nestModule: FixtureModule }];
 
 function explorerFor(...providers: Array<{ instance: object; module?: unknown }>) {
   const discovery = {
@@ -37,34 +56,67 @@ function explorerFor(...providers: Array<{ instance: object; module?: unknown }>
 describe('handlers explorer', () => {
   it('finds a module handler and a core handler', () => {
     const found = explorerFor(
-      { instance: new Claimant(), module: testkit.nestModule },
-      { instance: new CoreHandler() },
-    ).explore();
+      { instance: new Claimant(), module: FixtureModule },
+      { instance: new CoreHandler(), module: CoreServicesModule },
+    ).explore(registered);
 
     expect(found.map((h) => [h.name, h.moduleId])).toEqual([
-      ['testkit.thing', 'testkit'],
+      ['fix.thing', 'fix'],
       ['core.tidy', null],
     ]);
   });
 
+  it('gives a handler in a nested module the registered module id', () => {
+    const found = explorerFor({ instance: new Nested(), module: DeepModule }).explore(registered);
+
+    expect(found.map((h) => [h.name, h.moduleId])).toEqual([['fix.deep', 'fix']]);
+  });
+
+  it('refuses a handler whose host is neither core nor in a registered module', () => {
+    expect(() =>
+      explorerFor({ instance: new Claimant(), module: LooseModule }).explore(registered),
+    ).toThrow(/not part of the core or a registered module/);
+    expect(() => explorerFor({ instance: new CoreHandler() }).explore(registered)).toThrow(
+      /not part of the core or a registered module/,
+    );
+  });
+
   it('refuses a module handler named for another module', () => {
     expect(() =>
-      explorerFor({ instance: new Stranger(), module: testkit.nestModule }).explore(),
-    ).toThrow(/must be named "testkit\.\*"/);
+      explorerFor({ instance: new Stranger(), module: SubModule }).explore(registered),
+    ).toThrow(/must be named "fix\.\*"/);
   });
 
   it('refuses a core handler that claims a module job name', () => {
-    expect(() => explorerFor({ instance: new WrongCore() }).explore()).toThrow(
-      /must be named "core\.\*"/,
-    );
+    expect(() =>
+      explorerFor({ instance: new WrongCore(), module: CoreServicesModule }).explore(registered),
+    ).toThrow(/must be named "core\.\*"/);
   });
 
   it('refuses two handlers for one job name', () => {
     expect(() =>
       explorerFor(
-        { instance: new Claimant(), module: testkit.nestModule },
-        { instance: new Claimant(), module: testkit.nestModule },
-      ).explore(),
+        { instance: new Claimant(), module: FixtureModule },
+        { instance: new Claimant(), module: SubModule },
+      ).explore(registered),
     ).toThrow(/Two handlers claim/);
+  });
+
+  it('applies the module-off check to a nested handler', async () => {
+    const handler = explorerFor({ instance: new Nested(), module: DeepModule }).explore(
+      registered,
+    )[0]!;
+    const invoke = vi.spyOn(handler, 'invoke');
+    const isEnabled = vi.fn(() => Promise.resolve(false));
+    const runner = new JobRunner({} as never, {} as never, { isEnabled, settings: vi.fn() });
+
+    await (
+      runner as unknown as {
+        run(h: unknown, job: unknown): Promise<void>;
+      }
+    ).run(handler, { id: 'job-1', data: { workspaceId: 'ws' } });
+
+    expect(isEnabled).toHaveBeenCalledWith('ws', 'fix');
+    expect(invoke).not.toHaveBeenCalled();
   });
 });

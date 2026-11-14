@@ -1,4 +1,7 @@
 import { DEV_DATABASE_URL } from '@briefroom/db';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { DEV_AUTH_SECRET, loadEnv } from '../src/config/env.ts';
 
@@ -136,13 +139,22 @@ describe('loadEnv BRIEFROOM_DATA_DIR', () => {
     );
   });
 
-  it('defaults to the ignored .data folder outside production', () => {
-    expect(loadEnv(WITHOUT_DIR).dataDir).toMatch(/[\\/]\.data$/);
+  const REPO_ROOT = fileURLToPath(new URL('../../..', import.meta.url));
+
+  it('defaults to <repo root>/.data, the same from the root and from any app folder', () => {
+    const expected = join(REPO_ROOT, '.data');
+    expect(loadEnv(WITHOUT_DIR, REPO_ROOT).dataDir).toBe(expected);
+    expect(loadEnv(WITHOUT_DIR, join(REPO_ROOT, 'apps', 'worker')).dataDir).toBe(expected);
+    expect(loadEnv(WITHOUT_DIR, join(REPO_ROOT, 'apps', 'api')).dataDir).toBe(expected);
   });
 
-  it('is made absolute', () => {
-    expect(loadEnv({ ...BASE, BRIEFROOM_DATA_DIR: 'relative/dir' }).dataDir).toMatch(
-      /^([a-zA-Z]:)?[\\/]/,
+  it('refuses to start without a default when no repo root is found', () => {
+    expect(() => loadEnv(WITHOUT_DIR, tmpdir())).toThrow(/BRIEFROOM_DATA_DIR.*repo root/);
+  });
+
+  it('refuses a relative path', () => {
+    expect(() => loadEnv({ ...BASE, BRIEFROOM_DATA_DIR: 'relative/dir' })).toThrow(
+      /BRIEFROOM_DATA_DIR: must be an absolute path/,
     );
   });
 });

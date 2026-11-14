@@ -5,7 +5,12 @@
 export { EnvModule } from './config/env.module.ts';
 export { ENV, loadEnv, type Env } from './config/env.ts';
 export { DatabaseModule } from './database/database.module.ts';
-export { FILES_GC_CRON, FILES_GC_JOB, FilesGcJob } from './files/files-gc.job.ts';
+export {
+  FILES_GC_CRON,
+  FILES_GC_JOB,
+  FilesGcJob,
+  MAX_WORKSPACE_REMOVALS,
+} from './files/files-gc.job.ts';
 export { FilesService } from './files/files.service.ts';
 export { HistoryService } from './history/history.service.ts';
 export { JobsModule } from './jobs/jobs.module.ts';

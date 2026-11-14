@@ -1,8 +1,9 @@
 import { ON_JOB } from '@briefroom/module-kit';
 import { REGISTERED_MODULES } from '@briefroom/api/worker-kit';
-import { Injectable } from '@nestjs/common';
+import { Injectable, type Type } from '@nestjs/common';
 import { DiscoveryService } from '@nestjs/core';
 import 'reflect-metadata';
+import { CoreServicesModule } from './core-services.module.ts';
 
 export interface DiscoveredHandler {
   /** `<moduleId>.<name>` or `core.<name>`. */
@@ -11,6 +12,13 @@ export interface DiscoveredHandler {
   moduleId: string | null;
   invoke(context: object): Promise<unknown>;
 }
+
+interface ModuleRef {
+  manifest: { id: string };
+  nestModule: Type;
+}
+
+type ImportEntry = Type | { module: Type; imports?: unknown[] } | { forwardRef: () => Type };
 
 function methodsOf(instance: object): string[] {
   const names = new Set<string>();
@@ -31,25 +39,52 @@ function methodsOf(instance: object): string[] {
   return [...names];
 }
 
+/** Maps each Nest module in a registered module's import graph, dynamic modules included, to its id. */
+function ownersOf(registered: readonly ModuleRef[]): Map<unknown, string> {
+  const owners = new Map<unknown, string>();
+  for (const { manifest, nestModule } of registered) {
+    const walk = (entry: unknown): void => {
+      let cls: Type | undefined;
+      let extra: unknown[] = [];
+      const e = entry as ImportEntry;
+      if (typeof e === 'function') cls = e;
+      else if (e && 'module' in e) {
+        cls = e.module;
+        extra = e.imports ?? [];
+      } else if (e && 'forwardRef' in e) cls = e.forwardRef();
+      if (!cls || owners.has(cls)) return;
+      owners.set(cls, manifest.id);
+      const own = (Reflect.getMetadata('imports', cls) as unknown[] | undefined) ?? [];
+      for (const next of [...own, ...extra]) walk(next);
+    };
+    walk(nestModule);
+  }
+  return owners;
+}
+
 /** Finds every `@OnJob` method on the providers this process loaded. */
 @Injectable()
 export class HandlersExplorer {
   constructor(private readonly discovery: DiscoveryService) {}
 
-  explore(): DiscoveredHandler[] {
-    const moduleIds = new Map<unknown, string>(
-      REGISTERED_MODULES.map((m) => [m.nestModule, m.manifest.id]),
-    );
+  explore(registered: readonly ModuleRef[] = REGISTERED_MODULES): DiscoveredHandler[] {
+    const owners = ownersOf(registered);
     const found = new Map<string, DiscoveredHandler>();
     for (const wrapper of this.discovery.getProviders()) {
       const instance: unknown = wrapper.instance;
       if (typeof instance !== 'object' || instance === null) continue;
-      const moduleId = moduleIds.get(wrapper.host?.metatype) ?? null;
+      const host: unknown = wrapper.host?.metatype;
+      const moduleId = host === CoreServicesModule ? null : owners.get(host);
       for (const method of methodsOf(instance)) {
         const fn = (instance as Record<string, unknown>)[method] as (c: object) => Promise<unknown>;
         const name = Reflect.getMetadata(ON_JOB, fn) as string | undefined;
         if (name === undefined) continue;
 
+        if (moduleId === undefined) {
+          throw new Error(
+            `Job handler "${name}" is not part of the core or a registered module, so it cannot run`,
+          );
+        }
         // A module can only handle its own jobs, so one module cannot answer another's queue.
         const prefix = moduleId === null ? 'core.' : `${moduleId}.`;
         if (!name.startsWith(prefix)) {

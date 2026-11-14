@@ -12,6 +12,9 @@ export const FILES_GC_CRON = '0 * * * *';
 /** A directory this young may still be a write in flight, whose row is not committed yet. */
 export const ORPHAN_MIN_AGE_MS = 60 * 60 * 1000;
 
+/** A run removes at most this many whole workspace directories, so a mistake cannot wipe the store. */
+export const MAX_WORKSPACE_REMOVALS = 5;
+
 // Better Auth makes workspace ids as 32 random letters and digits, and the store makes file ids
 // with randomUUID(). Anything else under the data dir is not ours, so it is never touched.
 const WORKSPACE_ID = /^[A-Za-z0-9]{32}$/;
@@ -42,6 +45,15 @@ export class FilesGcJob {
   /** Returns the removed paths, relative to the data dir's `files` folder. */
   async sweep(now: number = Date.now()): Promise<string[]> {
     const root = join(this.env.dataDir, 'files');
+    const rootStat = await lstat(root).catch((err: NodeJS.ErrnoException) => {
+      if (err.code === 'ENOENT') return undefined;
+      throw err;
+    });
+    if (!rootStat) return [];
+    if (!rootStat.isDirectory()) {
+      this.logger.warn(`files-gc skipped: ${root} is not a real directory`);
+      return [];
+    }
     const workspaces = await this.childDirs(root, WORKSPACE_ID);
     if (workspaces.length === 0) return [];
 
@@ -50,10 +62,26 @@ export class FilesGcJob {
         (row) => row.id,
       ),
     );
+    // No workspace at all while directories exist means the wrong database, not an empty install.
+    if (known.size === 0) {
+      this.logger.warn(
+        'files-gc aborted: no workspaces in the database but file directories exist',
+      );
+      return [];
+    }
     const removed: string[] = [];
+    let wholeRemovals = 0;
+    let deferred = 0;
     for (const workspaceId of workspaces) {
       const workspaceDir = join(root, workspaceId);
       if (!known.has(workspaceId)) {
+        const stat = await lstat(workspaceDir).catch(() => undefined);
+        if (!stat?.isDirectory() || now - stat.mtimeMs <= ORPHAN_MIN_AGE_MS) continue;
+        if (wholeRemovals >= MAX_WORKSPACE_REMOVALS) {
+          deferred++;
+          continue;
+        }
+        wholeRemovals++;
         await this.remove(workspaceDir, workspaceId, removed);
         continue;
       }
@@ -73,6 +101,9 @@ export class FilesGcJob {
           await this.remove(join(workspaceDir, fileId), `${workspaceId}/${fileId}`, removed);
         }
       }
+    }
+    if (deferred > 0) {
+      this.logger.warn(`files-gc left ${deferred} orphaned workspace directories for the next run`);
     }
     return removed;
   }

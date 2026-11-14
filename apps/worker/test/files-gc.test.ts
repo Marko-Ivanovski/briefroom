@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { FilesGcJob } from '@briefroom/api/worker-kit';
-import { files, scopedInsert } from '@briefroom/db';
+import { FilesGcJob, MAX_WORKSPACE_REMOVALS } from '@briefroom/api/worker-kit';
+import { files, scopedInsert, type Db } from '@briefroom/db';
 import { systemScope } from '@briefroom/module-kit';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createFixture, createWorkspace, newWorkspaceId, type Fixture } from './helpers.ts';
@@ -97,20 +97,94 @@ describe('core.files-gc', () => {
     expect(await exists(stray)).toBe(true);
   });
 
-  it('removes the directory of a workspace that no longer exists', async () => {
+  it('removes the old directory of a workspace that no longer exists', async () => {
+    await createWorkspace(fx.db);
     const gone = newWorkspaceId();
     const dir = join(dataDir, 'files', gone);
     await makeDir(join(dir, randomUUID()), 0);
+    const old = new Date(Date.now() - 2 * HOUR);
+    await utimes(dir, old, old);
 
     expect(await job.sweep()).toEqual([gone]);
     expect(await exists(dir)).toBe(false);
+  });
+
+  it('keeps a fresh directory of a workspace that no longer exists', async () => {
+    await createWorkspace(fx.db);
+    const dir = join(dataDir, 'files', newWorkspaceId());
+    await makeDir(join(dir, randomUUID()), 0);
+
+    expect(await job.sweep()).toEqual([]);
+    expect(await exists(dir)).toBe(true);
+  });
+
+  it('deletes nothing when the organization table is empty but directories exist', async () => {
+    await fx.db.$client.query('DELETE FROM organization');
+    const dir = join(dataDir, 'files', newWorkspaceId());
+    await makeDir(join(dir, randomUUID()), 48 * HOUR);
+    await utimes(dir, new Date(Date.now() - 48 * HOUR), new Date(Date.now() - 48 * HOUR));
+
+    expect(await job.sweep()).toEqual([]);
+    expect(await exists(dir)).toBe(true);
+  });
+
+  it('removes at most 5 whole workspaces per run', async () => {
+    await createWorkspace(fx.db);
+    const old = new Date(Date.now() - 2 * HOUR);
+    const dirs: string[] = [];
+    for (let i = 0; i < 7; i++) {
+      const dir = join(dataDir, 'files', newWorkspaceId());
+      await makeDir(join(dir, randomUUID()), 0);
+      await utimes(dir, old, old);
+      dirs.push(dir);
+    }
+
+    expect(await job.sweep()).toHaveLength(MAX_WORKSPACE_REMOVALS);
+    const left = (await Promise.all(dirs.map(exists))).filter(Boolean);
+    expect(left).toHaveLength(2);
+    expect(await job.sweep()).toHaveLength(2);
+  });
+
+  it('aborts and deletes nothing when the database fails', async () => {
+    const ws = await createWorkspace(fx.db);
+    const dir = join(dataDir, 'files', ws, randomUUID());
+    await makeDir(dir, 48 * HOUR);
+    const broken = new FilesGcJob(
+      { select: () => ({ from: () => Promise.reject(new Error('db down')) }) } as unknown as Db,
+      fx.env,
+    );
+
+    await expect(broken.sweep()).rejects.toThrow('db down');
+    expect(await exists(dir)).toBe(true);
+  });
+
+  it('skips the run when the files root is a symlink', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'briefroom-root-'));
+    await createWorkspace(fx.db);
+    const victim = join(outside, newWorkspaceId());
+    await makeDir(join(victim, randomUUID()), 48 * HOUR);
+    await utimes(victim, new Date(Date.now() - 48 * HOUR), new Date(Date.now() - 48 * HOUR));
+    await mkdir(dataDir, { recursive: true });
+    try {
+      await symlink(outside, join(dataDir, 'files'), 'junction');
+    } catch {
+      await rm(outside, { recursive: true, force: true });
+      return;
+    }
+
+    expect(await job.sweep()).toEqual([]);
+    expect(await exists(victim)).toBe(true);
+    await rm(join(dataDir, 'files'), { recursive: true, force: true });
+    await rm(outside, { recursive: true, force: true });
   });
 
   it('keeps the other workspaces when it removes one', async () => {
     const ws = await createWorkspace(fx.db);
     const keep = join(dataDir, 'files', ws, randomUUID());
     await makeDir(keep, 0);
-    await makeDir(join(dataDir, 'files', newWorkspaceId(), randomUUID()), 0);
+    const dir = join(dataDir, 'files', newWorkspaceId());
+    await makeDir(join(dir, randomUUID()), 0);
+    await utimes(dir, new Date(Date.now() - 2 * HOUR), new Date(Date.now() - 2 * HOUR));
 
     await job.sweep();
 

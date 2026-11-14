@@ -9,12 +9,14 @@ export interface EnqueueOptions {
 /** Implemented by the API and the worker. Provided globally, so module code never imports an app. */
 export interface JobQueue {
   /**
-   * Queues a job named `<moduleId>.<name>` and returns its id. The payload must carry the
-   * workspace, and the worker skips the job when the module is off there.
+   * Queues a job named `<moduleId>.<name>` and returns its id. The job's workspace is always
+   * `scope.workspaceId`, whatever the payload holds. A `core.*` name or an unregistered module
+   * prefix is refused. The worker skips the job when the module is off in that workspace.
    */
   enqueue<T extends object>(
+    scope: Scope,
     name: string,
-    payload: { workspaceId: string } & T,
+    payload: T,
     opts?: EnqueueOptions,
   ): Promise<string>;
 }

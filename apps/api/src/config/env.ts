@@ -1,10 +1,10 @@
 import { DEV_DATABASE_URL } from '@briefroom/db';
-import { resolve } from 'node:path';
+import { existsSync } from 'node:fs';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 
 const DEFAULT_WEB_DIR = fileURLToPath(new URL('../../../web/dist', import.meta.url));
-const DEFAULT_DATA_DIR = fileURLToPath(new URL('../../../../.data', import.meta.url));
 const DEV_PUBLIC_URL = 'http://localhost:5173';
 export const DEV_AUTH_SECRET = 'briefroom-dev-only-secret-never-use-in-production';
 
@@ -15,7 +15,20 @@ const PublicUrl = z
 
 const Port = z.coerce.number().int().min(1).max(65535);
 
-function schemaFor(production: boolean) {
+/** The folder that holds pnpm-workspace.yaml, found from the working directory so bundling cannot move it. */
+function findRepoRoot(from: string): string | undefined {
+  for (let dir = resolve(from); ; dir = dirname(dir)) {
+    if (existsSync(join(dir, 'pnpm-workspace.yaml'))) return dir;
+    if (dirname(dir) === dir) return undefined;
+  }
+}
+
+const DataDir = z
+  .string()
+  .min(1)
+  .refine((v) => isAbsolute(v), 'must be an absolute path');
+
+function schemaFor(production: boolean, defaultDataDir: string | undefined) {
   return z.object({
     DATABASE_URL: production ? z.string().min(1) : z.string().min(1).default(DEV_DATABASE_URL),
     BRIEFROOM_PUBLIC_URL: production ? PublicUrl : PublicUrl.default(DEV_PUBLIC_URL),
@@ -28,9 +41,8 @@ function schemaFor(production: boolean) {
     PORT: Port.default(4300),
     HOST: z.string().min(1).default('127.0.0.1'),
     BRIEFROOM_WEB_DIR: z.string().min(1).default(DEFAULT_WEB_DIR),
-    BRIEFROOM_DATA_DIR: production
-      ? z.string().min(1)
-      : z.string().min(1).default(DEFAULT_DATA_DIR),
+    BRIEFROOM_DATA_DIR:
+      production || defaultDataDir === undefined ? DataDir : DataDir.default(defaultDataDir),
     BRIEFROOM_TESTKIT: z
       .string()
       .optional()
@@ -55,9 +67,19 @@ export interface Env {
 
 export const ENV = Symbol('ENV');
 
-export function loadEnv(raw: Record<string, string | undefined> = process.env): Env {
+export function loadEnv(
+  raw: Record<string, string | undefined> = process.env,
+  cwd: string = process.cwd(),
+): Env {
   const source = Object.fromEntries(Object.entries(raw).filter(([, value]) => value !== ''));
-  const result = schemaFor(source.NODE_ENV === 'production').safeParse(source);
+  const production = source.NODE_ENV === 'production';
+  const root = production ? undefined : findRepoRoot(cwd);
+  if (!production && source.BRIEFROOM_DATA_DIR === undefined && root === undefined) {
+    throw new Error(
+      'Invalid environment: BRIEFROOM_DATA_DIR is required (no repo root with pnpm-workspace.yaml found above the working directory to default it from)',
+    );
+  }
+  const result = schemaFor(production, root && join(root, '.data')).safeParse(source);
   if (!result.success) {
     const problems = result.error.issues.map((i) => {
       const name = String(i.path[0]);

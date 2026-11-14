@@ -2,7 +2,8 @@ import { EventEmitter } from 'node:events';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { JobsService } from '@briefroom/api/worker-kit';
+import { JobsService, ModuleRegistryService } from '@briefroom/api/worker-kit';
+import { systemScope } from '@briefroom/module-kit';
 import { Logger } from '@nestjs/common';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { stopOnSignals } from '../src/shutdown.ts';
@@ -24,7 +25,7 @@ let worker: RunningWorker | undefined;
 beforeAll(async () => {
   dataDir = await mkdtemp(join(tmpdir(), 'briefroom-worker-'));
   fx = await createFixture(dataDir);
-  producer = new JobsService(fx.env, 'app');
+  producer = new JobsService(fx.env, 'app', new ModuleRegistryService());
 });
 
 afterEach(async () => {
@@ -53,7 +54,7 @@ describe('worker', () => {
     const noteId = await createNote(fx.db, workspaceId);
     worker = await startWorker(fx.env, { logger: false });
 
-    await producer.enqueue('testkit.ping', { workspaceId, noteId });
+    await producer.enqueue(systemScope(workspaceId), 'testkit.ping', { noteId });
 
     const note = await until(
       async () => {
@@ -73,7 +74,7 @@ describe('worker', () => {
     const log = vi.spyOn(Logger.prototype, 'log');
     worker = await startWorker(fx.env, { logger: false });
 
-    const jobId = await producer.enqueue('testkit.ping', { workspaceId, noteId });
+    const jobId = await producer.enqueue(systemScope(workspaceId), 'testkit.ping', { noteId });
 
     await until(
       async () => ((await jobState(jobId)) === 'completed' ? true : undefined),
@@ -92,8 +93,7 @@ describe('worker', () => {
     const foreignNote = await createNote(fx.db, other);
     worker = await startWorker(fx.env, { logger: false });
 
-    const jobId = await producer.enqueue('testkit.ping', {
-      workspaceId: owner,
+    const jobId = await producer.enqueue(systemScope(owner), 'testkit.ping', {
       noteId: foreignNote,
     });
 
@@ -118,6 +118,48 @@ describe('worker', () => {
       `SELECT policy FROM pgboss.queue WHERE name = 'core.files-gc'`,
     );
     expect(queue[0]?.policy).toBe('exclusive');
+  });
+
+  it('takes the workspace from the scope, never from the payload', async () => {
+    const mine = await createWorkspace(fx.db, { testkitOn: true });
+    const other = await createWorkspace(fx.db, { testkitOn: true });
+
+    const jobId = await producer.enqueue(systemScope(mine), 'testkit.ping', {
+      noteId: 'x',
+      workspaceId: other,
+    } as { noteId: string });
+
+    const { rows } = await fx.db.$client.query<{ data: { workspaceId: string } }>(
+      `SELECT data FROM pgboss.job WHERE id = $1`,
+      [jobId],
+    );
+    expect(rows[0]!.data.workspaceId).toBe(mine);
+  });
+
+  it('refuses core jobs and unknown prefixes from enqueue', async () => {
+    const scope = systemScope(await createWorkspace(fx.db, { testkitOn: true }));
+
+    await expect(producer.enqueue(scope, 'core.files-gc', {})).rejects.toThrow(/core/);
+    await expect(producer.enqueue(scope, 'nope.thing', {})).rejects.toThrow(
+      /not a registered module/,
+    );
+  });
+
+  it('retries with backoff: core.files-gc and module queues', async () => {
+    worker = await startWorker(fx.env, { logger: false });
+    const { rows } = await fx.db.$client.query<{
+      name: string;
+      retry_limit: number;
+      retry_delay: number;
+      retry_backoff: boolean;
+    }>(
+      `SELECT name, retry_limit, retry_delay, retry_backoff FROM pgboss.queue
+       WHERE name IN ('core.files-gc', 'testkit.ping') ORDER BY name`,
+    );
+    expect(rows).toEqual([
+      { name: 'core.files-gc', retry_limit: 3, retry_delay: 60, retry_backoff: true },
+      { name: 'testkit.ping', retry_limit: 3, retry_delay: 30, retry_backoff: true },
+    ]);
   });
 
   it('closes its database connections when it stops', async () => {

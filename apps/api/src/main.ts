@@ -11,6 +11,7 @@ import { migrateJobs } from './jobs/jobs.service.ts';
 
 async function main(): Promise<void> {
   const env = loadEnv();
+  new Logger('Env').log(`Data directory: ${env.dataDir}`);
 
   const db = createDb(env.databaseUrl);
   try {

@@ -1,7 +1,8 @@
-import type { EnqueueOptions, JobQueue } from '@briefroom/module-kit';
+import type { EnqueueOptions, JobQueue, Scope } from '@briefroom/module-kit';
 import { Inject, Injectable, Logger, type BeforeApplicationShutdown } from '@nestjs/common';
 import { PgBoss, type Queue } from 'pg-boss';
 import { ENV, type Env } from '../config/env.ts';
+import { ModuleRegistryService } from '../module-registry/module-registry.service.ts';
 
 export type JobsMode = 'app' | 'worker';
 
@@ -10,10 +11,19 @@ export const JOBS_MODE = Symbol('JOBS_MODE');
 const JOB_NAME = /^(core|[a-z][a-z0-9-]{1,30})\.[a-z][a-z0-9-]*$/;
 const STOP_TIMEOUT_MS = 25_000;
 
-/** Queue settings that differ from pg-boss's defaults. `exclusive` keeps a job from ever overlapping itself. */
-export const QUEUE_OPTIONS: Readonly<Record<string, Omit<Queue, 'name'>>> = {
-  'core.files-gc': { policy: 'exclusive' },
+const RETRIES = { retryLimit: 3, retryBackoff: true } as const;
+
+/** Module jobs retry 3 times with exponential backoff from 30 s. */
+const MODULE_QUEUE_OPTIONS: Omit<Queue, 'name'> = { ...RETRIES, retryDelay: 30 };
+
+/** `exclusive` keeps files-gc from ever overlapping itself. */
+const CORE_QUEUE_OPTIONS: Readonly<Record<string, Omit<Queue, 'name'>>> = {
+  'core.files-gc': { policy: 'exclusive', ...RETRIES, retryDelay: 60 },
 };
+
+export function queueOptions(name: string): Omit<Queue, 'name'> {
+  return CORE_QUEUE_OPTIONS[name] ?? MODULE_QUEUE_OPTIONS;
+}
 
 export const MISSING_SCHEMA_MESSAGE =
   'The pg-boss schema is missing or out of date. Only the app process creates and migrates it: start the app once, then start the worker.';
@@ -61,6 +71,7 @@ export class JobsService implements JobQueue, BeforeApplicationShutdown {
   constructor(
     @Inject(ENV) private readonly env: Env,
     @Inject(JOBS_MODE) private readonly mode: JobsMode,
+    private readonly registry: ModuleRegistryService,
   ) {}
 
   /** Starts pg-boss on first use, so a process that never enqueues never opens its pool. */
@@ -92,26 +103,30 @@ export class JobsService implements JobQueue, BeforeApplicationShutdown {
   async ensureQueue(name: string): Promise<PgBoss> {
     const boss = await this.boss();
     if (!this.queues.has(name)) {
-      await boss.createQueue(name, QUEUE_OPTIONS[name]);
+      await boss.createQueue(name, queueOptions(name));
       this.queues.add(name);
     }
     return boss;
   }
 
   async enqueue<T extends object>(
+    scope: Scope,
     name: string,
-    payload: { workspaceId: string } & T,
+    payload: T,
     opts?: EnqueueOptions,
   ): Promise<string> {
     if (!JOB_NAME.test(name)) throw new Error(`"${name}" is not a job name: use <moduleId>.<name>`);
-    const workspaceId = (payload as { workspaceId?: unknown } | null)?.workspaceId;
-    if (typeof workspaceId !== 'string' || workspaceId === '') {
-      throw new Error(`Job "${name}" needs a workspaceId in its payload`);
-    }
+    const prefix = name.slice(0, name.indexOf('.'));
+    if (prefix === 'core') throw new Error(`"${name}" is a core job: modules cannot enqueue it`);
+    if (!this.registry.get(prefix)) throw new Error(`"${prefix}" is not a registered module`);
     const boss = await this.ensureQueue(name);
-    const id = await boss.send(name, payload, {
-      ...(opts?.singletonKey ? { singletonKey: opts.singletonKey } : {}),
-    });
+    const id = await boss.send(
+      name,
+      { ...payload, workspaceId: scope.workspaceId },
+      {
+        ...(opts?.singletonKey ? { singletonKey: opts.singletonKey } : {}),
+      },
+    );
     if (id === null) throw new Error(`Job "${name}" was not queued: the queue refused it`);
     return id;
   }
