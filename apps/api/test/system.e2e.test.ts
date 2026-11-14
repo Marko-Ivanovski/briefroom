@@ -53,6 +53,14 @@ describe('system routes', () => {
     expect(res.headers['content-type']).toMatch(/application\/json/);
   });
 
+  it.each(['/api/health', '/api/nope', '/api/auth/ok', '/', '/some/client/route'])(
+    'sends Referrer-Policy: no-referrer on %s',
+    async (path) => {
+      const res = await request(t.app.getHttpServer()).get(path);
+      expect(res.headers['referrer-policy']).toBe('no-referrer');
+    },
+  );
+
   it('does not fall back to index.html under /mcp', async () => {
     const res = await request(t.app.getHttpServer()).get('/mcp/anything');
     expect(res.status).toBe(404);

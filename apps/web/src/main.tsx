@@ -1,10 +1,20 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createRouter, RouterProvider } from '@tanstack/react-router';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { routeTree } from './routeTree.gen.ts';
 import './styles.css';
 
-const router = createRouter({ routeTree });
+const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+const router = createRouter({
+  routeTree,
+  context: { queryClient },
+  defaultPreloadStaleTime: 0,
+  Wrap: ({ children }) => (
+    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+  ),
+});
 
 declare module '@tanstack/react-router' {
   interface Register {

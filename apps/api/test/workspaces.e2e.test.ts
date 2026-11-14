@@ -1,4 +1,4 @@
-import { MemberSummary, WorkspaceSummary } from '@briefroom/contracts';
+import { MeResponse, MemberSummary, WorkspaceSummary } from '@briefroom/contracts';
 import { authSchema } from '@briefroom/db';
 import { and, eq } from 'drizzle-orm';
 import request from 'supertest';
@@ -68,6 +68,24 @@ describe('workspaces, scope and roles', () => {
 
   afterAll(async () => {
     await t.close();
+  });
+
+  describe('GET /api/v1/me', () => {
+    it('says whether the caller is the install owner', async () => {
+      const owner = await http().get('/api/v1/me').set(as('owner'));
+      expect(MeResponse.parse(owner.body)).toEqual({
+        userId: ids.owner,
+        name: 'owner',
+        email: 'owner@example.com',
+        isInstallOwner: true,
+      });
+      const admin = await http().get('/api/v1/me').set(as('admin'));
+      expect(MeResponse.parse(admin.body).isInstallOwner).toBe(false);
+    });
+
+    it('requires a session', async () => {
+      expect((await http().get('/api/v1/me')).status).toBe(401);
+    });
   });
 
   describe('GET /api/v1/workspaces', () => {

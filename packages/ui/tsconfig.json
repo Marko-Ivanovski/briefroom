@@ -1,5 +1,16 @@
 {
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "noEmit": true, "allowImportingTsExtensions": true, "types": ["node"] },
+  "compilerOptions": {
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "types": ["node"],
+    "jsx": "react-jsx",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "experimentalDecorators": false,
+    "emitDecoratorMetadata": false,
+    "paths": { "@/*": ["./src/*"] }
+  },
   "include": ["src"]
 }
