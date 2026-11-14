@@ -49,10 +49,7 @@ export class ChecklistService {
           .onConflictDoNothing(),
       );
     }
-    const items = await Promise.all(
-      links.map((l) => this.item(scope, projectId, userId, kind, l.id)),
-    );
-    return items.filter((i): i is ChecklistItem => i !== null);
+    return this.items(scope, projectId, userId, kind);
   }
 
   async set(
@@ -90,19 +87,19 @@ export class ChecklistService {
         .set(scopedUpdate(scope, { done: input.done }))
         .where(key);
     });
-    const item = await this.item(scope, projectId, userId, input.kind, input.toolLinkId);
+    const [item] = await this.items(scope, projectId, userId, input.kind, input.toolLinkId);
     if (!item) throw new NotFoundException('Tool link not found');
     return item;
   }
 
-  private async item(
+  private async items(
     scope: Scope,
     projectId: string,
     userId: string,
     kind: ChecklistKind,
-    toolLinkId: string,
-  ): Promise<ChecklistItem | null> {
-    const [row] = await this.db
+    toolLinkId?: string,
+  ): Promise<ChecklistItem[]> {
+    const rows = await this.db
       .select({
         toolLinkId: projectToolLinks.id,
         label: projectToolLinks.label,
@@ -111,27 +108,34 @@ export class ChecklistService {
         doneBy: authSchema.user.name,
         doneAt: projectAccessChecklist.updatedAt,
       })
-      .from(projectAccessChecklist)
-      .innerJoin(projectToolLinks, eq(projectToolLinks.id, projectAccessChecklist.toolLinkId))
-      .leftJoin(authSchema.user, eq(authSchema.user.id, projectAccessChecklist.updatedBy))
-      .where(
+      .from(projectToolLinks)
+      .innerJoin(
+        projectAccessChecklist,
         and(
+          eq(projectAccessChecklist.toolLinkId, projectToolLinks.id),
           scoped(scope, projectAccessChecklist),
           eq(projectAccessChecklist.projectId, projectId),
           eq(projectAccessChecklist.userId, userId),
           eq(projectAccessChecklist.kind, kind),
-          eq(projectAccessChecklist.toolLinkId, toolLinkId),
         ),
-      );
-    if (!row) return null;
-    return {
+      )
+      .leftJoin(authSchema.user, eq(authSchema.user.id, projectAccessChecklist.updatedBy))
+      .where(
+        and(
+          scoped(scope, projectToolLinks),
+          eq(projectToolLinks.projectId, projectId),
+          toolLinkId ? eq(projectToolLinks.id, toolLinkId) : undefined,
+        ),
+      )
+      .orderBy(asc(projectToolLinks.createdAt), asc(projectToolLinks.id));
+    return rows.map((row) => ({
       toolLinkId: row.toolLinkId,
       label: row.label,
       url: row.url,
       done: row.done,
       doneBy: row.done ? row.doneBy : null,
       doneAt: row.done ? row.doneAt.toISOString() : null,
-    };
+    }));
   }
 
   private toolLinks(scope: Scope, projectId: string): Promise<{ id: string }[]> {

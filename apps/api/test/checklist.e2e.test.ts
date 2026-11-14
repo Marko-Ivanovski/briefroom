@@ -191,4 +191,46 @@ describe('access checklists', () => {
     expect(res.body.map((i: Item) => i.label)).toEqual(['Drive']);
     expect(res.body[0].done).toBe(false);
   });
+
+  it('never crosses workspaces for a caller who is in both', async () => {
+    const ws2 = (
+      await t.auth.api.createOrganization({
+        body: { name: 'Other', slug: 'other', userId: ids.owner! },
+      })
+    ).id;
+    await t.auth.api.addMember({
+      body: { userId: ids.stranger!, role: 'member', organizationId: ws2 },
+    });
+    const created = await http()
+      .post(`/api/v1/workspaces/${ws2}/projects`)
+      .set(as('owner'))
+      .send({ name: 'R', toolLinks: [{ label: 'Wiki2', url: 'https://wiki.example.com/r' }] });
+    const ws2ProjectId: string = created.body.id;
+    const ws2LinkId: string = created.body.toolLinks[0].id;
+    const countRows = async () => (await t.db.db.select().from(projectAccessChecklist)).length;
+    const before = await countRows();
+
+    const ws2Path = `/api/v1/workspaces/${ws2}/projects/${projectId}/members/${ids.member}/checklist`;
+    expect((await http().get(`${ws2Path}?kind=add`).set(as('owner'))).status).toBe(404);
+
+    const patch = await tick('owner', ids.member!, {
+      toolLinkId: ws2LinkId,
+      kind: 'add',
+      done: true,
+    });
+    expect(patch.status).toBe(404);
+
+    const ws2Only = await http()
+      .get(`${checklist(ids.stranger!)}?kind=add`)
+      .set(as('owner'));
+    expect(ws2Only.status).toBe(404);
+
+    const inWs2 = await http()
+      .get(
+        `/api/v1/workspaces/${ws2}/projects/${ws2ProjectId}/members/${ids.stranger}/checklist?kind=add`,
+      )
+      .set(as('owner'));
+    expect(inWs2.status).toBe(200);
+    expect(await countRows()).toBe(before + 1);
+  });
 });
