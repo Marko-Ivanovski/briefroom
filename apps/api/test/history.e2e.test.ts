@@ -27,7 +27,7 @@ describe('change history', () => {
 
   beforeAll(async () => {
     t = await createTestApp();
-    for (const key of ['owner', 'writer', 'reader', 'outsider']) {
+    for (const key of ['owner', 'writer', 'reader', 'outsider', 'onb']) {
       const { user } = await t.auth.api.createUser({
         body: { email: `${key}@example.com`, password: PASSWORD, name: key },
       });
@@ -47,7 +47,7 @@ describe('change history', () => {
         body: { name: 'Acme', slug: 'acme', userId: ids.owner! },
       })
     ).id;
-    for (const key of ['writer', 'reader']) {
+    for (const key of ['writer', 'reader', 'onb']) {
       await t.auth.api.addMember({
         body: { userId: ids[key]!, role: 'member', organizationId: ws },
       });
@@ -167,5 +167,32 @@ describe('change history', () => {
       createdBy: ids.writer,
       createdVia: 'web',
     });
+  });
+  it('decides visibility per entry when a note moves between projects (R125)', async () => {
+    const actor = { userId: ids.owner!, via: 'web' } as const;
+    const b = (await http().post(`${base()}/projects`).set(as('owner')).send({ name: 'B' })).body
+      .id as string;
+    await t.db.db
+      .insert(projectMembers)
+      .values(scopedInsert({ workspaceId: ws, actor }, { projectId: b, userId: ids.onb! }));
+    const note = await createNote('writer', { text: 'a1', projectId });
+    await edit('writer', note.id, 'a2');
+    await t.db.db.$client.query('UPDATE testkit_notes SET project_id = $1 WHERE id = $2', [
+      b,
+      note.id,
+    ]);
+    await edit('owner', note.id, 'b1');
+
+    const onA = await history('writer', 'testkit_notes', note.id);
+    expect(onA.body.map((e: { changes: { text: { to: string } } }) => e.changes.text.to)).toEqual([
+      'a2',
+      'a1',
+    ]);
+    const onB = await history('onb', 'testkit_notes', note.id);
+    expect(onB.body.map((e: { changes: { text: { to: string } } }) => e.changes.text.to)).toEqual([
+      'b1',
+    ]);
+    expect((await history('reader', 'testkit_notes', note.id)).status).toBe(404);
+    expect((await history('owner', 'testkit_notes', note.id)).body).toHaveLength(3);
   });
 });

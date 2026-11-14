@@ -10,7 +10,7 @@ import {
 } from '@briefroom/db';
 import type { HistoryInput, HistoryRecorder } from '@briefroom/module-kit';
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, or } from 'drizzle-orm';
 import type { Scope } from '../access/scope.ts';
 import { DB } from '../database/database.module.ts';
 import { ModuleRegistryService } from '../module-registry/module-registry.service.ts';
@@ -61,12 +61,23 @@ export class HistoryService implements HistoryRecorder {
     );
   }
 
-  /** Newest first. A record whose project the caller cannot see is a 404, like the record itself. */
+  /**
+   * Newest first. Each entry is visible by its own project (R125): null is workspace-level, any
+   * other project must be one the caller sees. No visible entry for a record that has history is a 404.
+   */
   async entries(scope: Scope, table: string, recordId: string): Promise<HistoryEntry[]> {
+    const ofRecord = and(
+      eq(recordHistory.workspaceId, scope.workspaceId),
+      eq(recordHistory.tableName, table),
+      eq(recordHistory.recordId, recordId),
+    );
+    const visibleProjects = this.db
+      .select({ id: projects.id })
+      .from(projects)
+      .where(scopedProjects(scope));
     const rows = await this.db
       .select({
         id: recordHistory.id,
-        projectId: recordHistory.projectId,
         actorId: recordHistory.actorId,
         actorName: authSchema.user.name,
         via: recordHistory.via,
@@ -78,20 +89,19 @@ export class HistoryService implements HistoryRecorder {
       .leftJoin(authSchema.user, eq(authSchema.user.id, recordHistory.actorId))
       .where(
         and(
-          eq(recordHistory.workspaceId, scope.workspaceId),
-          eq(recordHistory.tableName, table),
-          eq(recordHistory.recordId, recordId),
+          ofRecord,
+          or(isNull(recordHistory.projectId), inArray(recordHistory.projectId, visibleProjects)),
         ),
       )
       .orderBy(desc(recordHistory.at), desc(recordHistory.createdAt));
 
-    const currentProject = rows[0]?.projectId;
-    if (currentProject) {
-      const [visible] = await this.db
-        .select({ id: projects.id })
-        .from(projects)
-        .where(and(scopedProjects(scope), eq(projects.id, currentProject)));
-      if (!visible) throw new NotFoundException('Record not found');
+    if (rows.length === 0) {
+      const [any] = await this.db
+        .select({ id: recordHistory.id })
+        .from(recordHistory)
+        .where(ofRecord)
+        .limit(1);
+      if (any) throw new NotFoundException('Record not found');
     }
     return rows.map((r) => ({
       id: r.id,
