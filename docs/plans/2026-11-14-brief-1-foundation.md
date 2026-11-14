@@ -10,13 +10,13 @@
 
 **Release:** this epic is not v1. The foundation plus the first modules will be roughly v0.3. Marko has more planned before v1.
 
-**Tech Stack:** Node 22 LTS, TypeScript strict, pnpm, NestJS 12, Drizzle ORM v1, Postgres 16 with pgvector, Better Auth with `@thallesp/nestjs-better-auth`, `@nestjs/mcp`, Zod 4, pg-boss, sharp, React, Vite 8, TanStack Router, TanStack Query, Tailwind, shadcn/ui, Vitest with `unplugin-swc`, Playwright, Docker Compose.
+**Tech Stack:** Node 24 LTS, TypeScript strict, pnpm, NestJS 12, Drizzle ORM v1 (1.0.0-rc.5), Postgres 16 with pgvector, Better Auth with `@thallesp/nestjs-better-auth`, `@better-auth/api-key`, `@nestjs/mcp`, Zod 4, pg-boss, sharp, React, Vite 8, TanStack Router, TanStack Query, Tailwind, shadcn/ui, Vitest with `unplugin-swc`, Playwright, Docker Compose.
 
 **Spec:** `docs/specs/2026-11-14-foundation-design.md`. It supersedes parts of `docs/specs/2026-11-11-workspaces-and-connection-design.md`, which still holds for invite links, browser joining, bookmarks, password resets, connection modes and connecting agents. Read both.
 
 ## Global Constraints
 
-- Node 22 LTS. TypeScript `strict: true`, no implicit `any`, `interface` for object shapes.
+- Node 24 LTS (changed from 22 on 2026-11-14, see `docs/checks/2026-11-foundation-checks.md`). TypeScript `strict: true`, no implicit `any`, `interface` for object shapes.
 - No email is sent anywhere. Invites and resets are links.
 - No LLM or model calls anywhere in the install.
 - The app never needs `docker.sock` or root to change its own configuration.
