@@ -44,6 +44,14 @@ describe('per-module publisher and queue (R138)', () => {
   });
 });
 
+describe('module job options (R141)', () => {
+  it('does not accept a singletonKey, because module queues do not deduplicate', async () => {
+    const jobs = bindJobs('testkit', { enqueue: vi.fn(async () => 'id') });
+    // @ts-expect-error `singletonKey` is not an option: nothing would drop the second job
+    await jobs.enqueue(scope, 'testkit.ping', {}, { singletonKey: 'x' });
+  });
+});
+
 describe('per-module file store and history (R140)', () => {
   const input = { bytes: Buffer.alloc(0) };
 

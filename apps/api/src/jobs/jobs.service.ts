@@ -1,4 +1,4 @@
-import type { EnqueueOptions, JobQueue, Scope } from '@briefroom/module-kit';
+import type { JobQueue, Scope } from '@briefroom/module-kit';
 import { Inject, Injectable, Logger, type BeforeApplicationShutdown } from '@nestjs/common';
 import { PgBoss, type Queue } from 'pg-boss';
 import { ENV, type Env } from '../config/env.ts';
@@ -109,24 +109,13 @@ export class JobsService implements JobQueue, BeforeApplicationShutdown {
     return boss;
   }
 
-  async enqueue<T extends object>(
-    scope: Scope,
-    name: string,
-    payload: T,
-    opts?: EnqueueOptions,
-  ): Promise<string> {
+  async enqueue<T extends object>(scope: Scope, name: string, payload: T): Promise<string> {
     if (!JOB_NAME.test(name)) throw new Error(`"${name}" is not a job name: use <moduleId>.<name>`);
     const prefix = name.slice(0, name.indexOf('.'));
     if (prefix === 'core') throw new Error(`"${name}" is a core job: modules cannot enqueue it`);
     if (!this.registry.get(prefix)) throw new Error(`"${prefix}" is not a registered module`);
     const boss = await this.ensureQueue(name);
-    const id = await boss.send(
-      name,
-      { ...payload, workspaceId: scope.workspaceId },
-      {
-        ...(opts?.singletonKey ? { singletonKey: opts.singletonKey } : {}),
-      },
-    );
+    const id = await boss.send(name, { ...payload, workspaceId: scope.workspaceId });
     if (id === null) throw new Error(`Job "${name}" was not queued: the queue refused it`);
     return id;
   }

@@ -1,10 +1,8 @@
 import { SetMetadata } from '@nestjs/common';
 import type { Scope } from './scope.ts';
 
-export interface EnqueueOptions {
-  /** A second job with the same name and key is dropped while the first is still queued or running. */
-  singletonKey?: string;
-}
+/** No options yet: deduplication isn't offered, because module queues don't drop duplicates. */
+export type EnqueueOptions = Record<string, never>;
 
 /** Implemented by the API and the worker. Provided globally, so module code never imports an app. */
 export interface JobQueue {
