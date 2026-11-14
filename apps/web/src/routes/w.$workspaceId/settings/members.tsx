@@ -1,4 +1,4 @@
-import type { Role } from '@briefroom/contracts';
+import type { RemovalResult, Role } from '@briefroom/contracts';
 import {
   Button,
   Table,
@@ -9,7 +9,7 @@ import {
   TableRow,
 } from '@briefroom/ui';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { createFileRoute, useNavigate } from '@tanstack/react-router';
+import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { useState } from 'react';
 import { api } from '../../../api/client.ts';
 import {
@@ -44,6 +44,7 @@ function MembersPage() {
   const { data: me } = useQuery(meQuery);
   const [confirming, setConfirming] = useState<string | null>(null);
   const [confirmingLeave, setConfirmingLeave] = useState(false);
+  const [removed, setRemoved] = useState<{ name: string; projects: RemovalResult['projects'] }>();
 
   const callerRole = workspaces.find((w) => w.id === workspaceId)?.role;
   const canRemove = (target: { userId: string; role: Role }) =>
@@ -54,8 +55,10 @@ function MembersPage() {
 
   const remove = useMutation({
     mutationFn: (userId: string) => api.removeMember(workspaceId, userId),
-    onSuccess: async () => {
+    onSuccess: async (result, userId) => {
       setConfirming(null);
+      const name = members.find((m) => m.userId === userId)?.name ?? 'This person';
+      setRemoved({ name, projects: result.projects });
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: membersQuery(workspaceId).queryKey }),
         invalidateProjects(queryClient, workspaceId),
@@ -83,6 +86,28 @@ function MembersPage() {
               : null
         }
       />
+      {removed && removed.projects.length > 0 ? (
+        <section aria-label="Pending removals" className="mb-4 rounded-md border p-4 text-sm">
+          <p>
+            {removed.name} still has access to take away on {removed.projects.length}{' '}
+            {removed.projects.length === 1 ? 'project' : 'projects'}:
+          </p>
+          <ul className="mt-2 grid gap-1">
+            {removed.projects.map((p) => (
+              <li key={p.id}>
+                <Link
+                  className="underline"
+                  to="/w/$workspaceId/projects/$projectId/members"
+                  params={{ workspaceId, projectId: p.id }}
+                >
+                  {p.name}
+                </Link>
+                , {p.undone} undone
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
       <Table>
         <TableHeader>
           <TableRow>

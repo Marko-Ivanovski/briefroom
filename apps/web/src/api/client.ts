@@ -13,6 +13,7 @@ import {
   ProjectDetail,
   ProjectMemberSummary,
   ProjectSummary,
+  RemovalResult,
   SetupResponse,
   SetupStatus,
   WorkspaceSettings,
@@ -179,7 +180,11 @@ export const api = {
       `${workspacePath(workspaceId)}/join-requests/${encodeURIComponent(requestId)}/decline`,
     ),
   removeMember: (workspaceId: string, userId: string) =>
-    request(null, 'DELETE', `${workspacePath(workspaceId)}/members/${encodeURIComponent(userId)}`),
+    request(
+      RemovalResult,
+      'DELETE',
+      `${workspacePath(workspaceId)}/members/${encodeURIComponent(userId)}`,
+    ),
   leaveWorkspace: (workspaceId: string) =>
     request(null, 'POST', `${workspacePath(workspaceId)}/leave`),
   joinLookup: (token: string) =>
