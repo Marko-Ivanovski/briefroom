@@ -1,29 +1,95 @@
 import type { Role } from '@briefroom/contracts';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@briefroom/ui';
-import { useQuery } from '@tanstack/react-query';
-import { createFileRoute } from '@tanstack/react-router';
-import { membersQuery } from '../../../api/queries.ts';
+import {
+  Button,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@briefroom/ui';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { createFileRoute, useNavigate } from '@tanstack/react-router';
+import { useState } from 'react';
+import { api } from '../../../api/client.ts';
+import {
+  invalidateProjects,
+  meQuery,
+  membersQuery,
+  workspacesQuery,
+} from '../../../api/queries.ts';
+import { FormError } from '../../../components/form-error.tsx';
+import { MEMBER_CODES, MEMBER_ERRORS, messageFor } from '../../../lib/errors.ts';
+import { isAdminRole } from '../../../lib/roles.ts';
 
 const ROLE_LABELS: Record<Role, string> = { owner: 'Owner', admin: 'Admin', member: 'Member' };
 
 export const Route = createFileRoute('/w/$workspaceId/settings/members')({
-  loader: ({ context: { queryClient }, params }) =>
-    queryClient.query({ ...membersQuery(params.workspaceId), staleTime: 0 }),
+  loader: async ({ context: { queryClient }, params }) => {
+    await Promise.all([
+      queryClient.query({ ...membersQuery(params.workspaceId), staleTime: 0 }),
+      queryClient.query({ ...workspacesQuery, staleTime: 'static' }),
+      queryClient.query({ ...meQuery, staleTime: 'static' }),
+    ]);
+  },
   component: MembersPage,
 });
 
 function MembersPage() {
   const { workspaceId } = Route.useParams();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { data: members = [] } = useQuery(membersQuery(workspaceId));
+  const { data: workspaces = [] } = useQuery(workspacesQuery);
+  const { data: me } = useQuery(meQuery);
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const [confirmingLeave, setConfirmingLeave] = useState(false);
+
+  const callerRole = workspaces.find((w) => w.id === workspaceId)?.role;
+  const canRemove = (target: { userId: string; role: Role }) =>
+    isAdminRole(callerRole) &&
+    target.role !== 'owner' &&
+    target.userId !== me?.userId &&
+    (target.role !== 'admin' || callerRole === 'owner');
+
+  const remove = useMutation({
+    mutationFn: (userId: string) => api.removeMember(workspaceId, userId),
+    onSuccess: async () => {
+      setConfirming(null);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: membersQuery(workspaceId).queryKey }),
+        invalidateProjects(queryClient, workspaceId),
+      ]);
+    },
+  });
+
+  const leave = useMutation({
+    mutationFn: () => api.leaveWorkspace(workspaceId),
+    onSuccess: async () => {
+      queryClient.clear();
+      await navigate({ to: '/' });
+    },
+  });
+
   return (
     <section>
       <h1 className="mb-4 text-2xl font-semibold">Members</h1>
+      <FormError
+        message={
+          remove.isError
+            ? messageFor(remove.error, MEMBER_ERRORS, MEMBER_CODES)
+            : leave.isError
+              ? messageFor(leave.error, MEMBER_ERRORS, MEMBER_CODES)
+              : null
+        }
+      />
       <Table>
         <TableHeader>
           <TableRow>
             <TableHead>Name</TableHead>
             <TableHead>Email</TableHead>
             <TableHead>Role</TableHead>
+            <TableHead>Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -32,10 +98,66 @@ function MembersPage() {
               <TableCell>{m.name}</TableCell>
               <TableCell>{m.email}</TableCell>
               <TableCell>{ROLE_LABELS[m.role]}</TableCell>
+              <TableCell>
+                {canRemove(m) ? (
+                  confirming === m.userId ? (
+                    <div
+                      role="group"
+                      aria-label={`Confirm removing ${m.name}`}
+                      className="flex gap-2"
+                    >
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        aria-label={`Confirm remove ${m.name}`}
+                        disabled={remove.isPending}
+                        onClick={() => remove.mutate(m.userId)}
+                      >
+                        Confirm remove
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => setConfirming(null)}>
+                        Cancel
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      aria-label={`Remove ${m.name}`}
+                      onClick={() => setConfirming(m.userId)}
+                    >
+                      Remove
+                    </Button>
+                  )
+                ) : null}
+              </TableCell>
             </TableRow>
           ))}
         </TableBody>
       </Table>
+      {callerRole && callerRole !== 'owner' ? (
+        <div className="mt-6">
+          {confirmingLeave ? (
+            <div role="group" aria-label="Confirm leaving the workspace" className="flex gap-2">
+              <Button
+                variant="destructive"
+                size="sm"
+                disabled={leave.isPending}
+                onClick={() => leave.mutate()}
+              >
+                Confirm leave
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setConfirmingLeave(false)}>
+                Cancel
+              </Button>
+            </div>
+          ) : (
+            <Button variant="outline" size="sm" onClick={() => setConfirmingLeave(true)}>
+              Leave workspace
+            </Button>
+          )}
+        </div>
+      ) : null}
     </section>
   );
 }

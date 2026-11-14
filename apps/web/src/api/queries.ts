@@ -34,6 +34,24 @@ export const membersQuery = (workspaceId: string) =>
     queryFn: () => api.members(workspaceId),
   });
 
+export const invitesQuery = (workspaceId: string) =>
+  queryOptions({
+    queryKey: ['workspaces', workspaceId, 'invites'],
+    queryFn: () => api.invites(workspaceId),
+  });
+
+export const joinRequestsQuery = (workspaceId: string) =>
+  queryOptions({
+    queryKey: ['workspaces', workspaceId, 'join-requests'],
+    queryFn: () => api.joinRequests(workspaceId),
+  });
+
+export const joinLookupQuery = (token: string) =>
+  queryOptions({
+    queryKey: ['join', token],
+    queryFn: () => api.joinLookup(token),
+  });
+
 const projectsKey = (workspaceId: string) => ['workspaces', workspaceId, 'projects'] as const;
 
 export const settingsQuery = (workspaceId: string) =>

@@ -5,6 +5,7 @@ import { FormError } from '../../components/form-error.tsx';
 import { meQuery, workspacesQuery } from '../../api/queries.ts';
 import { WorkspaceSwitcher } from '../../components/workspace-switcher.tsx';
 import { writeLastWorkspace } from '../../lib/last-workspace.ts';
+import { isAdminRole } from '../../lib/roles.ts';
 import { useSignOut } from '../../lib/use-sign-out.ts';
 
 export const Route = createFileRoute('/w/$workspaceId')({
@@ -47,6 +48,24 @@ function WorkspaceLayout() {
           >
             Members
           </Link>
+          {isAdminRole(workspaces.find((w) => w.id === workspaceId)?.role) ? (
+            <>
+              <Link
+                to="/w/$workspaceId/settings/invites"
+                params={{ workspaceId }}
+                className="[&.active]:font-semibold"
+              >
+                Invites
+              </Link>
+              <Link
+                to="/w/$workspaceId/settings/join-requests"
+                params={{ workspaceId }}
+                className="[&.active]:font-semibold"
+              >
+                Join requests
+              </Link>
+            </>
+          ) : null}
         </nav>
         <div className="ml-auto flex items-center gap-3 text-sm">
           <span className="text-muted-foreground">{me?.email}</span>

@@ -1,5 +1,10 @@
 import {
   ChecklistItem,
+  InviteCreated,
+  InviteSummary,
+  JoinLookup,
+  JoinRequestSummary,
+  JoinResult,
   MeResponse,
   MemberSummary,
   PendingRemoval,
@@ -11,6 +16,8 @@ import {
   WorkspaceSettings,
   WorkspaceSummary,
   type ChecklistKind,
+  type InviteCreate,
+  type JoinSignUp,
   type ProjectInput,
   type ProjectPatch,
   type SetChecklistItemInput,
@@ -140,6 +147,40 @@ export const api = {
       `${memberPath(workspaceId, projectId, userId)}/checklist`,
       body,
     ),
+  invites: (workspaceId: string) =>
+    request(InviteSummary.array(), 'GET', `${workspacePath(workspaceId)}/invites`),
+  createInvite: (workspaceId: string, body: InviteCreate) =>
+    request(InviteCreated, 'POST', `${workspacePath(workspaceId)}/invites`, body),
+  revokeInvite: (workspaceId: string, inviteId: string) =>
+    request(
+      null,
+      'DELETE',
+      `${workspacePath(workspaceId)}/invites/${encodeURIComponent(inviteId)}`,
+    ),
+  joinRequests: (workspaceId: string) =>
+    request(JoinRequestSummary.array(), 'GET', `${workspacePath(workspaceId)}/join-requests`),
+  approveJoinRequest: (workspaceId: string, requestId: string) =>
+    request(
+      JoinResult,
+      'POST',
+      `${workspacePath(workspaceId)}/join-requests/${encodeURIComponent(requestId)}/approve`,
+    ),
+  declineJoinRequest: (workspaceId: string, requestId: string) =>
+    request(
+      null,
+      'POST',
+      `${workspacePath(workspaceId)}/join-requests/${encodeURIComponent(requestId)}/decline`,
+    ),
+  removeMember: (workspaceId: string, userId: string) =>
+    request(null, 'DELETE', `${workspacePath(workspaceId)}/members/${encodeURIComponent(userId)}`),
+  leaveWorkspace: (workspaceId: string) =>
+    request(null, 'POST', `${workspacePath(workspaceId)}/leave`),
+  joinLookup: (token: string) =>
+    request(JoinLookup, 'GET', `/api/v1/join/${encodeURIComponent(token)}`),
+  joinSignUp: (token: string, body: JoinSignUp) =>
+    request(JoinResult, 'POST', `/api/v1/join/${encodeURIComponent(token)}/sign-up`, body),
+  joinAccept: (token: string) =>
+    request(JoinResult, 'POST', `/api/v1/join/${encodeURIComponent(token)}/accept`, {}),
   resetPassword: (token: string, password: string) =>
     request(null, 'POST', `/api/v1/reset/${encodeURIComponent(token)}`, { password }),
   signIn: (email: string, password: string) =>
