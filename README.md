@@ -11,6 +11,16 @@ Early development. Nothing is released yet. The foundation is being built first,
 - Design: [`docs/specs/2026-11-14-foundation-design.md`](docs/specs/2026-11-14-foundation-design.md)
 - Plan: [`docs/plans/2026-11-14-brief-1-foundation.md`](docs/plans/2026-11-14-brief-1-foundation.md)
 
+## Development
+
+Needs Node 24, pnpm and Docker.
+
+```sh
+pnpm install
+pnpm db:up
+pnpm dev
+```
+
 ## Branches
 
 - `main` holds releases only.
