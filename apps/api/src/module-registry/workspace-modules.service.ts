@@ -1,4 +1,4 @@
-import type { ModuleSummary } from '@briefroom/contracts';
+import type { ModuleDetail, ModuleSummary } from '@briefroom/contracts';
 import { scopedInsert, scopedUpdate, workspaceModules, type Actor, type Db } from '@briefroom/db';
 import type { ModuleState } from '@briefroom/module-kit';
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
@@ -37,6 +37,17 @@ export class WorkspaceModulesService implements ModuleState {
       description: m.description,
       enabled: on.has(m.id),
     }));
+  }
+
+  async detail(workspaceId: string, moduleId: string): Promise<ModuleDetail> {
+    const registered = this.registry.get(moduleId);
+    if (!registered) throw new NotFoundException('Module not found');
+    const { manifest: m } = registered;
+    const [enabled, settings] = await Promise.all([
+      this.isEnabled(workspaceId, moduleId),
+      this.settings<Record<string, unknown>>(workspaceId, moduleId),
+    ]);
+    return { id: m.id, name: m.name, description: m.description, enabled, settings };
   }
 
   /** The stored settings run through the manifest schema, so defaults fill in missing fields. */

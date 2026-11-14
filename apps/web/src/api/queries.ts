@@ -53,6 +53,12 @@ export const modulesQuery = (workspaceId: string) =>
     staleTime: 30_000,
   });
 
+export const moduleDetailQuery = (workspaceId: string, moduleId: string) =>
+  queryOptions({
+    queryKey: ['workspaces', workspaceId, 'modules', moduleId],
+    queryFn: () => api.module(workspaceId, moduleId),
+  });
+
 export const memberPermissionsQuery = (workspaceId: string, userId: string) =>
   queryOptions({
     queryKey: ['workspaces', workspaceId, 'members', userId, 'permissions'],

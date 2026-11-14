@@ -11,6 +11,8 @@ import type { Scope } from './scope.ts';
 /** Implemented by the API. Provided globally, so module code never imports the API. */
 export interface ModuleState {
   isEnabled(workspaceId: string, moduleId: string): Promise<boolean>;
+  /** The workspace's settings for a module, parsed through its manifest schema with defaults filled in. */
+  settings<T = Record<string, unknown>>(workspaceId: string, moduleId: string): Promise<T>;
 }
 
 export const MODULE_STATE = Symbol('MODULE_STATE');

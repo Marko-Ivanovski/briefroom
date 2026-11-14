@@ -1,13 +1,47 @@
 import { Label } from '@briefroom/ui';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
-import { useState } from 'react';
+import type { ModuleSettingsPanelProps } from '@briefroom/module-kit/web';
+import { useState, type ComponentType } from 'react';
 import { api } from '../../../api/client.ts';
-import { modulesQuery, workspacesQuery } from '../../../api/queries.ts';
+import { moduleDetailQuery, modulesQuery, workspacesQuery } from '../../../api/queries.ts';
 import { FormError } from '../../../components/form-error.tsx';
 import { MODULE_CODES, MODULE_ERRORS, messageFor } from '../../../lib/errors.ts';
 import { isAdminRole } from '../../../lib/roles.ts';
 import { WEB_MODULES } from '../../../modules.ts';
+
+interface PanelHostProps {
+  workspaceId: string;
+  moduleId: string;
+  canEdit: boolean;
+  Panel: ComponentType<ModuleSettingsPanelProps>;
+}
+
+function SettingsPanelHost({ workspaceId, moduleId, canEdit, Panel }: PanelHostProps) {
+  const queryClient = useQueryClient();
+  const { data } = useQuery(moduleDetailQuery(workspaceId, moduleId));
+  const save = useMutation({
+    mutationFn: (settings: Record<string, unknown>) =>
+      api.updateModule(workspaceId, moduleId, { settings }),
+    onSettled: () => queryClient.invalidateQueries(modulesQuery(workspaceId)),
+  });
+  if (!data) return null;
+  return (
+    <>
+      <Panel
+        workspaceId={workspaceId}
+        settings={data.settings}
+        canEdit={canEdit}
+        save={async (settings) => {
+          await save.mutateAsync(settings);
+        }}
+      />
+      <FormError
+        message={save.isError ? messageFor(save.error, MODULE_ERRORS, MODULE_CODES) : null}
+      />
+    </>
+  );
+}
 
 export const Route = createFileRoute('/w/$workspaceId/settings/modules')({
   loader: async ({ context: { queryClient }, params }) => {
@@ -66,7 +100,14 @@ function ModulesPage() {
                   <p className="text-muted-foreground text-sm">{m.description}</p>
                 </div>
               </div>
-              {Panel && m.enabled ? <Panel /> : null}
+              {Panel && m.enabled ? (
+                <SettingsPanelHost
+                  workspaceId={workspaceId}
+                  moduleId={m.id}
+                  canEdit={isAdmin}
+                  Panel={Panel}
+                />
+              ) : null}
             </li>
           );
         })}

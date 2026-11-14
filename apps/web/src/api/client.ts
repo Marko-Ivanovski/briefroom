@@ -11,6 +11,7 @@ import {
   MemberPermission,
   MeResponse,
   MemberSummary,
+  ModuleDetail,
   ModuleSummary,
   PendingRemoval,
   ProjectDetail,
@@ -106,6 +107,12 @@ export const api = {
   setupModules: () => request(AvailableModule.array(), 'GET', '/api/v1/setup/modules'),
   modules: (workspaceId: string) =>
     request(ModuleSummary.array(), 'GET', `${workspacePath(workspaceId)}/modules`),
+  module: (workspaceId: string, moduleId: string) =>
+    request(
+      ModuleDetail,
+      'GET',
+      `${workspacePath(workspaceId)}/modules/${encodeURIComponent(moduleId)}`,
+    ),
   updateModule: (workspaceId: string, moduleId: string, body: UpdateModuleRequest) =>
     request(
       ModuleSummary,

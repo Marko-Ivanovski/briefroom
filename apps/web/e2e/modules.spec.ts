@@ -29,6 +29,11 @@ test('modules: navigation, settings, member permissions and the off state', asyn
 
   await nav(page).getByRole('link', { name: 'Modules' }).click();
   await expect(page.getByText('Testkit settings panel')).toBeVisible();
+  await expect(page.getByLabel('Greeting')).toHaveValue('hello');
+  await page.getByLabel('Greeting').fill('ahoj');
+  await page.getByRole('button', { name: 'Save greeting' }).click();
+  await page.reload();
+  await expect(page.getByLabel('Greeting')).toHaveValue('ahoj');
   await testkitSwitch(page).uncheck();
   await expect(nav(page).getByRole('link', { name: 'Testkit' })).toHaveCount(0);
   await expect(page.getByText('Testkit settings panel')).toHaveCount(0);

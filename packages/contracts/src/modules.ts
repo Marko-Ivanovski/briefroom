@@ -10,6 +10,9 @@ export const ModuleSummary = z.object({
 });
 export type ModuleSummary = z.infer<typeof ModuleSummary>;
 
+export const ModuleDetail = ModuleSummary.extend({ settings: z.record(z.string(), z.unknown()) });
+export type ModuleDetail = z.infer<typeof ModuleDetail>;
+
 export const AvailableModule = ModuleSummary.omit({ enabled: true });
 export type AvailableModule = z.infer<typeof AvailableModule>;
 

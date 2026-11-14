@@ -193,6 +193,34 @@ describe('switching modules and module permissions', () => {
     expect(row!.enabled).toBe(true);
   });
 
+  it('lets a module read its own settings and lets any member read them over the API', async () => {
+    const greeting = () => http().get(`${base()}/m/testkit/greeting`).set(as('member'));
+    const get = (who: string) => http().get(`${base()}/modules/testkit`).set(as(who));
+
+    expect((await setModule('admin', { settings: { greeting: 'hello' } })).status).toBe(200);
+    expect((await greeting()).body).toEqual({ greeting: 'hello' });
+    expect((await setModule('admin', { settings: { greeting: 'ahoj' } })).status).toBe(200);
+    expect((await greeting()).body).toEqual({ greeting: 'ahoj' });
+
+    const asMember = await get('member');
+    expect(asMember.status).toBe(200);
+    expect(asMember.body).toEqual({
+      id: 'testkit',
+      name: 'Testkit',
+      description: expect.any(String),
+      enabled: true,
+      settings: { greeting: 'ahoj' },
+    });
+    expect((await get('outsider')).status).toBe(404);
+    expect((await http().get(`${base()}/modules/nope`).set(as('member'))).status).toBe(404);
+    const denied = await http()
+      .put(`${base()}/modules/testkit`)
+      .set(as('member'))
+      .send({ settings: { greeting: 'no' } });
+    expect(denied.status).toBe(403);
+    expect((await setModule('admin', { settings: { greeting: 'hi' } })).status).toBe(200);
+  });
+
   describe('notes tied to a project', () => {
     let projectId: string;
 

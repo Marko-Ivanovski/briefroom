@@ -1,4 +1,4 @@
-import { UpdateModuleRequest, type ModuleSummary } from '@briefroom/contracts';
+import { UpdateModuleRequest, type ModuleDetail, type ModuleSummary } from '@briefroom/contracts';
 import { BadRequestException, Body, Controller, Get, Param, Put } from '@nestjs/common';
 import { RequireRole } from '../access/require-role.decorator.ts';
 import type { Scope } from '../access/scope.ts';
@@ -12,6 +12,11 @@ export class ModulesController {
   @Get()
   list(@CurrentScope() scope: Scope): Promise<ModuleSummary[]> {
     return this.modules.list(scope.workspaceId);
+  }
+
+  @Get(':moduleId')
+  detail(@CurrentScope() scope: Scope, @Param('moduleId') moduleId: string): Promise<ModuleDetail> {
+    return this.modules.detail(scope.workspaceId, moduleId);
   }
 
   @RequireRole('admin')
