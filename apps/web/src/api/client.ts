@@ -1,9 +1,18 @@
 import {
+  ChecklistItem,
   MeResponse,
   MemberSummary,
+  ProjectDetail,
+  ProjectMemberSummary,
+  ProjectSummary,
   SetupResponse,
   SetupStatus,
+  WorkspaceSettings,
   WorkspaceSummary,
+  type ChecklistKind,
+  type ProjectInput,
+  type ProjectPatch,
+  type SetChecklistItemInput,
   type SetupRequest,
 } from '@briefroom/contracts';
 import { z } from 'zod';
@@ -45,7 +54,7 @@ async function toApiError(res: Response): Promise<ApiError> {
 
 async function request<T>(
   schema: z.ZodType<T> | null,
-  method: 'GET' | 'POST',
+  method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
   path: string,
   body?: unknown,
 ): Promise<T> {
@@ -59,6 +68,13 @@ async function request<T>(
   if (schema === null) return undefined as T;
   return schema.parse(await res.json());
 }
+
+const workspacePath = (workspaceId: string) =>
+  `/api/v1/workspaces/${encodeURIComponent(workspaceId)}`;
+const projectPath = (workspaceId: string, projectId: string) =>
+  `${workspacePath(workspaceId)}/projects/${encodeURIComponent(projectId)}`;
+const memberPath = (workspaceId: string, projectId: string, userId: string) =>
+  `${projectPath(workspaceId, projectId)}/members/${encodeURIComponent(userId)}`;
 
 // Better Auth answers these three with its own shapes. Only what the web app reads is declared.
 const SignInResponse = z.object({ user: z.object({ id: z.string() }) });
@@ -76,6 +92,46 @@ export const api = {
       MemberSummary.array(),
       'GET',
       `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/members`,
+    ),
+  settings: (workspaceId: string) =>
+    request(WorkspaceSettings, 'GET', `${workspacePath(workspaceId)}/settings`),
+  projects: (workspaceId: string) =>
+    request(ProjectSummary.array(), 'GET', `${workspacePath(workspaceId)}/projects`),
+  project: (workspaceId: string, projectId: string) =>
+    request(ProjectDetail, 'GET', projectPath(workspaceId, projectId)),
+  createProject: (workspaceId: string, body: ProjectInput) =>
+    request(ProjectDetail, 'POST', `${workspacePath(workspaceId)}/projects`, body),
+  updateProject: (workspaceId: string, projectId: string, body: ProjectPatch) =>
+    request(ProjectDetail, 'PATCH', projectPath(workspaceId, projectId), body),
+  deleteProject: (workspaceId: string, projectId: string) =>
+    request(null, 'DELETE', projectPath(workspaceId, projectId)),
+  projectMembers: (workspaceId: string, projectId: string) =>
+    request(ProjectMemberSummary.array(), 'GET', `${projectPath(workspaceId, projectId)}/members`),
+  addProjectMember: (workspaceId: string, projectId: string, userId: string) =>
+    request(ProjectMemberSummary, 'POST', `${projectPath(workspaceId, projectId)}/members`, {
+      userId,
+    }),
+  removeProjectMember: (workspaceId: string, projectId: string, userId: string) =>
+    request(null, 'DELETE', memberPath(workspaceId, projectId, userId)),
+  leaveProject: (workspaceId: string, projectId: string) =>
+    request(null, 'POST', `${projectPath(workspaceId, projectId)}/members/leave`),
+  checklist: (workspaceId: string, projectId: string, userId: string, kind: ChecklistKind) =>
+    request(
+      ChecklistItem.array(),
+      'GET',
+      `${memberPath(workspaceId, projectId, userId)}/checklist?kind=${kind}`,
+    ),
+  setChecklistItem: (
+    workspaceId: string,
+    projectId: string,
+    userId: string,
+    body: SetChecklistItemInput,
+  ) =>
+    request(
+      ChecklistItem,
+      'PATCH',
+      `${memberPath(workspaceId, projectId, userId)}/checklist`,
+      body,
     ),
   resetPassword: (token: string, password: string) =>
     request(null, 'POST', `/api/v1/reset/${encodeURIComponent(token)}`, { password }),

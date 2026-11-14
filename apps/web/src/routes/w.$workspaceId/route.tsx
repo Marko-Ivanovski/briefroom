@@ -34,6 +34,13 @@ function WorkspaceLayout() {
         />
         <nav aria-label="Workspace" className="flex gap-4 text-sm">
           <Link
+            to="/w/$workspaceId/projects"
+            params={{ workspaceId }}
+            className="[&.active]:font-semibold"
+          >
+            Projects
+          </Link>
+          <Link
             to="/w/$workspaceId/settings/members"
             params={{ workspaceId }}
             className="[&.active]:font-semibold"

@@ -1,8 +1,7 @@
 import { expect, test } from '@playwright/test';
+import { OWNER } from './accounts.ts';
 
-const NAME = 'Ada';
-const EMAIL = 'ada@example.com';
-const PASSWORD = 'correct horse battery';
+const { name: NAME, email: EMAIL, password: PASSWORD } = OWNER;
 const WORKSPACE = `${NAME}'s workspace`;
 
 test.use({ baseURL: process.env.E2E_BASE_URL });
