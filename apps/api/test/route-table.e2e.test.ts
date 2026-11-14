@@ -14,6 +14,8 @@ const OUTSIDE_A_WORKSPACE: ReadonlySet<string> = new Set([
   'GET /api/v1/setup',
   'POST /api/v1/setup',
   'POST /api/v1/reset/:token',
+  // Public lookup for the join page: the caller has no account yet, and the token is the credential.
+  'GET /api/v1/join/:token',
 ]);
 
 const REQUEST_METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'ALL', 'OPTIONS', 'HEAD'];
