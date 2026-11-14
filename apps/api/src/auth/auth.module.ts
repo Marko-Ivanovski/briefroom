@@ -34,7 +34,8 @@ class AuthCoreModule {}
     BetterAuthModule.forRootAsync({
       imports: [AuthCoreModule],
       inject: [AUTH],
-      useFactory: (auth: Auth) => ({ auth }),
+      // Our API is JSON only, so form bodies are left unparsed on non-auth routes.
+      useFactory: (auth: Auth) => ({ auth, bodyParser: { urlencoded: { enabled: false } } }),
     }),
   ],
 })

@@ -8,6 +8,7 @@ import { admin, organization } from 'better-auth/plugins';
 import type { Env } from '../config/env.ts';
 import { describeError } from '../errors/safe-error.ts';
 import { CLIENT_IP_HEADER } from './client-ip.middleware.ts';
+import { trustedOrigins } from './origin.middleware.ts';
 
 export const API_KEY_PREFIX = 'brf_';
 
@@ -35,7 +36,7 @@ export function createAuth(db: Db, env: Env, canCreateWorkspace: CanCreateWorksp
   return betterAuth({
     secret: env.authSecret,
     baseURL: env.publicUrl,
-    trustedOrigins: [env.publicUrl],
+    trustedOrigins: trustedOrigins(env),
     database: drizzleAdapter(db, { provider: 'pg', schema: authSchema }),
     // Better Auth passes the caught error as an extra argument, and a failed query carries its SQL
     // parameters (emails, hashes, tokens). Only the level and the message are forwarded.
