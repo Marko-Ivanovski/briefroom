@@ -36,12 +36,15 @@ export function normalizeRemote(remote: string): string {
 }
 
 /**
- * The form that is stored and returned. A password or token in a remote URL must never reach the
- * database. An scp-style user without a colon (`git@host`) is only a login name and stays.
+ * The form that is stored and returned. A password in a remote URL must never reach the
+ * database. A user name without a password (`git@host`, `ssh://git@host`) is only a login and stays.
  */
 export function stripCredentials(remote: string): string {
   const input = remote.trim();
   const scp = SCP_LIKE.exec(input);
   if (scp) return scp[1]?.includes(':') ? `${scp[2]}:${scp[3]}` : input;
-  return input.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/]*@/i, '$1');
+  return input.replace(
+    /^([a-z][a-z0-9+.-]*:\/\/)([^/]*)@/i,
+    (all, scheme: string, userinfo: string) => (userinfo.includes(':') ? scheme : all),
+  );
 }
