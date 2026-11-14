@@ -21,7 +21,6 @@ export interface TestApp {
 }
 
 export async function makeInstallOwner(t: TestApp, userId: string): Promise<void> {
-  await t.app.get(InstallService).getRow();
   await t.db.db.update(install).set({ ownerUserId: userId });
 }
 
@@ -47,6 +46,7 @@ export async function createTestApp(
     );
     configureApp(app);
     await app.init();
+    await app.get(InstallService).ensureInstall();
     return {
       app,
       db,

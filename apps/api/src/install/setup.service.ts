@@ -57,6 +57,7 @@ export class SetupService {
     // The auth adapter cannot share one transaction with the install row, so the lock keeps two
     // setups apart and the owner is written last: a failure leaves nothing to unpick but the new rows.
     const lock = await this.db.$client.connect();
+    let destroy = false;
     try {
       await lock.query(`SELECT pg_advisory_lock(${SETUP_LOCK})`);
       try {
@@ -66,10 +67,16 @@ export class SetupService {
         await this.clearLeftovers();
         return await this.createOwner(req);
       } finally {
-        await lock.query(`SELECT pg_advisory_unlock(${SETUP_LOCK})`);
+        // A client that still holds the lock must not go back to the pool: closing it frees the lock.
+        try {
+          await lock.query(`SELECT pg_advisory_unlock(${SETUP_LOCK})`);
+        } catch (err) {
+          destroy = true;
+          this.logger.error(`Releasing the setup lock failed: ${describeError(err)}`);
+        }
       }
     } finally {
-      lock.release();
+      lock.release(destroy);
     }
   }
 

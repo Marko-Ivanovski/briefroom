@@ -11,12 +11,12 @@ const { version } = JSON.parse(
 @AllowAnonymous()
 @Controller()
 export class SystemController {
+  constructor(private readonly installs: InstallService) {}
+
   @Get('health')
   health(): { ok: true } {
     return { ok: true };
   }
-
-  constructor(private readonly installs: InstallService) {}
 
   @Get('version')
   async version(): Promise<VersionResponse> {

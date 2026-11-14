@@ -1,5 +1,5 @@
 import { Button } from '@briefroom/ui';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useState, type FormEvent } from 'react';
 import { api } from '../api/client.ts';
@@ -15,7 +15,11 @@ export const Route = createFileRoute('/reset/$token')({
 function ResetPage() {
   const { token } = Route.useParams();
   const [password, setPassword] = useState('');
-  const reset = useMutation({ mutationFn: () => api.resetPassword(token, password) });
+  const queryClient = useQueryClient();
+  const reset = useMutation({
+    mutationFn: () => api.resetPassword(token, password),
+    onSuccess: () => queryClient.clear(),
+  });
 
   function submit(event: FormEvent) {
     event.preventDefault();

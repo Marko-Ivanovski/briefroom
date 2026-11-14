@@ -27,9 +27,15 @@ export default tseslint.config(
           paths: [
             {
               name: '@thallesp/nestjs-better-auth',
-              importNames: ['Roles'],
+              importNames: [
+                'Roles',
+                'UserHasPermission',
+                'OrgRoles',
+                'MemberHasPermission',
+                'RequireActiveOrg',
+              ],
               message:
-                'Roles reads the admin-plugin user.role, not the workspace role. Use the workspace role guard from apps/api/src/access instead.',
+                'These decorators read the admin-plugin user.role or the active organization, not our workspace role. Use the workspace role guard from apps/api/src/access instead.',
             },
           ],
         },

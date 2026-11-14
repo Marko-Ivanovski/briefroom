@@ -141,6 +141,11 @@ describe('auth', () => {
       expect(res.status).toBe(403);
     });
 
+    it.each(['/ok', '/error'])('denies GET /api/auth%s with 403 to anyone', async (path) => {
+      const res = await http().get(`/api/auth${path}`);
+      expect(res.status).toBe(403);
+    });
+
     it('still allows server-side organization calls', async () => {
       const userId = await createUser('server-side@example.com');
       await makeInstallOwner(t, userId);

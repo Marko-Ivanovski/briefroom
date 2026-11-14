@@ -1,4 +1,5 @@
 import { VersionResponse } from '@briefroom/contracts';
+import { install } from '@briefroom/db';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestApp, type TestApp } from './helpers.ts';
@@ -53,7 +54,7 @@ describe('system routes', () => {
     expect(res.headers['content-type']).toMatch(/application\/json/);
   });
 
-  it.each(['/api/health', '/api/nope', '/api/auth/ok', '/', '/some/client/route'])(
+  it.each(['/api/health', '/api/nope', '/api/auth/get-session', '/', '/some/client/route'])(
     'sends Referrer-Policy: no-referrer on %s',
     async (path) => {
       const res = await request(t.app.getHttpServer()).get(path);
@@ -66,4 +67,25 @@ describe('system routes', () => {
     expect(res.status).toBe(404);
     expect(res.headers['content-type']).toMatch(/application\/json/);
   });
+});
+
+describe('anonymous reads do not write', () => {
+  let t: TestApp;
+
+  beforeAll(async () => {
+    t = await createTestApp();
+  });
+
+  afterAll(async () => {
+    await t.close();
+  });
+
+  it.each(['/api/v1/setup', '/api/version'])(
+    'GET %s never creates the install row',
+    async (path) => {
+      await t.db.db.delete(install);
+      await request(t.app.getHttpServer()).get(path);
+      expect(await t.db.db.select().from(install)).toHaveLength(0);
+    },
+  );
 });

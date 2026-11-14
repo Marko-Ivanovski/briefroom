@@ -17,6 +17,13 @@ export class InstallService {
   constructor(@Inject(DB) private readonly db: Db) {}
 
   async getRow(): Promise<InstallRow> {
+    const [row] = await this.db.select().from(install);
+    if (!row) throw new Error('install row missing');
+    return row;
+  }
+
+  /** The only insert: runs at boot, so anonymous reads never write. Returns a setup code while no owner exists. */
+  async ensureInstall(): Promise<{ installId: string; setupCode: string | null }> {
     await this.db
       .insert(install)
       .values({
@@ -26,12 +33,6 @@ export class InstallService {
         updatedVia: 'system',
       })
       .onConflictDoNothing();
-    const [row] = await this.db.select().from(install);
-    if (!row) throw new Error('install row missing');
-    return row;
-  }
-
-  async ensureInstall(): Promise<{ installId: string; setupCode: string | null }> {
     const row = await this.getRow();
     if (row.ownerUserId) return { installId: row.id, setupCode: null };
     const setupCode = generateSetupCode();

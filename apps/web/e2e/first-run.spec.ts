@@ -39,6 +39,11 @@ test('first run: setup, sign out, sign in, switcher and members', async ({ page 
   const row = page.getByRole('row', { name: new RegExp(EMAIL) });
   await expect(row).toBeVisible();
   await expect(row.getByRole('cell', { name: 'Owner' })).toBeVisible();
+
+  // The session dies while the page is open: the next data refetch gets a 401 and must end in sign-in.
+  await page.context().clearCookies();
+  await page.evaluate(() => window.dispatchEvent(new Event('visibilitychange')));
+  await expect(page).toHaveURL(/\/sign-in$/);
 });
 
 test('a reset link that no longer works says so', async ({ page }) => {

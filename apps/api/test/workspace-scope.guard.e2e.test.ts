@@ -107,7 +107,7 @@ describe('global workspace scope guard', () => {
 
   it('fails closed on @RequireRole without a workspaceId param and never runs the handler', async () => {
     const res = await http().get('/api/v1/probe-without-workspace').set({ cookie: cookies.owner! });
-    expect([403, 500]).toContain(res.status);
+    expect(res.status).toBe(500);
     expect(handlerRuns.orphan).toBe(0);
   });
 });

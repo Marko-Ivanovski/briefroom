@@ -1,12 +1,11 @@
 import { Button } from '@briefroom/ui';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { createFileRoute, Link, Outlet, redirect, useNavigate } from '@tanstack/react-router';
-import { useState } from 'react';
-import { api } from '../../api/client.ts';
+import { useQuery } from '@tanstack/react-query';
+import { createFileRoute, Link, Outlet, redirect } from '@tanstack/react-router';
 import { FormError } from '../../components/form-error.tsx';
 import { meQuery, workspacesQuery } from '../../api/queries.ts';
 import { WorkspaceSwitcher } from '../../components/workspace-switcher.tsx';
 import { writeLastWorkspace } from '../../lib/last-workspace.ts';
+import { useSignOut } from '../../lib/use-sign-out.ts';
 
 export const Route = createFileRoute('/w/$workspaceId')({
   beforeLoad: async ({ context: { queryClient }, params }) => {
@@ -20,24 +19,10 @@ export const Route = createFileRoute('/w/$workspaceId')({
 
 function WorkspaceLayout() {
   const { workspaceId } = Route.useParams();
-  const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const { data: me } = useQuery(meQuery);
   const { data: workspaces = [] } = useQuery(workspacesQuery);
 
-  const [signOutFailed, setSignOutFailed] = useState(false);
-
-  async function signOut() {
-    setSignOutFailed(false);
-    try {
-      await api.signOut();
-    } catch {
-      setSignOutFailed(true);
-      return;
-    }
-    queryClient.clear();
-    await navigate({ to: '/sign-in' });
-  }
+  const { signOut, failed: signOutFailed } = useSignOut();
 
   return (
     <div className="min-h-screen">

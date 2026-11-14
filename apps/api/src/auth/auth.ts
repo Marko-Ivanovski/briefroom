@@ -19,8 +19,6 @@ const ALLOWED_HTTP_PATHS: ReadonlySet<string> = new Set([
   '/sign-in/email',
   '/sign-out',
   '/get-session',
-  '/ok',
-  '/error',
 ]);
 
 const ENDPOINT_UNAVAILABLE = 'This endpoint is not available';
