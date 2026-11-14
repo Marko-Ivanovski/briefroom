@@ -62,5 +62,16 @@ export const ProjectDetail = ProjectSummary.extend({
 });
 export type ProjectDetail = z.infer<typeof ProjectDetail>;
 
+export const ProjectMemberSummary = z.object({
+  userId: z.string(),
+  name: z.string(),
+  email: z.string(),
+  addedAt: z.string(),
+});
+export type ProjectMemberSummary = z.infer<typeof ProjectMemberSummary>;
+
+export const AddProjectMemberInput = z.object({ userId: z.string().min(1).max(200) });
+export type AddProjectMemberInput = z.infer<typeof AddProjectMemberInput>;
+
 export const WorkspaceSettings = z.object({ membersCanCreateProjects: z.boolean() });
 export type WorkspaceSettings = z.infer<typeof WorkspaceSettings>;
