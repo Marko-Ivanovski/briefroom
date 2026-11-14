@@ -15,7 +15,13 @@ const AUDIT = [
 ];
 
 // Tables that belong to the install, not to a workspace. Add install-level tables here.
-const INSTALL_LEVEL_TABLES: readonly string[] = ['install', 'cli_logins', 'remote_access'];
+// workspace_bookmarks is personal to one user on this install, not workspace content.
+const INSTALL_LEVEL_TABLES: readonly string[] = [
+  'install',
+  'cli_logins',
+  'remote_access',
+  'workspace_bookmarks',
+];
 
 describe('schema contract', () => {
   it('registers tables in the schema index', () => {

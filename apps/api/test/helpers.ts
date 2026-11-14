@@ -4,6 +4,7 @@ import { install } from '@briefroom/db';
 import { createTestDb, type TestDb } from '@briefroom/db/testing';
 import type { INestApplication, Type } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { ThrottlerStorage, type ThrottlerStorageService } from '@nestjs/throttler';
 import { AppModule } from '../src/app.module.ts';
 import { AUTH } from '../src/auth/auth.module.ts';
 import type { Auth } from '../src/auth/auth.ts';
@@ -18,6 +19,13 @@ export interface TestApp {
   db: TestDb;
   auth: Auth;
   close(): Promise<void>;
+}
+
+/** Forgets every throttle hit, so a test starts with full headroom instead of the last test's leftovers. */
+export function resetThrottle(t: TestApp): void {
+  const storage = t.app.get<ThrottlerStorageService>(ThrottlerStorage);
+  storage.storage.clear();
+  (storage as unknown as { hitExpirations: Map<string, unknown> }).hitExpirations.clear();
 }
 
 export async function makeInstallOwner(t: TestApp, userId: string): Promise<void> {

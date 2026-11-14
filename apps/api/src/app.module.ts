@@ -8,6 +8,7 @@ import type { Env } from './config/env.ts';
 import { DatabaseModule } from './database/database.module.ts';
 import { SafeExceptionFilter } from './errors/safe-exception.filter.ts';
 import { InstallModule } from './install/install.module.ts';
+import { InvitesModule } from './invites/invites.module.ts';
 import { ProjectsModule } from './projects/projects.module.ts';
 import { SystemController } from './system/system.controller.ts';
 import { WorkspacesModule } from './workspaces/workspaces.module.ts';
@@ -31,6 +32,7 @@ export class AppModule {
         ...(accessAtRoot ? [AccessModule] : []),
         WorkspacesModule,
         ProjectsModule,
+        InvitesModule,
         ...extraImports,
         ServeStaticModule.forRoot({
           rootPath: env.webDir,

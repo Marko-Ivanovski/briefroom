@@ -1,4 +1,12 @@
-import { pgTable, text, timestamp, boolean, integer, index } from 'drizzle-orm/pg-core';
+import {
+  pgTable,
+  text,
+  timestamp,
+  boolean,
+  integer,
+  index,
+  uniqueIndex,
+} from 'drizzle-orm/pg-core';
 
 export const user = pgTable('user', {
   id: text('id').primaryKey(),
@@ -103,6 +111,7 @@ export const member = pgTable(
   (table) => [
     index('member_organizationId_idx').on(table.organizationId),
     index('member_userId_idx').on(table.userId),
+    uniqueIndex('member_organization_user_key').on(table.organizationId, table.userId),
   ],
 );
 

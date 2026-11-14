@@ -1,0 +1,66 @@
+import { Injectable, Logger } from '@nestjs/common';
+import { describeError } from '../errors/safe-error.ts';
+
+export type MemberRemovedHandler = (workspaceId: string, userId: string) => Promise<void>;
+export type ProjectMemberRemovedHandler = (
+  workspaceId: string,
+  projectId: string,
+  userId: string,
+) => Promise<void>;
+
+const HANDLER_TIMEOUT_MS = 5000;
+
+/**
+ * Registry for things that must stop at once when access ends: API tokens (Task 7.1) and live
+ * streams (Task 6.4) register handlers here. One failing handler never blocks the others.
+ */
+@Injectable()
+export class RevocationService {
+  private readonly log = new Logger(RevocationService.name);
+  private readonly memberHandlers: MemberRemovedHandler[] = [];
+  private readonly projectHandlers: ProjectMemberRemovedHandler[] = [];
+
+  onMemberRemoved(handler: MemberRemovedHandler): void {
+    this.memberHandlers.push(handler);
+  }
+
+  onProjectMemberRemoved(handler: ProjectMemberRemovedHandler): void {
+    this.projectHandlers.push(handler);
+  }
+
+  memberRemoved(workspaceId: string, userId: string): Promise<void> {
+    return this.run(
+      'memberRemoved',
+      this.memberHandlers.map((h) => () => h(workspaceId, userId)),
+    );
+  }
+
+  projectMemberRemoved(workspaceId: string, projectId: string, userId: string): Promise<void> {
+    return this.run(
+      'projectMemberRemoved',
+      this.projectHandlers.map((h) => () => h(workspaceId, projectId, userId)),
+    );
+  }
+
+  private async run(event: string, calls: (() => Promise<void>)[]): Promise<void> {
+    await Promise.all(calls.map((call, i) => this.runOne(event, i, call)));
+  }
+
+  // A slow handler must not hold up a request, so each one gets a deadline. Logs carry names only.
+  private async runOne(event: string, index: number, call: () => Promise<void>): Promise<void> {
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<'timeout'>((resolve) => {
+      timer = setTimeout(() => resolve('timeout'), HANDLER_TIMEOUT_MS);
+    });
+    try {
+      const outcome = await Promise.race([(async () => call())(), timeout]);
+      if (outcome === 'timeout') {
+        this.log.error(`${event} handler ${index} timed out after ${HANDLER_TIMEOUT_MS} ms`);
+      }
+    } catch (err) {
+      this.log.error(`${event} handler ${index} failed: ${describeError(err)}`);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+}

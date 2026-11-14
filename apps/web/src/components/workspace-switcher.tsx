@@ -7,20 +7,28 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@briefroom/ui';
-import type { WorkspaceSummary } from '@briefroom/contracts';
+import type { BookmarkSummary, WorkspaceSummary } from '@briefroom/contracts';
 import { Link } from '@tanstack/react-router';
 import { ChevronsUpDown } from 'lucide-react';
+import { Fragment } from 'react';
+import { safeHttpUrl } from '../lib/safe-url.ts';
 
 interface WorkspaceSwitcherProps {
   workspaces: WorkspaceSummary[];
   currentId: string;
   isInstallOwner: boolean;
+  bookmarks: BookmarkSummary[];
+  onJoin: () => void;
+  onRemoveBookmark: (id: string) => void;
 }
 
 export function WorkspaceSwitcher({
   workspaces,
   currentId,
   isInstallOwner,
+  bookmarks,
+  onJoin,
+  onRemoveBookmark,
 }: WorkspaceSwitcherProps) {
   const current = workspaces.find((w) => w.id === currentId);
   return (
@@ -40,9 +48,35 @@ export function WorkspaceSwitcher({
             </Link>
           </DropdownMenuItem>
         ))}
+        {isInstallOwner && bookmarks.length > 0 && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel>Bookmarks</DropdownMenuLabel>
+            {bookmarks.map((b) => {
+              const href = safeHttpUrl(b.remoteBaseUrl);
+              return (
+                <Fragment key={b.id}>
+                  {href ? (
+                    <DropdownMenuItem asChild>
+                      <a href={href} target="_blank" rel="noopener noreferrer">
+                        {b.label}
+                      </a>
+                    </DropdownMenuItem>
+                  ) : (
+                    <DropdownMenuLabel>{b.label}</DropdownMenuLabel>
+                  )}
+                  <DropdownMenuItem onSelect={() => onRemoveBookmark(b.id)}>
+                    Remove {b.label}
+                  </DropdownMenuItem>
+                </Fragment>
+              );
+            })}
+          </>
+        )}
         {isInstallOwner && (
           <>
             <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={onJoin}>Join a workspace</DropdownMenuItem>
             <DropdownMenuItem asChild>
               <Link to="/w/$workspaceId/new-workspace" params={{ workspaceId: currentId }}>
                 New workspace

@@ -1,7 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
-// Both specs share one install: first-run performs the one-time setup through the UI, and
-// projects depends on it, so setup happens once and the owner and workspace exist afterwards.
+// The specs share one install: first-run performs the one-time setup through the UI, and
+// the others depend on it, so setup happens once and the owner and workspace exist afterwards.
 export default defineConfig({
   testDir: './e2e',
   globalSetup: './e2e/global-setup.ts',
@@ -16,10 +16,28 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
     },
     {
-      name: 'projects',
-      testMatch: 'projects.spec.ts',
+      name: 'setup',
+      testMatch: 'auth.setup.ts',
       dependencies: ['first-run'],
       use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      name: 'projects',
+      testMatch: 'projects.spec.ts',
+      dependencies: ['setup'],
+      use: { ...devices['Desktop Chrome'], storageState: 'e2e/.auth/owner.json' },
+    },
+    {
+      name: 'invites',
+      testMatch: 'invites.spec.ts',
+      dependencies: ['setup'],
+      use: { ...devices['Desktop Chrome'], storageState: 'e2e/.auth/owner.json' },
+    },
+    {
+      name: 'members',
+      testMatch: 'members.spec.ts',
+      dependencies: ['invites'],
+      use: { ...devices['Desktop Chrome'], storageState: 'e2e/.auth/owner.json' },
     },
   ],
 });

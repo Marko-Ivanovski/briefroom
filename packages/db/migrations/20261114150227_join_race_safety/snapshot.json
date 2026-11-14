@@ -1,0 +1,95 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "30e012ee-bb9f-4a68-84c1-9e4c5def3b4a",
+  "prevIds": [
+    "0383a0ef-92bf-4eae-bc7d-37f83b15a37f"
+  ],
+  "footprints": [
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "member",
+        "member_organization_user_key"
+      ],
+      "writes": [
+        "s|idx|public.member_organization_user_key",
+        "n|idx|public.member_organization_user_key",
+        "e|idx|public.member_organization_user_key",
+        "n|rel|public.member_organization_user_key"
+      ],
+      "reads": [
+        "n|tbl|public.member",
+        "n|sch|public",
+        "n|col|public.member.organization_id",
+        "n|col|public.member.user_id"
+      ]
+    },
+    {
+      "statementType": "add_check",
+      "statementTarget": [
+        "table",
+        "public",
+        "invite_links"
+      ],
+      "writes": [
+        "s|ck|public.invite_links.invite_links_admin_needs_approval",
+        "n|ck|public.invite_links.invite_links_admin_needs_approval",
+        "e|ck|public.invite_links.invite_links_admin_needs_approval",
+        "n|con|public.invite_links.invite_links_admin_needs_approval"
+      ],
+      "reads": [
+        "n|tbl|public.invite_links",
+        "n|sch|public",
+        "n|col|public.invite_links.role",
+        "n|col|public.invite_links.requires_approval"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "member",
+        "name": "member_organization_user_key",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "organization_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "user_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": true,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "invite_links",
+        "name": "invite_links_admin_needs_approval",
+        "value": "\"role\" <> 'admin' or \"requires_approval\"",
+        "entityType": "checks"
+      }
+    }
+  ]
+}

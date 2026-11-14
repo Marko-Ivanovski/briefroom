@@ -1,12 +1,14 @@
 import {
   ChangeRoleRequest,
   type MemberSummary,
+  type RemovalResult,
   type ResetLinkResponse,
 } from '@briefroom/contracts';
 import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   Param,
@@ -54,6 +56,13 @@ export class MembersController {
   }
 
   @RequireRole('admin')
+  @Delete('members/:userId')
+  @HttpCode(200)
+  remove(@CurrentScope() scope: Scope, @Param('userId') userId: string): Promise<RemovalResult> {
+    return this.members.remove(scope, userId);
+  }
+
+  @RequireRole('admin')
   @Post('members/:userId/reset-link')
   createResetLink(
     @CurrentScope() scope: Scope,
@@ -64,7 +73,7 @@ export class MembersController {
 
   @Post('leave')
   @HttpCode(204)
-  leave(@CurrentScope() scope: Scope, @Req() req: HeaderCarrier): Promise<void> {
-    return this.members.leave(scope, fromNodeHeaders(req.headers));
+  leave(@CurrentScope() scope: Scope): Promise<void> {
+    return this.members.leave(scope);
   }
 }

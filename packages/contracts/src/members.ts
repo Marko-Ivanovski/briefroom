@@ -7,6 +7,7 @@ export const MemberSummary = z.object({
   email: z.string(),
   role: Role,
   joinedAt: z.iso.datetime(),
+  emailVerified: z.boolean(),
 });
 export type MemberSummary = z.infer<typeof MemberSummary>;
 
@@ -18,3 +19,9 @@ export type ResetLinkResponse = z.infer<typeof ResetLinkResponse>;
 
 export const ResetPasswordRequest = z.object({ password: z.string().min(12).max(128) });
 export type ResetPasswordRequest = z.infer<typeof ResetPasswordRequest>;
+
+// Projects the person was on that still have access to take away, so the remover can be pointed at them.
+export const RemovalResult = z.object({
+  projects: z.array(z.object({ id: z.string(), name: z.string(), undone: z.number() })),
+});
+export type RemovalResult = z.infer<typeof RemovalResult>;

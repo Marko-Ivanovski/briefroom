@@ -22,8 +22,9 @@ import { and, asc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { canViewProject, type Scope } from '../access/scope.ts';
 import { DB } from '../database/database.module.ts';
+import { RevocationService } from '../members/revocation.service.ts';
 
-type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
+export type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 
 const PG_UNIQUE_VIOLATION = '23505';
 const PG_FOREIGN_KEY_VIOLATION = '23503';
@@ -39,7 +40,10 @@ function hasPgCode(err: unknown, code: string): boolean {
 
 @Injectable()
 export class ProjectMembersService {
-  constructor(@Inject(DB) private readonly db: Db) {}
+  constructor(
+    @Inject(DB) private readonly db: Db,
+    private readonly revocation: RevocationService,
+  ) {}
 
   async list(scope: Scope, projectId: string): Promise<ProjectMemberSummary[]> {
     await this.requireVisible(scope, projectId);
@@ -77,6 +81,24 @@ export class ProjectMembersService {
 
     try {
       const row = await this.db.transaction(async (tx) => {
+        // Removal locks the member row FOR UPDATE before it reads project memberships, so this
+        // shared lock makes a concurrent add wait, then see that the person is gone.
+        const [stillMember] = await tx
+          .select({ id: authSchema.member.id })
+          .from(authSchema.member)
+          .where(
+            and(
+              eq(authSchema.member.organizationId, scope.workspaceId),
+              eq(authSchema.member.userId, userId),
+            ),
+          )
+          .for('share');
+        if (!stillMember) {
+          throw new BadRequestException({
+            code: 'not_a_workspace_member',
+            message: 'not_a_workspace_member',
+          });
+        }
         await this.lockProject(tx, scope, projectId);
         const [added] = await tx
           .insert(projectMembers)
@@ -113,20 +135,70 @@ export class ProjectMembersService {
     await this.guardLinks(() =>
       this.db.transaction(async (tx) => {
         await this.lockProject(tx, scope, projectId);
-        const deleted = await tx
-          .delete(projectMembers)
-          .where(
-            and(
-              scoped(scope, projectMembers),
-              eq(projectMembers.projectId, projectId),
-              eq(projectMembers.userId, userId),
-            ),
-          )
-          .returning({ userId: projectMembers.userId });
-        if (deleted.length === 0) throw new NotFoundException('Not on this project');
+        const deleted = await this.deleteMembership(tx, scope, projectId, userId);
+        if (!deleted) throw new NotFoundException('Not on this project');
         await this.resetChecklist(tx, scope, projectId, userId, 'remove');
       }),
     );
+    await this.revocation.projectMemberRemoved(scope.workspaceId, projectId, userId);
+  }
+
+  /**
+   * Removes the person from every project they are on in this workspace inside the caller's
+   * transaction, which must already hold the person's `member` row FOR UPDATE. Call
+   * `notifyRemoved` after that transaction commits.
+   */
+  async removeAllInTx(tx: Tx, callerScope: Scope, userId: string): Promise<string[]> {
+    // The guard's visible project list may be stale, so the person's projects are read here, under
+    // the member lock, across the whole workspace.
+    const scope: Scope = { ...callerScope, visibleProjectIds: 'all' };
+    return this.guardLinks(async () => {
+      const rows = await tx
+        .select({ projectId: projectMembers.projectId })
+        .from(projectMembers)
+        .where(and(scoped(scope, projectMembers), eq(projectMembers.userId, userId)))
+        .orderBy(asc(projectMembers.projectId));
+      const ids: string[] = [];
+      for (const { projectId } of rows) {
+        try {
+          await this.lockProject(tx, scope, projectId);
+        } catch (err) {
+          // Deleted concurrently: its membership row went with it.
+          if (err instanceof NotFoundException) continue;
+          throw err;
+        }
+        if (await this.deleteMembership(tx, scope, projectId, userId)) {
+          await this.resetChecklist(tx, scope, projectId, userId, 'remove');
+          ids.push(projectId);
+        }
+      }
+      return ids;
+    });
+  }
+
+  notifyRemoved(scope: Scope, projectIds: string[], userId: string): Promise<unknown> {
+    return Promise.all(
+      projectIds.map((id) => this.revocation.projectMemberRemoved(scope.workspaceId, id, userId)),
+    );
+  }
+
+  private async deleteMembership(
+    tx: Tx,
+    scope: Scope,
+    projectId: string,
+    userId: string,
+  ): Promise<boolean> {
+    const deleted = await tx
+      .delete(projectMembers)
+      .where(
+        and(
+          scoped(scope, projectMembers),
+          eq(projectMembers.projectId, projectId),
+          eq(projectMembers.userId, userId),
+        ),
+      )
+      .returning({ userId: projectMembers.userId });
+    return deleted.length > 0;
   }
 
   // A concurrent project edit holds FOR UPDATE and may delete tool links. A shared lock makes this

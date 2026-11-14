@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SetupRouteImport } from './routes/setup'
 import { Route as SignInRouteImport } from './routes/sign-in'
+import { Route as JoinTokenRouteImport } from './routes/join.$token'
 import { Route as ResetTokenRouteImport } from './routes/reset.$token'
 import { Route as WWorkspaceIdRouteRouteImport } from './routes/w.$workspaceId/route'
 import { Route as WWorkspaceIdIndexRouteImport } from './routes/w.$workspaceId/index'
@@ -19,6 +20,8 @@ import { Route as WWorkspaceIdNewWorkspaceRouteImport } from './routes/w.$worksp
 import { Route as WWorkspaceIdProjectsIndexRouteImport } from './routes/w.$workspaceId/projects/index'
 import { Route as WWorkspaceIdProjectsProjectIdRouteImport } from './routes/w.$workspaceId/projects/$projectId'
 import { Route as WWorkspaceIdProjectsNewRouteImport } from './routes/w.$workspaceId/projects/new'
+import { Route as WWorkspaceIdSettingsInvitesRouteImport } from './routes/w.$workspaceId/settings/invites'
+import { Route as WWorkspaceIdSettingsJoinRequestsRouteImport } from './routes/w.$workspaceId/settings/join-requests'
 import { Route as WWorkspaceIdSettingsMembersRouteImport } from './routes/w.$workspaceId/settings/members'
 import { Route as WWorkspaceIdProjectsProjectIdIndexRouteImport } from './routes/w.$workspaceId/projects/$projectId.index'
 import { Route as WWorkspaceIdProjectsProjectIdMembersRouteImport } from './routes/w.$workspaceId/projects/$projectId.members'
@@ -36,6 +39,11 @@ const SetupRoute = SetupRouteImport.update({
 const SignInRoute = SignInRouteImport.update({
   id: '/sign-in',
   path: '/sign-in',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const JoinTokenRoute = JoinTokenRouteImport.update({
+  id: '/join/$token',
+  path: '/join/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ResetTokenRoute = ResetTokenRouteImport.update({
@@ -76,6 +84,18 @@ const WWorkspaceIdProjectsNewRoute = WWorkspaceIdProjectsNewRouteImport.update({
   path: '/projects/new',
   getParentRoute: () => WWorkspaceIdRouteRoute,
 } as any)
+const WWorkspaceIdSettingsInvitesRoute =
+  WWorkspaceIdSettingsInvitesRouteImport.update({
+    id: '/settings/invites',
+    path: '/settings/invites',
+    getParentRoute: () => WWorkspaceIdRouteRoute,
+  } as any)
+const WWorkspaceIdSettingsJoinRequestsRoute =
+  WWorkspaceIdSettingsJoinRequestsRouteImport.update({
+    id: '/settings/join-requests',
+    path: '/settings/join-requests',
+    getParentRoute: () => WWorkspaceIdRouteRoute,
+  } as any)
 const WWorkspaceIdSettingsMembersRoute =
   WWorkspaceIdSettingsMembersRouteImport.update({
     id: '/settings/members',
@@ -100,11 +120,14 @@ export interface FileRoutesByFullPath {
   '/setup': typeof SetupRoute
   '/sign-in': typeof SignInRoute
   '/w/$workspaceId': typeof WWorkspaceIdRouteRouteWithChildren
+  '/join/$token': typeof JoinTokenRoute
   '/reset/$token': typeof ResetTokenRoute
   '/w/$workspaceId/new-workspace': typeof WWorkspaceIdNewWorkspaceRoute
   '/w/$workspaceId/': typeof WWorkspaceIdIndexRoute
   '/w/$workspaceId/projects/$projectId': typeof WWorkspaceIdProjectsProjectIdRouteWithChildren
   '/w/$workspaceId/projects/new': typeof WWorkspaceIdProjectsNewRoute
+  '/w/$workspaceId/settings/invites': typeof WWorkspaceIdSettingsInvitesRoute
+  '/w/$workspaceId/settings/join-requests': typeof WWorkspaceIdSettingsJoinRequestsRoute
   '/w/$workspaceId/settings/members': typeof WWorkspaceIdSettingsMembersRoute
   '/w/$workspaceId/projects/': typeof WWorkspaceIdProjectsIndexRoute
   '/w/$workspaceId/projects/$projectId/members': typeof WWorkspaceIdProjectsProjectIdMembersRoute
@@ -114,10 +137,13 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/setup': typeof SetupRoute
   '/sign-in': typeof SignInRoute
+  '/join/$token': typeof JoinTokenRoute
   '/reset/$token': typeof ResetTokenRoute
   '/w/$workspaceId/new-workspace': typeof WWorkspaceIdNewWorkspaceRoute
   '/w/$workspaceId': typeof WWorkspaceIdIndexRoute
   '/w/$workspaceId/projects/new': typeof WWorkspaceIdProjectsNewRoute
+  '/w/$workspaceId/settings/invites': typeof WWorkspaceIdSettingsInvitesRoute
+  '/w/$workspaceId/settings/join-requests': typeof WWorkspaceIdSettingsJoinRequestsRoute
   '/w/$workspaceId/settings/members': typeof WWorkspaceIdSettingsMembersRoute
   '/w/$workspaceId/projects': typeof WWorkspaceIdProjectsIndexRoute
   '/w/$workspaceId/projects/$projectId/members': typeof WWorkspaceIdProjectsProjectIdMembersRoute
@@ -129,11 +155,14 @@ export interface FileRoutesById {
   '/setup': typeof SetupRoute
   '/sign-in': typeof SignInRoute
   '/w/$workspaceId': typeof WWorkspaceIdRouteRouteWithChildren
+  '/join/$token': typeof JoinTokenRoute
   '/reset/$token': typeof ResetTokenRoute
   '/w/$workspaceId/new-workspace': typeof WWorkspaceIdNewWorkspaceRoute
   '/w/$workspaceId/': typeof WWorkspaceIdIndexRoute
   '/w/$workspaceId/projects/$projectId': typeof WWorkspaceIdProjectsProjectIdRouteWithChildren
   '/w/$workspaceId/projects/new': typeof WWorkspaceIdProjectsNewRoute
+  '/w/$workspaceId/settings/invites': typeof WWorkspaceIdSettingsInvitesRoute
+  '/w/$workspaceId/settings/join-requests': typeof WWorkspaceIdSettingsJoinRequestsRoute
   '/w/$workspaceId/settings/members': typeof WWorkspaceIdSettingsMembersRoute
   '/w/$workspaceId/projects/': typeof WWorkspaceIdProjectsIndexRoute
   '/w/$workspaceId/projects/$projectId/members': typeof WWorkspaceIdProjectsProjectIdMembersRoute
@@ -146,11 +175,14 @@ export interface FileRouteTypes {
     | '/setup'
     | '/sign-in'
     | '/w/$workspaceId'
+    | '/join/$token'
     | '/reset/$token'
     | '/w/$workspaceId/new-workspace'
     | '/w/$workspaceId/'
     | '/w/$workspaceId/projects/$projectId'
     | '/w/$workspaceId/projects/new'
+    | '/w/$workspaceId/settings/invites'
+    | '/w/$workspaceId/settings/join-requests'
     | '/w/$workspaceId/settings/members'
     | '/w/$workspaceId/projects/'
     | '/w/$workspaceId/projects/$projectId/members'
@@ -160,10 +192,13 @@ export interface FileRouteTypes {
     | '/'
     | '/setup'
     | '/sign-in'
+    | '/join/$token'
     | '/reset/$token'
     | '/w/$workspaceId/new-workspace'
     | '/w/$workspaceId'
     | '/w/$workspaceId/projects/new'
+    | '/w/$workspaceId/settings/invites'
+    | '/w/$workspaceId/settings/join-requests'
     | '/w/$workspaceId/settings/members'
     | '/w/$workspaceId/projects'
     | '/w/$workspaceId/projects/$projectId/members'
@@ -174,11 +209,14 @@ export interface FileRouteTypes {
     | '/setup'
     | '/sign-in'
     | '/w/$workspaceId'
+    | '/join/$token'
     | '/reset/$token'
     | '/w/$workspaceId/new-workspace'
     | '/w/$workspaceId/'
     | '/w/$workspaceId/projects/$projectId'
     | '/w/$workspaceId/projects/new'
+    | '/w/$workspaceId/settings/invites'
+    | '/w/$workspaceId/settings/join-requests'
     | '/w/$workspaceId/settings/members'
     | '/w/$workspaceId/projects/'
     | '/w/$workspaceId/projects/$projectId/members'
@@ -190,6 +228,7 @@ export interface RootRouteChildren {
   SetupRoute: typeof SetupRoute
   SignInRoute: typeof SignInRoute
   WWorkspaceIdRouteRoute: typeof WWorkspaceIdRouteRouteWithChildren
+  JoinTokenRoute: typeof JoinTokenRoute
   ResetTokenRoute: typeof ResetTokenRoute
 }
 
@@ -214,6 +253,13 @@ declare module '@tanstack/react-router' {
       path: '/sign-in'
       fullPath: '/sign-in'
       preLoaderRoute: typeof SignInRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/join/$token': {
+      id: '/join/$token'
+      path: '/join/$token'
+      fullPath: '/join/$token'
+      preLoaderRoute: typeof JoinTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/reset/$token': {
@@ -265,6 +311,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WWorkspaceIdProjectsNewRouteImport
       parentRoute: typeof WWorkspaceIdRouteRoute
     }
+    '/w/$workspaceId/settings/invites': {
+      id: '/w/$workspaceId/settings/invites'
+      path: '/settings/invites'
+      fullPath: '/w/$workspaceId/settings/invites'
+      preLoaderRoute: typeof WWorkspaceIdSettingsInvitesRouteImport
+      parentRoute: typeof WWorkspaceIdRouteRoute
+    }
+    '/w/$workspaceId/settings/join-requests': {
+      id: '/w/$workspaceId/settings/join-requests'
+      path: '/settings/join-requests'
+      fullPath: '/w/$workspaceId/settings/join-requests'
+      preLoaderRoute: typeof WWorkspaceIdSettingsJoinRequestsRouteImport
+      parentRoute: typeof WWorkspaceIdRouteRoute
+    }
     '/w/$workspaceId/settings/members': {
       id: '/w/$workspaceId/settings/members'
       path: '/settings/members'
@@ -312,6 +372,8 @@ interface WWorkspaceIdRouteRouteChildren {
   WWorkspaceIdIndexRoute: typeof WWorkspaceIdIndexRoute
   WWorkspaceIdProjectsProjectIdRoute: typeof WWorkspaceIdProjectsProjectIdRouteWithChildren
   WWorkspaceIdProjectsNewRoute: typeof WWorkspaceIdProjectsNewRoute
+  WWorkspaceIdSettingsInvitesRoute: typeof WWorkspaceIdSettingsInvitesRoute
+  WWorkspaceIdSettingsJoinRequestsRoute: typeof WWorkspaceIdSettingsJoinRequestsRoute
   WWorkspaceIdSettingsMembersRoute: typeof WWorkspaceIdSettingsMembersRoute
   WWorkspaceIdProjectsIndexRoute: typeof WWorkspaceIdProjectsIndexRoute
 }
@@ -322,6 +384,8 @@ const WWorkspaceIdRouteRouteChildren: WWorkspaceIdRouteRouteChildren = {
   WWorkspaceIdProjectsProjectIdRoute:
     WWorkspaceIdProjectsProjectIdRouteWithChildren,
   WWorkspaceIdProjectsNewRoute: WWorkspaceIdProjectsNewRoute,
+  WWorkspaceIdSettingsInvitesRoute: WWorkspaceIdSettingsInvitesRoute,
+  WWorkspaceIdSettingsJoinRequestsRoute: WWorkspaceIdSettingsJoinRequestsRoute,
   WWorkspaceIdSettingsMembersRoute: WWorkspaceIdSettingsMembersRoute,
   WWorkspaceIdProjectsIndexRoute: WWorkspaceIdProjectsIndexRoute,
 }
@@ -334,6 +398,7 @@ const rootRouteChildren: RootRouteChildren = {
   SetupRoute: SetupRoute,
   SignInRoute: SignInRoute,
   WWorkspaceIdRouteRoute: WWorkspaceIdRouteRouteWithChildren,
+  JoinTokenRoute: JoinTokenRoute,
   ResetTokenRoute: ResetTokenRoute,
 }
 export const routeTree = rootRouteImport
