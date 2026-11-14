@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { retryableCrashes } from '../scripts/crash-gate.mjs';
+import { retryableCrashes } from '../../../scripts/crash-gate.mjs';
 
 const CODE = 3221226505;
 const crash = (file: string, code = CODE) =>

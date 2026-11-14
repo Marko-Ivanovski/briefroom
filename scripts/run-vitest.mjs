@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { retryableCrashes } from './crash-gate.mjs';
 
 // On Windows, Node 24 intermittently kills a test worker with exit 3221226505 (0xC0000409) around
@@ -7,7 +7,7 @@ import { retryableCrashes } from './crash-gate.mjs';
 // the crashed files when that crash is the run's only failure. Elsewhere a crashed worker fails
 // the run.
 const MAX_RERUNS = 2;
-const vitest = fileURLToPath(new URL('../node_modules/vitest/vitest.mjs', import.meta.url));
+const vitest = join(process.cwd(), 'node_modules', 'vitest', 'vitest.mjs');
 
 function runVitest(args) {
   return new Promise((resolve) => {
