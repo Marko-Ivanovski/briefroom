@@ -2,7 +2,7 @@ import { fileURLToPath } from 'node:url';
 import { NodeAdapter } from '@nestjs/platform-node';
 import { install } from '@briefroom/db';
 import { createTestDb, type TestDb } from '@briefroom/db/testing';
-import type { INestApplication } from '@nestjs/common';
+import type { INestApplication, Type } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../src/app.module.ts';
 import { AUTH } from '../src/auth/auth.module.ts';
@@ -25,7 +25,10 @@ export async function makeInstallOwner(t: TestApp, userId: string): Promise<void
   await t.db.db.update(install).set({ ownerUserId: userId });
 }
 
-export async function createTestApp(envOverrides: Record<string, string> = {}): Promise<TestApp> {
+export async function createTestApp(
+  envOverrides: Record<string, string> = {},
+  extraControllers: Type[] = [],
+): Promise<TestApp> {
   const db = await createTestDb();
   const env = loadEnv({
     DATABASE_URL: db.url,
@@ -34,10 +37,14 @@ export async function createTestApp(envOverrides: Record<string, string> = {}): 
     ...envOverrides,
   });
   try {
-    const app = await NestFactory.create(AppModule.register(env), new NodeAdapter(), {
-      logger: false,
-      bodyParser: false,
-    });
+    const app = await NestFactory.create(
+      AppModule.register(env, extraControllers),
+      new NodeAdapter(),
+      {
+        logger: false,
+        bodyParser: false,
+      },
+    );
     configureApp(app);
     await app.init();
     return {

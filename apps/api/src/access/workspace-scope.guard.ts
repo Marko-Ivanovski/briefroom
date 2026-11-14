@@ -2,6 +2,7 @@ import {
   createParamDecorator,
   ForbiddenException,
   Injectable,
+  InternalServerErrorException,
   NotFoundException,
   type CanActivate,
   type ExecutionContext,
@@ -18,7 +19,10 @@ interface ScopedRequest {
   scope?: Scope;
 }
 
-/** Runs after the global auth guard, so the session is already on the request. */
+/**
+ * Registered globally (APP_GUARD) after the Better Auth guard, so the session is already on the
+ * request and no controller can forget the membership and role checks.
+ */
 @Injectable()
 export class WorkspaceScopeGuard implements CanActivate {
   constructor(
@@ -28,16 +32,19 @@ export class WorkspaceScopeGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const req = context.switchToHttp().getRequest<ScopedRequest>();
-    const workspaceId = req.params.workspaceId;
-    if (!workspaceId) throw new NotFoundException();
-
-    const scope = await this.access.scopeFor(userFromRequest(req).id, workspaceId, 'web');
-    if (!scope) throw new NotFoundException();
-
     const min = this.reflector.getAllAndOverride<Role | undefined>(REQUIRED_ROLE, [
       context.getHandler(),
       context.getClass(),
     ]);
+    const workspaceId = req.params.workspaceId;
+    if (!workspaceId) {
+      // A role requirement with no workspace to check it against is a wiring bug: fail closed.
+      if (min) throw new InternalServerErrorException('@RequireRole needs a :workspaceId route');
+      return true;
+    }
+
+    const scope = await this.access.scopeFor(userFromRequest(req).id, workspaceId, 'web');
+    if (!scope) throw new NotFoundException();
     if (min && !roleAtLeast(scope, min)) throw new ForbiddenException();
 
     req.scope = scope;

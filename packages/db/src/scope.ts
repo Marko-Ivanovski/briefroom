@@ -1,13 +1,13 @@
 import { and, eq, getTableColumns, inArray, sql, type SQL } from 'drizzle-orm';
-import type { PgColumn, PgTable } from 'drizzle-orm/pg-core';
+import type { AnyPgColumn, PgColumn, PgTable } from 'drizzle-orm/pg-core';
 
 export interface ScopeFilter {
   workspaceId: string;
   visibleProjectIds: 'all' | readonly string[];
 }
 
-/** Any table with a `workspace_id` column. A `project_id` column, when present, is scoped too. */
-export type ScopedTable = PgTable;
+/** A table with a `workspaceId` column. A `projectId` column, when present, is scoped too. */
+export type ScopedTable = PgTable & { workspaceId: AnyPgColumn; projectId?: AnyPgColumn };
 
 function columnNamed(table: ScopedTable, name: string): PgColumn | undefined {
   return Object.values<PgColumn>(getTableColumns(table)).find((c) => c.name === name);

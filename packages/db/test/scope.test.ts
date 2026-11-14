@@ -70,10 +70,11 @@ describe('scoped', () => {
     expect(rows).toEqual([]);
   });
 
-  it('rejects a table without workspace_id', () => {
+  it('rejects a table without workspace_id at the type level and at runtime', () => {
     const bare = pgTable('bare', { id: text('id').primaryKey() });
-    expect(() => scoped({ workspaceId: 'w1', visibleProjectIds: 'all' }, bare)).toThrow(
-      /workspace_id/,
-    );
+    expect(() =>
+      // @ts-expect-error a table without a workspaceId column is not a ScopedTable
+      scoped({ workspaceId: 'w1', visibleProjectIds: 'all' }, bare),
+    ).toThrow(/workspace_id/);
   });
 });

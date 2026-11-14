@@ -9,20 +9,18 @@ import {
   Patch,
   Post,
   Req,
-  UseGuards,
 } from '@nestjs/common';
 import { fromNodeHeaders } from 'better-auth/node';
 import type { IncomingHttpHeaders } from 'node:http';
 import { RequireRole } from '../access/require-role.decorator.ts';
 import type { Scope } from '../access/scope.ts';
-import { CurrentScope, WorkspaceScopeGuard } from '../access/workspace-scope.guard.ts';
+import { CurrentScope } from '../access/workspace-scope.guard.ts';
 import { MembersService } from './members.service.ts';
 
 interface HeaderCarrier {
   headers: IncomingHttpHeaders;
 }
 
-@UseGuards(WorkspaceScopeGuard)
 @Controller('v1/workspaces/:workspaceId')
 export class MembersController {
   constructor(private readonly members: MembersService) {}
