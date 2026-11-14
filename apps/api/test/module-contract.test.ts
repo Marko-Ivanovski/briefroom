@@ -5,7 +5,7 @@ import { createTestDb } from '@briefroom/db/testing';
 import type { ModuleManifest } from '@briefroom/module-kit';
 import { TESTKIT_SQL_PATH } from '@briefroom/module-testkit/sql';
 import { getTableColumns, getTableName } from 'drizzle-orm';
-import { getTableConfig, type PgTable } from 'drizzle-orm/pg-core';
+import { getTableConfig, pgTable, uuid, type PgTable } from 'drizzle-orm/pg-core';
 import { describe, expect, it } from 'vitest';
 import { REGISTERED_MODULES } from '../src/module-registry/registered-modules.ts';
 
@@ -22,6 +22,7 @@ const AUDIT = [
   'updatedAgent',
 ];
 
+// Static scan only: specifiers built at runtime (template literals, variables, require.resolve) are not detected.
 const SPECIFIER = /(?:from|import|require)\s*\(?\s*['"]([^'"]+)['"]/g;
 
 const ALLOWED_CORE = ['module-kit', 'db', 'contracts'];
@@ -55,9 +56,11 @@ function foreignModuleImports(source: string, file: string, moduleId: string): s
   return offenders;
 }
 
-const moduleDirs = readdirSync(MODULES_DIR, { withFileTypes: true })
-  .filter((e) => e.isDirectory() && existsSync(join(MODULES_DIR, e.name, 'manifest.ts')))
+const allModuleDirs = readdirSync(MODULES_DIR, { withFileTypes: true })
+  .filter((e) => e.isDirectory() && e.name !== 'node_modules')
   .map((e) => e.name);
+
+const moduleDirs = allModuleDirs.filter((d) => existsSync(join(MODULES_DIR, d, 'manifest.ts')));
 
 /**
  * R109: a module that holds only project content needs a NOT NULL project_id on every table. A
@@ -117,7 +120,7 @@ describe('module contract', () => {
     for (const dir of moduleDirs) expect(registered, `modules/${dir}`).toContain(dir);
   });
 
-  it.each(moduleDirs)('modules/%s imports nothing outside its allowed surface', (dir) => {
+  it.each(allModuleDirs)('modules/%s imports nothing outside its allowed surface', (dir) => {
     const files = sourceFiles(join(MODULES_DIR, dir));
     expect(files.length).toBeGreaterThan(0);
     for (const file of files) {
@@ -130,6 +133,15 @@ describe('module contract', () => {
     expect(projectIdProblems({ ...testkit, contentLevels: ['project'] })).not.toEqual([]);
     expect(projectIdProblems({ ...testkit, contentLevels: ['workspace'] })).toEqual([]);
     expect(projectIdProblems(testkit)).toEqual([]);
+  });
+
+  it('the project_id rule rejects tables with no project_id at all', () => {
+    const testkit = REGISTERED_MODULES[0]!.manifest;
+    const noProjectId = pgTable('x_things', { id: uuid('id').primaryKey() });
+    expect(projectIdProblems({ ...testkit, tables: [noProjectId] })).not.toEqual([]);
+    expect(
+      projectIdProblems({ ...testkit, contentLevels: ['project'], tables: [noProjectId] }),
+    ).not.toEqual([]);
   });
 
   it('testkit.sql creates the columns the Drizzle table declares', async () => {
