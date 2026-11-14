@@ -5,7 +5,7 @@ import {
   RequestTimeoutException,
   type ExecutionContext,
 } from '@nestjs/common';
-import type { IncomingMessage } from 'node:http';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 
 export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 
@@ -23,8 +23,20 @@ export interface UploadLimits {
 
 export const DEFAULT_UPLOAD_LIMITS: UploadLimits = { idleMs: 15_000, totalMs: 60_000 };
 
-/** Reads the body on first call. Call it only after the handler's own checks pass. */
-export type UploadReader = (limits?: UploadLimits) => Promise<Buffer>;
+/**
+ * Reads the body on first call. Call it only after the handler's own checks pass. `declaredBytes`
+ * is the Content-Length the client announced, if any, so a caller can reserve memory before reading.
+ */
+export interface UploadReader {
+  (limits?: UploadLimits): Promise<Buffer>;
+  readonly declaredBytes: number | undefined;
+}
+
+function declaredLength(req: IncomingMessage): number | undefined {
+  const raw = req.headers['content-length'];
+  const n = raw === undefined ? NaN : Number(raw);
+  return Number.isInteger(n) && n >= 0 ? n : undefined;
+}
 
 const timedOut = () =>
   new RequestTimeoutException({ code: 'upload_timeout', message: 'The upload took too long' });
@@ -33,10 +45,15 @@ const timedOut = () =>
  * The raw request body, up to 20 MB, within an idle and a total time limit so a slow client cannot
  * hold a reader for long. The API parses JSON only, so any other content type reaches the handler
  * unread. The type is never trusted: the file store decides it from the bytes.
+ *
+ * With a Content-Length the body is read into one buffer of that size, not collected and copied.
+ * A timeout or a cutoff answers with `Connection: close` and drops the socket once the answer is
+ * sent, so a client that keeps trickling cannot keep it open.
  */
 export function readUpload(
   req: IncomingMessage,
   limits: UploadLimits = DEFAULT_UPLOAD_LIMITS,
+  res?: ServerResponse,
 ): Promise<Buffer> {
   const aborted = () =>
     new BadRequestException({ code: 'upload_aborted', message: 'The upload was interrupted' });
@@ -44,10 +61,23 @@ export function readUpload(
   if (req.readableEnded) return Promise.resolve(Buffer.alloc(0));
 
   return new Promise<Buffer>((resolve, reject) => {
-    const declared = Number(req.headers['content-length']);
-    let over = Number.isFinite(declared) && declared > MAX_UPLOAD_BYTES;
+    const declared = declaredLength(req);
+    let over = declared !== undefined && declared > MAX_UPLOAD_BYTES;
+    const exact =
+      declared !== undefined && declared > 0 && declared <= MAX_UPLOAD_BYTES
+        ? Buffer.allocUnsafe(declared)
+        : undefined;
     const chunks: Buffer[] = [];
     let size = 0;
+    const closeAfterResponse = () => {
+      if (!res) return;
+      res.setHeader('Connection', 'close');
+      res.once('finish', () => req.destroy());
+    };
+    const refuse = (error: Error) => {
+      closeAfterResponse();
+      reject(error);
+    };
     let settled = false;
     let idle: NodeJS.Timeout | undefined;
 
@@ -64,26 +94,30 @@ export function readUpload(
     };
     const armIdle = () => {
       clearTimeout(idle);
-      idle = setTimeout(() => settle(() => reject(timedOut())), limits.idleMs);
+      idle = setTimeout(() => settle(() => refuse(timedOut())), limits.idleMs);
     };
-    const total = setTimeout(() => settle(() => reject(timedOut())), limits.totalMs);
+    const total = setTimeout(() => settle(() => refuse(timedOut())), limits.totalMs);
 
     function onData(chunk: Buffer) {
       armIdle();
+      const before = size;
       size += chunk.length;
-      if (size > MAX_UPLOAD_BYTES) over = true;
+      if (size > MAX_UPLOAD_BYTES || (exact && size > exact.length)) over = true;
       if (over) {
         chunks.length = 0;
         if (size > MAX_UPLOAD_BYTES + DRAIN_BYTES) {
-          settle(() => reject(new PayloadTooLargeException(TOO_LARGE)));
+          settle(() => refuse(new PayloadTooLargeException(TOO_LARGE)));
         }
         return;
       }
-      chunks.push(chunk);
+      if (exact) chunk.copy(exact, before);
+      else chunks.push(chunk);
     }
     function onEnd() {
       settle(() =>
-        over ? reject(new PayloadTooLargeException(TOO_LARGE)) : resolve(Buffer.concat(chunks)),
+        over
+          ? reject(new PayloadTooLargeException(TOO_LARGE))
+          : resolve(exact ? exact.subarray(0, size) : Buffer.concat(chunks)),
       );
     }
     function onError() {
@@ -107,8 +141,11 @@ export function readUpload(
  */
 export const UploadBody = createParamDecorator(
   (_data: unknown, context: ExecutionContext): UploadReader => {
-    const req = context.switchToHttp().getRequest<IncomingMessage>();
+    const http = context.switchToHttp();
+    const req = http.getRequest<IncomingMessage>();
+    const res = http.getResponse<ServerResponse>();
     let reading: Promise<Buffer> | undefined;
-    return (limits) => (reading ??= readUpload(req, limits));
+    const read = (limits?: UploadLimits) => (reading ??= readUpload(req, limits, res));
+    return Object.assign(read, { declaredBytes: declaredLength(req) });
   },
 );

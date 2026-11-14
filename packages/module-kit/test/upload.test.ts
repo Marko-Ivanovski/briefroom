@@ -40,6 +40,19 @@ describe('readUpload', () => {
     }
   });
 
+  it('reads a body with a known length into one exact buffer', async () => {
+    const parts = [Buffer.from('hello '), Buffer.from('big '), Buffer.from('world')];
+    const stream = asRequest(Readable.from(parts), { 'content-length': '15' });
+    const body = await readUpload(stream);
+    expect(body.toString()).toBe('hello big world');
+    expect(body.buffer.byteLength).toBeGreaterThanOrEqual(15);
+  });
+
+  it('reads a chunked body that declares no length', async () => {
+    const body = await readUpload(asRequest(Readable.from([Buffer.from('ab'), Buffer.from('cd')])));
+    expect(body.toString()).toBe('abcd');
+  });
+
   it('reads a small body', async () => {
     const body = await readUpload(asRequest(Readable.from([Buffer.from('ab'), Buffer.from('c')])));
     expect(body.toString()).toBe('abc');

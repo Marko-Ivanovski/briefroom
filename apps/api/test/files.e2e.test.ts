@@ -13,6 +13,7 @@ import request from 'supertest';
 import { Logger } from '@nestjs/common';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { FilesService } from '../src/files/files.service.ts';
+import { ByteBudget } from '../src/files/byte-budget.ts';
 import { Semaphore } from '../src/files/semaphore.ts';
 import { WorkspaceModulesService } from '../src/module-registry/workspace-modules.service.ts';
 import { pngClaiming } from './image-fixtures.ts';
@@ -90,10 +91,15 @@ describe('file store', () => {
     });
   };
   /** Starts an upload that sends a few bytes of a 1 MB body and then goes quiet. */
-  const stalledUpload = async (who: string) => {
+  const stalledUpload = async (who: string, trickle = false) => {
     const server = t.app.getHttpServer();
     if (!server.listening) await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
     const { port } = server.address() as { port: number };
+    const agent = new nodeHttp.Agent({ keepAlive: true });
+    let socketClosed!: () => void;
+    const closed = new Promise<void>((done) => {
+      socketClosed = done;
+    });
     let settle!: (r: { status: number; body: Record<string, unknown> }) => void;
     const response = new Promise<{ status: number; body: Record<string, unknown> }>((done) => {
       settle = done;
@@ -103,6 +109,7 @@ describe('file store', () => {
         port,
         host: '127.0.0.1',
         method: 'POST',
+        agent,
         path: `${base()}/m/testkit/files`,
         headers: {
           cookie: cookies[who]!,
@@ -122,9 +129,14 @@ describe('file store', () => {
       },
     );
     req.on('error', () => undefined);
+    req.on('socket', (socket) => socket.once('close', socketClosed));
     req.write(Buffer.alloc(1024, 1));
+    if (trickle) {
+      const timer = setInterval(() => req.write(Buffer.alloc(1, 1)), 50);
+      closed.then(() => clearInterval(timer));
+    }
     await new Promise((done) => setTimeout(done, 300));
-    return { req, response };
+    return { req, response, closed };
   };
   const dirCount = async () => (await readdir(join(dataDir, 'files', ws)).catch(() => [])).length;
   const get = (who: string, id: string, size?: string, w = ws) =>
@@ -310,6 +322,50 @@ describe('file store', () => {
         expect(res.body).toMatchObject({ code: 'upload_timeout' });
       } finally {
         service.readLimits = readLimits;
+      }
+    });
+
+    it('closes the socket promptly after a 408, even if the client keeps sending', async () => {
+      const service = t.app.get(FilesService);
+      const { readLimits } = service;
+      service.readLimits = { idleMs: 5000, totalMs: 300 };
+      try {
+        const stalled = await stalledUpload('writer', true);
+        expect((await stalled.response).status).toBe(408);
+        const outcome = await Promise.race([
+          stalled.closed.then(() => 'closed'),
+          new Promise((done) => setTimeout(() => done('open'), 2000)),
+        ]);
+        expect(outcome).toBe('closed');
+      } finally {
+        service.readLimits = readLimits;
+      }
+    });
+
+    it('configures the server timeouts (R130)', () => {
+      const server = t.app.getHttpServer();
+      expect(server.requestTimeout).toBe(120_000);
+      expect(server.headersTimeout).toBe(30_000);
+    });
+
+    it('refuses with 503 before reading when the byte budget is spent, and recovers (R129)', async () => {
+      const service = t.app.get(FilesService);
+      const { budget } = service;
+      service.budget = new ByteBudget(2 * MB + 512 * 1024);
+      try {
+        const first = await stalledUpload('writer');
+        const second = await stalledUpload('writer');
+        const third = await stalledUpload('writer');
+        const res = await third.response;
+        expect(res.status).toBe(503);
+        expect(res.body).toMatchObject({ code: 'busy' });
+        first.req.destroy();
+        second.req.destroy();
+        third.req.destroy();
+        await new Promise((done) => setTimeout(done, 300));
+        expect((await upload('writer', small)).status).toBe(201);
+      } finally {
+        service.budget = budget;
       }
     });
 

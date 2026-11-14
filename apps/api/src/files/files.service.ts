@@ -29,6 +29,8 @@ import { DB } from '../database/database.module.ts';
 import { ModuleRegistryService } from '../module-registry/module-registry.service.ts';
 import { WorkspaceModulesService } from '../module-registry/workspace-modules.service.ts';
 import { ImageRejected, makeVariants } from './image.ts';
+import { BusyException } from '../errors/busy.ts';
+import { ByteBudget } from './byte-budget.ts';
 import { Semaphore } from './semaphore.ts';
 
 export type FileSize = 'thumb' | 'reduced' | 'original';
@@ -54,6 +56,8 @@ export class FilesService implements FileStore {
   /** Two image jobs at once, eight waiting, then 503. Never held while a client is sending. */
   jobs = new Semaphore(2, 8);
   readLimits: UploadLimits = DEFAULT_UPLOAD_LIMITS;
+  /** Every upload body in flight, read, waiting or processing, fits in 80 MB together. */
+  budget = new ByteBudget(80 * 1024 * 1024);
 
   constructor(
     @Inject(DB) private readonly db: Db,
@@ -78,12 +82,33 @@ export class FilesService implements FileStore {
         .where(and(scopedProjects(scope), eq(projects.id, projectId)));
       if (!visible) throw new NotFoundException('Project not found');
     }
-    // Two stages. A slow client only ever holds a reader permit, never an image slot.
     const { bytes: source } = input;
-    const bytes =
-      typeof source === 'function' ? await this.readers.run(() => source(this.readLimits)) : source;
-    if (bytes.length > MAX_UPLOAD_BYTES)
+    if (typeof source !== 'function') {
+      return this.process(scope, moduleId, projectId, source);
+    }
+    // Reserved before a byte is read, and held until the file is saved or the upload fails.
+    const release = this.budget.reserve(
+      Math.min(source.declaredBytes ?? MAX_UPLOAD_BYTES, MAX_UPLOAD_BYTES),
+    );
+    if (!release) throw new BusyException();
+    try {
+      // Two stages. A slow client only ever holds a reader permit, never an image slot.
+      const bytes = await this.readers.run(() => source(this.readLimits));
+      return await this.process(scope, moduleId, projectId, bytes);
+    } finally {
+      release();
+    }
+  }
+
+  private process(
+    scope: Scope,
+    moduleId: string,
+    projectId: string | undefined,
+    bytes: Buffer,
+  ): Promise<FileRecord> {
+    if (bytes.length > MAX_UPLOAD_BYTES) {
       throw new PayloadTooLargeException('The upload is too big');
+    }
     return this.jobs.run(() => this.save(scope, moduleId, projectId, bytes));
   }
 

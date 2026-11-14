@@ -11,4 +11,10 @@ export function configureApp(app: INestApplication): void {
   app.use(originCheckMiddleware(trustedOrigins(app.get<Env>(ENV))));
   app.setGlobalPrefix('api', { exclude: ['mcp', 'mcp/{*path}', '.well-known/{*path}'] });
   app.enableShutdownHooks();
+
+  // Limits receiving a request (headers, then the whole body), not sending a response. A long-lived
+  // response stream such as SSE is unaffected, but a long-lived request body would have to opt out.
+  const server = app.getHttpServer();
+  server.requestTimeout = 120_000;
+  server.headersTimeout = 30_000;
 }
