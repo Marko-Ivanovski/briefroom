@@ -86,7 +86,7 @@ describe('rejoining after removal', () => {
     expect((await accept(approval.token, 'applicant')).body).toEqual({ status: 'pending' });
 
     const removed = await http().delete(`${base()}/members/${ids.admin2}`).set(as('owner'));
-    expect(removed.status).toBe(204);
+    expect(removed.status).toBe(200);
 
     expect((await lookup(mine.token)).body).toEqual({ valid: false });
     expect((await lookup(approval.token)).body).toEqual({ valid: false });
@@ -103,7 +103,7 @@ describe('rejoining after removal', () => {
 
   it('turns a removed member into a pending request on a link that needs no approval', async () => {
     const link = await invite('owner');
-    expect((await http().delete(`${base()}/members/${ids.bob}`).set(as('owner'))).status).toBe(204);
+    expect((await http().delete(`${base()}/members/${ids.bob}`).set(as('owner'))).status).toBe(200);
     expect(await removalRows('bob')).toHaveLength(1);
     await login('bob');
 

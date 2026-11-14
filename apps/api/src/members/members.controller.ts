@@ -1,6 +1,7 @@
 import {
   ChangeRoleRequest,
   type MemberSummary,
+  type RemovalResult,
   type ResetLinkResponse,
 } from '@briefroom/contracts';
 import {
@@ -56,8 +57,8 @@ export class MembersController {
 
   @RequireRole('admin')
   @Delete('members/:userId')
-  @HttpCode(204)
-  remove(@CurrentScope() scope: Scope, @Param('userId') userId: string): Promise<void> {
+  @HttpCode(200)
+  remove(@CurrentScope() scope: Scope, @Param('userId') userId: string): Promise<RemovalResult> {
     return this.members.remove(scope, userId);
   }
 

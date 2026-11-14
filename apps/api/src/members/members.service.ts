@@ -1,8 +1,10 @@
-import { Role, type MemberSummary } from '@briefroom/contracts';
+import { Role, type MemberSummary, type RemovalResult } from '@briefroom/contracts';
 import {
   authSchema,
   inviteLinks,
   passwordResetLinks,
+  projectAccessChecklist,
+  projects,
   scopedInsert,
   updatedStamp,
   workspaceRemovals,
@@ -17,15 +19,19 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { and, asc, eq, isNotNull, isNull, sql } from 'drizzle-orm';
+import { and, asc, count, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import type { Scope } from '../access/scope.ts';
 import { AUTH } from '../auth/auth.module.ts';
 import type { Auth } from '../auth/auth.ts';
+import { hasPgCode } from '../errors/pg-error.ts';
 import { describeError } from '../errors/safe-error.ts';
 import { DB } from '../database/database.module.ts';
 import { ProjectMembersService } from '../projects/project-members.service.ts';
 import { revokeLinks } from '../invites/revoke-links.ts';
 import { RevocationService } from './revocation.service.ts';
+
+const PG_DEADLOCK = '40P01';
+const PG_SERIALIZATION = '40001';
 
 @Injectable()
 export class MembersService {
@@ -88,12 +94,37 @@ export class MembersService {
     return updated;
   }
 
-  leave(scope: Scope): Promise<void> {
-    return this.revoke(scope, scope.userId, 'leave');
+  async leave(scope: Scope): Promise<void> {
+    await this.revoke(scope, scope.userId, 'leave');
   }
 
-  remove(scope: Scope, targetUserId: string): Promise<void> {
-    return this.revoke(scope, targetUserId, 'remove');
+  async remove(scope: Scope, targetUserId: string): Promise<RemovalResult> {
+    const projectIds = await this.revoke(scope, targetUserId, 'remove');
+    return { projects: await this.pendingRemovals(scope, projectIds, targetUserId) };
+  }
+
+  private async pendingRemovals(
+    scope: Scope,
+    projectIds: string[],
+    userId: string,
+  ): Promise<RemovalResult['projects']> {
+    if (projectIds.length === 0) return [];
+    const rows = await this.db
+      .select({ id: projects.id, name: projects.name, undone: count() })
+      .from(projectAccessChecklist)
+      .innerJoin(projects, eq(projects.id, projectAccessChecklist.projectId))
+      .where(
+        and(
+          eq(projectAccessChecklist.workspaceId, scope.workspaceId),
+          eq(projectAccessChecklist.userId, userId),
+          eq(projectAccessChecklist.kind, 'remove'),
+          eq(projectAccessChecklist.done, false),
+          inArray(projectAccessChecklist.projectId, projectIds),
+        ),
+      )
+      .groupBy(projects.id, projects.name)
+      .orderBy(asc(projects.name));
+    return rows;
   }
 
   /**
@@ -103,34 +134,32 @@ export class MembersService {
    * and either all of it applies or none. Past records are untouched: `created_by` and
    * `updated_by` are never rewritten.
    */
-  private async revoke(scope: Scope, userId: string, mode: 'remove' | 'leave'): Promise<void> {
-    const projectIds = await this.db.transaction(async (tx) => {
-      const [target] = await tx
-        .select({ id: authSchema.member.id, role: authSchema.member.role })
+  private async revoke(scope: Scope, userId: string, mode: 'remove' | 'leave'): Promise<string[]> {
+    const projectIds = await this.transact<string[]>(async (tx) => {
+      // Both rows are locked by one statement in user_id order, so two people removing each other
+      // queue up instead of deadlocking. Roles are read under the lock, so a concurrent demotion or
+      // promotion cannot slip past the rules below.
+      const locked = await tx
+        .select({
+          userId: authSchema.member.userId,
+          id: authSchema.member.id,
+          role: authSchema.member.role,
+        })
         .from(authSchema.member)
         .where(
           and(
             eq(authSchema.member.organizationId, scope.workspaceId),
-            eq(authSchema.member.userId, userId),
+            inArray(authSchema.member.userId, [...new Set([userId, scope.userId])]),
           ),
         )
+        .orderBy(asc(authSchema.member.userId))
         .for('update');
+      const target = locked.find((m) => m.userId === userId);
       if (!target) throw new NotFoundException('Member not found');
 
-      // The caller's role is re-read under a shared lock, so an admin demoted mid-request cannot
-      // still remove someone. A leaver is their own caller and is already locked above.
       let callerRole = scope.role;
       if (mode === 'remove') {
-        const [caller] = await tx
-          .select({ role: authSchema.member.role })
-          .from(authSchema.member)
-          .where(
-            and(
-              eq(authSchema.member.organizationId, scope.workspaceId),
-              eq(authSchema.member.userId, scope.userId),
-            ),
-          )
-          .for('share');
+        const caller = locked.find((m) => m.userId === scope.userId);
         if (caller?.role !== 'owner' && caller?.role !== 'admin') {
           throw new ForbiddenException('Insufficient role');
         }
@@ -198,6 +227,21 @@ export class MembersService {
     ]);
     await this.endSessionsIfNoWorkspaceLeft(userId);
     await handlers;
+    return projectIds;
+  }
+
+  private async transact<T>(run: Parameters<Db['transaction']>[0]): Promise<T> {
+    try {
+      return (await this.db.transaction(run)) as T;
+    } catch (err) {
+      if (hasPgCode(err, PG_DEADLOCK) || hasPgCode(err, PG_SERIALIZATION)) {
+        throw new ConflictException({
+          code: 'conflict',
+          message: 'The workspace changed at the same moment. Try again.',
+        });
+      }
+      throw err;
+    }
   }
 
   // The member row is already gone, so access has ended through the guard. A failure here only

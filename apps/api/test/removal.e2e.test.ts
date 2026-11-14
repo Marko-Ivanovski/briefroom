@@ -143,7 +143,9 @@ describe('member removal and immediate revocation', () => {
     const createdBy = before!.createdBy;
 
     const res = await del('admin', ids.solo!);
-    expect(res.status).toBe(204);
+    expect(res.status).toBe(200);
+    // The project without tool links has nothing to undo, so only the other one is listed.
+    expect(res.body).toEqual({ projects: [{ id: withLinks, name: 'With links', undone: 2 }] });
 
     expect(await isMember('solo')).toBe(false);
     expect(await onProjects('solo')).toHaveLength(0);
@@ -178,7 +180,7 @@ describe('member removal and immediate revocation', () => {
     await issued.issue(ids.both!, ws, { userId: ids.admin!, via: 'web' });
     await issued.issue(ids.both!, ws2, { userId: ids.owner!, via: 'web' });
 
-    expect((await del('admin', ids.both!)).status).toBe(204);
+    expect((await del('admin', ids.both!)).status).toBe(200);
 
     expect((await projectsOf('both')).status).toBe(404);
     expect((await me('both')).status).toBe(200);
@@ -205,7 +207,7 @@ describe('member removal and immediate revocation', () => {
   it('lets only the owner remove an admin', async () => {
     expect((await del('admin', ids.admin2!)).status).toBe(403);
     expect(await isMember('admin2')).toBe(true);
-    expect((await del('owner', ids.admin2!)).status).toBe(204);
+    expect((await del('owner', ids.admin2!)).status).toBe(200);
     expect(await isMember('admin2')).toBe(false);
   });
 
@@ -317,7 +319,7 @@ describe('member removal and immediate revocation', () => {
     const keys = Array.from({ length: 14 }, (_, i) => `bulk${i}`);
     for (const k of keys) await addUser(k, [{ ws, role: 'member' }]);
     const results = await Promise.all(keys.map((k) => del('admin', ids[k]!)));
-    expect(results.map((r) => r.status)).toEqual(keys.map(() => 204));
+    expect(results.map((r) => r.status)).toEqual(keys.map(() => 200));
   }, 30_000);
 
   it('still returns 204 when deleting sessions fails after the member row is gone', async () => {
@@ -326,7 +328,7 @@ describe('member removal and immediate revocation', () => {
     const original = adapter.deleteUserSessions;
     adapter.deleteUserSessions = (() => Promise.reject(new Error('boom'))) as typeof original;
     try {
-      expect((await del('admin', ids.sessfail!)).status).toBe(204);
+      expect((await del('admin', ids.sessfail!)).status).toBe(200);
     } finally {
       adapter.deleteUserSessions = original;
     }
@@ -384,7 +386,7 @@ describe('member removal and immediate revocation', () => {
       .update(authSchema.session)
       .set({ activeOrganizationId: ws })
       .where(eq(authSchema.session.userId, ids.actrem!));
-    expect((await del('admin', ids.actrem!)).status).toBe(204);
+    expect((await del('admin', ids.actrem!)).status).toBe(200);
     const sessions = await t.db.db
       .select()
       .from(authSchema.session)
@@ -421,7 +423,7 @@ describe('member removal and immediate revocation', () => {
     await new Promise((r) => setTimeout(r, 300));
     release();
     await holder;
-    expect((await removing).status).toBe(204);
+    expect((await removing).status).toBe(200);
     expect(await isMember('pdel')).toBe(false);
     expect(await onProjects('pdel')).toHaveLength(0);
   });
@@ -460,6 +462,22 @@ describe('member removal and immediate revocation', () => {
   it.todo(
     'after removal, the MCP token gets 401 on the next call and the open SSE stream ends within 2 seconds',
   );
+
+  it('answers two admins removing each other at once with 403, never a 500', async () => {
+    const pairs = Array.from({ length: 6 }, (_, i) => [`ma${i}`, `mb${i}`] as const);
+    for (const [a, b] of pairs) {
+      await addUser(a, [{ ws, role: 'admin' }]);
+      await addUser(b, [{ ws, role: 'admin' }]);
+    }
+    const results = await Promise.all(
+      pairs.flatMap(([a, b]) => [del(a, ids[b]!), del(b, ids[a]!)]),
+    );
+    expect(results.map((r) => r.status)).toEqual(results.map(() => 403));
+    for (const [a, b] of pairs) {
+      expect(await isMember(a)).toBe(true);
+      expect(await isMember(b)).toBe(true);
+    }
+  }, 30_000);
 });
 
 describe('RevocationService', () => {
