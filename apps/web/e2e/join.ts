@@ -28,13 +28,14 @@ export async function openWorkspace(page: Page): Promise<void> {
 // The link is shown once, right after creation, so this returns it for the caller to use.
 export async function createInviteLink(
   page: Page,
-  options: { projects?: string[]; requiresApproval?: boolean } = {},
+  options: { projects?: string[]; requiresApproval?: boolean; role?: 'admin' } = {},
 ): Promise<string> {
   await page.getByRole('link', { name: 'Invites' }).click();
   await expect(page.getByRole('heading', { name: 'Invite links' })).toBeVisible();
   for (const project of options.projects ?? []) {
     await page.getByRole('checkbox', { name: project }).check();
   }
+  if (options.role) await page.getByLabel('Role').selectOption(options.role);
   if (options.requiresApproval) await page.getByLabel('Requires approval').check();
   const response = page.waitForResponse(
     (r) => r.url().endsWith('/invites') && r.request().method() === 'POST',

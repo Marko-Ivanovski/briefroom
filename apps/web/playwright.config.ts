@@ -33,5 +33,11 @@ export default defineConfig({
       dependencies: ['setup'],
       use: { ...devices['Desktop Chrome'], storageState: 'e2e/.auth/owner.json' },
     },
+    {
+      name: 'members',
+      testMatch: 'members.spec.ts',
+      dependencies: ['invites'],
+      use: { ...devices['Desktop Chrome'], storageState: 'e2e/.auth/owner.json' },
+    },
   ],
 });
