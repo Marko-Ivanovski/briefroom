@@ -1,6 +1,7 @@
 export * from './auth.ts';
 export * from './install.ts';
 export * from './invites.ts';
+export * from './join-requests.ts';
 export * from './password-resets.ts';
 export * from './projects.ts';
 export * from './project-members.ts';

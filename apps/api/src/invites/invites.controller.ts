@@ -1,9 +1,4 @@
-import {
-  InviteCreate,
-  type InviteCreated,
-  type InviteSummary,
-  type JoinLookup,
-} from '@briefroom/contracts';
+import { InviteCreate, type InviteCreated, type InviteSummary } from '@briefroom/contracts';
 import {
   BadRequestException,
   Body,
@@ -14,11 +9,9 @@ import {
   Param,
   Post,
 } from '@nestjs/common';
-import { AllowAnonymous } from '@thallesp/nestjs-better-auth';
 import { RequireRole } from '../access/require-role.decorator.ts';
 import type { Scope } from '../access/scope.ts';
 import { CurrentScope } from '../access/workspace-scope.guard.ts';
-import { RateLimit } from '../rate-limit/rate-limit.ts';
 import { InvitesService } from './invites.service.ts';
 
 @Controller('v1/workspaces/:workspaceId/invites')
@@ -54,17 +47,5 @@ export class InvitesController {
   @Post(':id/regenerate')
   regenerate(@CurrentScope() scope: Scope, @Param('id') id: string): Promise<InviteCreated> {
     return this.invites.regenerate(scope, id);
-  }
-}
-
-@Controller('v1/join')
-export class JoinController {
-  constructor(private readonly invites: InvitesService) {}
-
-  @AllowAnonymous()
-  @RateLimit()
-  @Get(':token')
-  lookup(@Param('token') token: string): Promise<JoinLookup> {
-    return this.invites.lookup(token);
   }
 }

@@ -42,3 +42,26 @@ export const JoinLookup = z.discriminatedUnion('valid', [
   }),
 ]);
 export type JoinLookup = z.infer<typeof JoinLookup>;
+
+export const JoinSignUp = z.object({
+  name: z.string().trim().min(1).max(80),
+  email: z.email().max(254),
+  password: z.string().min(12).max(128),
+});
+export type JoinSignUp = z.infer<typeof JoinSignUp>;
+
+export const JoinResult = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('joined'), workspaceId: z.string() }),
+  z.object({ status: z.literal('pending') }),
+]);
+export type JoinResult = z.infer<typeof JoinResult>;
+
+export const JoinRequestSummary = z.object({
+  id: z.string(),
+  userId: z.string(),
+  name: z.string(),
+  email: z.string(),
+  role: InviteRole,
+  requestedAt: z.string(),
+});
+export type JoinRequestSummary = z.infer<typeof JoinRequestSummary>;
