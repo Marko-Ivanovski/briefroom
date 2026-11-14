@@ -8,8 +8,8 @@ import {
 } from '@briefroom/db';
 import { and, eq } from 'drizzle-orm';
 import request from 'supertest';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { createTestApp, makeInstallOwner, type TestApp } from './helpers.ts';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createTestApp, makeInstallOwner, resetThrottle, type TestApp } from './helpers.ts';
 
 const PASSWORD = 'correct horse battery';
 const GONE = '00000000-0000-4000-8000-000000000000';
@@ -112,6 +112,10 @@ describe('joining a workspace', () => {
     });
     p1 = await insertProject(ws, 'One');
     p2 = await insertProject(ws, 'Two');
+  });
+
+  beforeEach(() => {
+    resetThrottle(t);
   });
 
   afterEach(() => {
