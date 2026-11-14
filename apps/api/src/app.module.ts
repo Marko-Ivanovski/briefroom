@@ -1,10 +1,12 @@
 import { Global, Module, type DynamicModule } from '@nestjs/common';
 import { ServeStaticModule } from '@nestjs/serve-static';
+import { AccessModule } from './access/access.module.ts';
 import { AuthModule } from './auth/auth.module.ts';
 import { ENV, type Env } from './config/env.ts';
 import { DatabaseModule } from './database/database.module.ts';
 import { InstallModule } from './install/install.module.ts';
 import { SystemController } from './system/system.controller.ts';
+import { WorkspacesModule } from './workspaces/workspaces.module.ts';
 
 @Module({})
 export class AppModule {
@@ -16,6 +18,8 @@ export class AppModule {
         DatabaseModule,
         InstallModule,
         AuthModule,
+        AccessModule,
+        WorkspacesModule,
         ServeStaticModule.forRoot({
           rootPath: env.webDir,
           exclude: ['/api/{*path}', '/mcp', '/mcp/{*path}', '/.well-known/{*path}'],

@@ -1,4 +1,3 @@
-import { randomBytes } from 'node:crypto';
 import type { SetupRequest, SetupResponse } from '@briefroom/contracts';
 import { authSchema, type Db } from '@briefroom/db';
 import {
@@ -14,6 +13,7 @@ import { eq } from 'drizzle-orm';
 import { AUTH } from '../auth/auth.module.ts';
 import type { Auth } from '../auth/auth.ts';
 import { DB } from '../database/database.module.ts';
+import { workspaceSlug } from '../workspaces/workspace-slug.ts';
 import { InstallService } from './install.service.ts';
 import { setupCodeMatches } from './setup-code.ts';
 
@@ -22,16 +22,6 @@ const SETUP_LOCK = `hashtext('briefroom:setup')`;
 
 export interface SetupResult extends SetupResponse {
   cookies: string[];
-}
-
-function workspaceSlug(name: string): string {
-  const base =
-    name
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 30) || 'workspace';
-  return `${base}-${randomBytes(3).toString('hex')}`;
 }
 
 @Injectable()
