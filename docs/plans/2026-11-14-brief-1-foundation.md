@@ -8,7 +8,7 @@
 
 **Out of scope here:** the public Next.js site (`apps/site`) belongs to the release epic BRIEF-5, and the agent hooks to the agent board module.
 
-**Release:** this epic is not v1. The foundation plus the first modules will be roughly v0.3. Marko has more planned before v1.
+**Release:** this epic plus the design library is v0.1, the first release into `main`. Nothing is tagged before then.
 
 **Tech Stack:** Node 24 LTS, TypeScript strict, pnpm, NestJS 12, Drizzle ORM v1 (1.0.0-rc.5), Postgres 16 with pgvector, Better Auth with `@thallesp/nestjs-better-auth`, `@better-auth/api-key`, `@nestjs/mcp`, Zod 4, pg-boss, sharp, React, Vite 8, TanStack Router, TanStack Query, Tailwind, shadcn/ui, Vitest with `unplugin-swc`, Playwright, Docker Compose.
 
@@ -472,9 +472,9 @@ Open the PR, review and merge.
 
 ---
 
-## Story 4 (new key, Invites and removal)
+## Story 4 (BRIEF-10): Invites and removal
 
-Branch: `feature/BRIEF-<key>-invites-and-removal`. The key is assigned when Jira is updated.
+Branch: `feature/invites-and-removal`, opened before the key existed.
 
 ### Task 4.1: Invite links
 
@@ -617,9 +617,9 @@ Open the PR, review and merge.
 
 ---
 
-## Story 5 (new key, Module system)
+## Story 5 (BRIEF-11): Module system
 
-Branch: `feature/BRIEF-<key>-module-system`.
+Branch: `feature/BRIEF-11-module-system`.
 
 ### Task 5.1: Module kit and registry
 
@@ -720,9 +720,9 @@ Open the PR, review and merge.
 
 ---
 
-## Story 6 (new key, Core services)
+## Story 6 (BRIEF-12): Core services
 
-Branch: `feature/BRIEF-<key>-core-services`.
+Branch: `feature/BRIEF-12-core-services`.
 
 ### Task 6.1: History service
 
@@ -972,9 +972,9 @@ Open the PR, review and merge.
 
 ---
 
-## Story 8 (new key, Install and remote access)
+## Story 8 (BRIEF-13): Install and remote access
 
-Branch: `feature/BRIEF-<key>-install-and-remote-access`.
+Branch: `feature/BRIEF-13-install-and-remote-access`.
 
 **Deviation from the spec:** the spec puts a "local network" switch in Settings. The app can't change Docker's port binding from inside its container, so local network access is set through `briefroom init`, and Settings shows that command. Tunnels only need outbound connections, so they can still switch on from Settings (Task 8.4). Marko was told on 2026-11-14.
 
@@ -1077,9 +1077,9 @@ Open the PR, review and merge.
 
 ---
 
-## Story 9 (new key, Export and import)
+## Story 9 (BRIEF-14): Export and import
 
-Branch: `feature/BRIEF-<key>-export-and-import`.
+Branch: `feature/BRIEF-14-export-and-import`.
 
 ### Task 9.1: Workspace export
 
