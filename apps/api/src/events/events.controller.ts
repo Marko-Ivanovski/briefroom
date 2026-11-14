@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Controller, Get, HttpException, HttpStatus, Req, Res } from '@nestjs/common';
 import type { Scope } from '../access/scope.ts';
 import { CurrentScope } from '../access/workspace-scope.guard.ts';
+import { STREAM_EPOCH } from './stream-epoch.middleware.ts';
 import { StreamRegistry } from './stream-registry.ts';
 
 class TooManyStreamsException extends HttpException {
@@ -48,5 +49,10 @@ export class EventsController {
       'X-Accel-Buffering': 'no',
     });
     res.write(': open\n\n');
+    // R135: a revocation between the scope read and the open must not leave this stream behind.
+    const epoch = (req as unknown as Record<symbol, number | undefined>)[STREAM_EPOCH];
+    if (epoch !== undefined && this.streams.revokedSince(epoch, scope.workspaceId, scope.userId)) {
+      stream.close();
+    }
   }
 }

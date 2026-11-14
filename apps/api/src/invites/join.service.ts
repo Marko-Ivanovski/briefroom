@@ -33,6 +33,7 @@ import { AUTH } from '../auth/auth.module.ts';
 import type { Auth } from '../auth/auth.ts';
 import { DB } from '../database/database.module.ts';
 import { describeError } from '../errors/safe-error.ts';
+import { RevocationService } from '../members/revocation.service.ts';
 import { ProjectMembersService } from '../projects/project-members.service.ts';
 import { hashInviteToken, isActive } from './invites.service.ts';
 
@@ -104,6 +105,7 @@ export class JoinService {
     @Inject(DB) private readonly db: Db,
     @Inject(AUTH) private readonly auth: Auth,
     private readonly projectMembers: ProjectMembersService,
+    private readonly revocation: RevocationService,
   ) {}
 
   /** Creates the account, signs it in and joins. A failure at any step leaves no account behind. */
@@ -394,6 +396,7 @@ export class JoinService {
     for (let attempt = 1; attempt <= DELETE_ATTEMPTS; attempt++) {
       try {
         await (await this.auth.$context).internalAdapter.deleteUserSessions(userId);
+        await this.revocation.sessionsRevoked(userId);
         await this.db.delete(authSchema.user).where(eq(authSchema.user.id, userId));
         return;
       } catch (err) {

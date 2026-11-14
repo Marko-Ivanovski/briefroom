@@ -9,7 +9,8 @@ import { DatabaseModule } from '../src/database/database.module.ts';
 import { EnvModule } from '../src/config/env.module.ts';
 import { EventsModule } from '../src/events/events.module.ts';
 import { EventsService, MAX_EVENT_BYTES } from '../src/events/events.service.ts';
-import { StreamRegistry } from '../src/events/stream-registry.ts';
+import { AccessService } from '../src/access/access.service.ts';
+import { MAX_STREAM_LIFETIME_MS, StreamRegistry } from '../src/events/stream-registry.ts';
 import { ModuleRegistryService } from '../src/module-registry/module-registry.service.ts';
 import { WorkspaceModulesService } from '../src/module-registry/workspace-modules.service.ts';
 import { createTestApp, makeInstallOwner, type TestApp } from './helpers.ts';
@@ -153,7 +154,18 @@ describe('workspace event stream', () => {
     await t.app.listen(0, '127.0.0.1');
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 
-    for (const key of ['owner', 'admin', 'onP', 'offP', 'outsider']) await addUser(key);
+    for (const key of [
+      'owner',
+      'admin',
+      'onP',
+      'offP',
+      'outsider',
+      'joiner',
+      'racer',
+      'resetter',
+      'signer',
+    ])
+      await addUser(key);
     await makeInstallOwner(t, ids.owner!);
     ws = (
       await t.auth.api.createOrganization({
@@ -161,7 +173,7 @@ describe('workspace event stream', () => {
       })
     ).id;
     await t.auth.api.addMember({ body: { userId: ids.admin!, role: 'admin', organizationId: ws } });
-    for (const key of ['onP', 'offP']) {
+    for (const key of ['onP', 'offP', 'joiner', 'racer', 'resetter', 'signer']) {
       await t.auth.api.addMember({
         body: { userId: ids[key]!, role: 'member', organizationId: ws },
       });
@@ -446,5 +458,83 @@ describe('workspace event stream', () => {
       },
       { timeout: 8000, interval: 300 },
     );
+  });
+
+  it('closes a member’s streams when they join a project, and the reconnect sees its events', async () => {
+    const before = await connect('joiner');
+    const res = await fetch(api(`/projects/${otherProjectId}/members`), {
+      method: 'POST',
+      ...json('owner', { userId: ids.joiner }),
+    });
+    expect(res.status).toBe(201);
+    await before.ended;
+    const after = await connect('joiner');
+    await t.app
+      .get(EventsService)
+      .publish(ctl(), { type: 'testkit.joined', projectId: otherProjectId });
+    await after.next((f) => f.event === 'testkit.joined');
+    after.abort();
+  });
+
+  it('closes a stream whose connect raced a revocation between the scope read and the open', async () => {
+    const access = t.app.get(AccessService);
+    const registry = t.app.get(StreamRegistry);
+    const real = access.scopeFor.bind(access);
+    const spy = vi.spyOn(access, 'scopeFor').mockImplementation(async (...args) => {
+      const scope = await real(...args);
+      if (args[0] === ids.racer) registry.closeFor(ws, ids.racer!);
+      return scope;
+    });
+    try {
+      const raced = await connect('racer');
+      await raced.ended;
+      expect(registry.count(ws, ids.racer!)).toBe(0);
+    } finally {
+      spy.mockRestore();
+    }
+    const fine = await connect('racer');
+    await t.app.get(EventsService).publish(ctl(), { type: 'testkit.after_race' });
+    await fine.next((f) => f.event === 'testkit.after_race');
+    fine.abort();
+  });
+
+  it('closes a user’s streams in every workspace when a password reset revokes their sessions', async () => {
+    const s = await connect('resetter');
+    const link = await fetch(api(`/members/${ids.resetter}/reset-link`), {
+      method: 'POST',
+      ...json('owner'),
+    });
+    expect(link.status).toBeLessThan(300);
+    const { url } = (await link.json()) as { url: string };
+    const reset = await fetch(`${base}/api/v1/reset/${url.split('/reset/')[1]}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ password: 'another correct horse' }),
+    });
+    expect(reset.status).toBeLessThan(300);
+    await s.ended;
+  });
+
+  it('closes a user’s streams on sign-out', async () => {
+    const s = await connect('signer');
+    const res = await fetch(`${base}/api/auth/sign-out`, {
+      method: 'POST',
+      headers: { ...json('signer').headers, origin: 'http://localhost:4300' },
+      body: '{}',
+    });
+    expect(res.status).toBe(200);
+    await s.ended;
+  });
+
+  it('ends a stream after the maximum lifetime, so its session is checked again on reconnect', async () => {
+    const registry = t.app.get(StreamRegistry);
+    registry.maxLifetimeMs = 400;
+    try {
+      const s = await connect('owner');
+      await s.ended;
+    } finally {
+      registry.maxLifetimeMs = MAX_STREAM_LIFETIME_MS;
+    }
+    expect(MAX_STREAM_LIFETIME_MS).toBe(30 * 60_000);
   });
 });

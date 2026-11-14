@@ -3,7 +3,7 @@ import { apiKey } from '@better-auth/api-key';
 import { drizzleAdapter } from '@better-auth/drizzle-adapter';
 import { Logger } from '@nestjs/common';
 import { betterAuth } from 'better-auth';
-import { APIError, createAuthMiddleware, isAPIError } from 'better-auth/api';
+import { APIError, createAuthMiddleware, getSessionFromCtx, isAPIError } from 'better-auth/api';
 import { admin, organization } from 'better-auth/plugins';
 import type { Env } from '../config/env.ts';
 import { describeError } from '../errors/safe-error.ts';
@@ -29,7 +29,12 @@ export const SAFE_AUTH_MESSAGES: ReadonlySet<string> = new Set([ENDPOINT_UNAVAIL
 
 export type CanCreateWorkspace = (userId: string) => Promise<boolean>;
 
-export function createAuth(db: Db, env: Env, canCreateWorkspace: CanCreateWorkspace) {
+export function createAuth(
+  db: Db,
+  env: Env,
+  canCreateWorkspace: CanCreateWorkspace,
+  onSignOut: (userId: string) => Promise<void> = async () => undefined,
+) {
   const log = new Logger('BetterAuth');
   return betterAuth({
     secret: env.authSecret,
@@ -65,6 +70,10 @@ export function createAuth(db: Db, env: Env, canCreateWorkspace: CanCreateWorksp
       before: createAuthMiddleware(async (ctx) => {
         if (ctx.request && !ALLOWED_HTTP_PATHS.has(ctx.path)) {
           throw new APIError('FORBIDDEN', { message: ENDPOINT_UNAVAILABLE });
+        }
+        if (ctx.path === '/sign-out') {
+          const session = await getSessionFromCtx(ctx).catch(() => null);
+          if (session) await onSignOut(session.user.id);
         }
       }),
     },

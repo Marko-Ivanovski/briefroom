@@ -295,6 +295,7 @@ export class MembersService {
         .limit(1);
       if (!remaining) {
         await (await this.auth.$context).internalAdapter.deleteUserSessions(userId);
+        await this.revocation.sessionsRevoked(userId);
       }
     } catch (err) {
       this.log.error(

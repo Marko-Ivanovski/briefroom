@@ -3,6 +3,8 @@ import { Global, Logger, Module } from '@nestjs/common';
 import { AuthModule as BetterAuthModule } from '@thallesp/nestjs-better-auth';
 import { ENV, type Env } from '../config/env.ts';
 import { DB } from '../database/database.module.ts';
+import { RevocationModule } from '../members/revocation.module.ts';
+import { RevocationService } from '../members/revocation.service.ts';
 import { InstallService } from '../install/install.service.ts';
 import { createAuth, type Auth } from './auth.ts';
 
@@ -10,18 +12,29 @@ export const AUTH = Symbol('AUTH');
 
 @Global()
 @Module({
+  imports: [RevocationModule],
   providers: [
     {
       provide: AUTH,
-      useFactory: (db: Db, env: Env, installs: InstallService): Auth => {
+      useFactory: (
+        db: Db,
+        env: Env,
+        installs: InstallService,
+        revocation: RevocationService,
+      ): Auth => {
         if (env.usingDevAuthSecret) {
           new Logger('Auth').warn(
             'BETTER_AUTH_SECRET is not set: using the dev-only secret. Set it before exposing this install.',
           );
         }
-        return createAuth(db, env, (userId) => installs.canCreateWorkspace(userId));
+        return createAuth(
+          db,
+          env,
+          (userId) => installs.canCreateWorkspace(userId),
+          (userId) => revocation.sessionsRevoked(userId),
+        );
       },
-      inject: [DB, ENV, InstallService],
+      inject: [DB, ENV, InstallService, RevocationService],
     },
   ],
   exports: [AUTH],

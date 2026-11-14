@@ -110,6 +110,7 @@ export class ProjectMembersService {
       });
       if (!row)
         throw new ConflictException({ code: 'already_on_project', message: 'already_on_project' });
+      await this.revocation.projectMemberAdded(scope.workspaceId, userId);
       return {
         userId: target.id,
         name: target.name,
