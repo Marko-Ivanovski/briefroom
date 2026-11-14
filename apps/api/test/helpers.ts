@@ -27,6 +27,7 @@ export async function makeInstallOwner(t: TestApp, userId: string): Promise<void
 export async function createTestApp(
   envOverrides: Record<string, string> = {},
   extraControllers: Type[] = [],
+  extraImports: Type[] = [],
 ): Promise<TestApp> {
   const db = await createTestDb();
   const env = loadEnv({
@@ -37,7 +38,7 @@ export async function createTestApp(
   });
   try {
     const app = await NestFactory.create(
-      AppModule.register(env, extraControllers),
+      AppModule.register(env, extraControllers, extraImports),
       new NodeAdapter(),
       {
         logger: false,

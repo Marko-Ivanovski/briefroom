@@ -35,7 +35,12 @@ class AuthCoreModule {}
       imports: [AuthCoreModule],
       inject: [AUTH],
       // Our API is JSON only, so form bodies are left unparsed on non-auth routes.
-      useFactory: (auth: Auth) => ({ auth, bodyParser: { urlencoded: { enabled: false } } }),
+      useFactory: (auth: Auth) => ({
+        auth,
+        // RequestGuard (AccessModule) runs the package's AuthGuard itself, in a fixed order.
+        disableGlobalAuthGuard: true,
+        bodyParser: { urlencoded: { enabled: false } },
+      }),
     }),
   ],
 })

@@ -1,6 +1,7 @@
 import { Controller, Get } from '@nestjs/common';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { AccessModule } from '../src/access/access.module.ts';
 import { RequireRole } from '../src/access/require-role.decorator.ts';
 import { createTestApp, makeInstallOwner, type TestApp } from './helpers.ts';
 
@@ -32,7 +33,10 @@ class OrphanController {
   }
 }
 
-describe('global workspace scope guard', () => {
+describe.each([
+  ['default wiring', []],
+  ['AccessModule also imported from the root, ahead of everything', [AccessModule]],
+])('global workspace scope guard (%s)', (_label, extraImports) => {
   let t: TestApp;
   const ids: Record<string, string> = {};
   const cookies: Record<string, string> = {};
@@ -41,7 +45,7 @@ describe('global workspace scope guard', () => {
   const http = () => request(t.app.getHttpServer());
 
   beforeAll(async () => {
-    t = await createTestApp({}, [ProbeController, OrphanController]);
+    t = await createTestApp({}, [ProbeController, OrphanController], extraImports);
     for (const key of ['owner', 'member', 'outsider']) {
       const email = `${key}@example.com`;
       const { user } = await t.auth.api.createUser({
