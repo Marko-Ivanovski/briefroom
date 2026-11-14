@@ -11,26 +11,34 @@ export interface TestDb {
   close(): Promise<void>;
 }
 
-async function withAdmin<T>(url: string, fn: (c: pg.Client) => Promise<T>): Promise<T> {
-  const client = new pg.Client({ connectionString: url });
-  await client.connect();
-  try {
-    return await fn(client);
-  } finally {
-    await client.end();
-  }
-}
-
 export async function createTestDb(): Promise<TestDb> {
   const adminUrl = process.env.DATABASE_URL ?? DEV_DATABASE_URL;
   const name = `briefroom_test_${randomBytes(6).toString('hex')}`;
   const testUrl = new URL(adminUrl);
   testUrl.pathname = `/${name}`;
   const url = testUrl.toString();
-  const drop = () =>
-    withAdmin(adminUrl, (c) => c.query(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`));
+  // One admin connection serves both the CREATE and the DROP. On Windows, Node 24 intermittently
+  // dies silently (exit 3221226505) when a short-lived admin connection runs CREATE/DROP DATABASE
+  // and ends straight after.
+  const admin = new pg.Client({ connectionString: adminUrl });
+  admin.on('error', (err) => {
+    console.error('Postgres admin connection error', err);
+  });
+  await admin.connect();
+  const drop = async () => {
+    try {
+      await admin.query(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`);
+    } finally {
+      await admin.end();
+    }
+  };
 
-  await withAdmin(adminUrl, (c) => c.query(`CREATE DATABASE "${name}"`));
+  try {
+    await admin.query(`CREATE DATABASE "${name}"`);
+  } catch (err) {
+    await admin.end();
+    throw err;
+  }
   const db = createDb(url);
   try {
     await runMigrations(db);
