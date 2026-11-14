@@ -1,7 +1,9 @@
 import { Button } from '@briefroom/ui';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, Link, Outlet, redirect, useNavigate } from '@tanstack/react-router';
+import { useState } from 'react';
 import { api } from '../../api/client.ts';
+import { FormError } from '../../components/form-error.tsx';
 import { meQuery, workspacesQuery } from '../../api/queries.ts';
 import { WorkspaceSwitcher } from '../../components/workspace-switcher.tsx';
 import { writeLastWorkspace } from '../../lib/last-workspace.ts';
@@ -23,8 +25,16 @@ function WorkspaceLayout() {
   const { data: me } = useQuery(meQuery);
   const { data: workspaces = [] } = useQuery(workspacesQuery);
 
+  const [signOutFailed, setSignOutFailed] = useState(false);
+
   async function signOut() {
-    await api.signOut();
+    setSignOutFailed(false);
+    try {
+      await api.signOut();
+    } catch {
+      setSignOutFailed(true);
+      return;
+    }
     queryClient.clear();
     await navigate({ to: '/sign-in' });
   }
@@ -53,6 +63,9 @@ function WorkspaceLayout() {
           </Button>
         </div>
       </header>
+      <div className="px-4 pt-3">
+        <FormError message={signOutFailed ? 'Something went wrong. Try again.' : null} />
+      </div>
       <main className="mx-auto max-w-3xl p-6">
         <Outlet />
       </main>

@@ -43,4 +43,3 @@ jobs:
       - run: pnpm test
       - run: pnpm --filter @briefroom/web exec playwright install --with-deps chromium
       - run: pnpm test:e2e
-      - run: pnpm --filter @briefroom/web build

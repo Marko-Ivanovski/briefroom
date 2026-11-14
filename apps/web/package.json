@@ -21,7 +21,7 @@
   },
   "devDependencies": {
     "@briefroom/db": "workspace:*",
-    "@playwright/test": "1.65.1",
+    "@playwright/test": "1.65.0",
     "@tailwindcss/vite": "4.3.5",
     "@tanstack/router-plugin": "1.169.0",
     "@types/node": "24.19.2",
