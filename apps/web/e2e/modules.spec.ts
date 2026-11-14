@@ -18,12 +18,21 @@ test('modules: navigation, settings, member permissions and the off state', asyn
   await expect(page.getByText('Testkit notes')).toBeVisible();
 
   await nav(page).getByRole('link', { name: 'Members' }).click();
-  const toggle = page.getByRole('checkbox', { name: `write-notes for ${MEMBER}` });
+  const row = page.getByRole('row', { name: new RegExp(MEMBER) });
+  await expect(
+    row,
+    `${MEMBER} must be in the members list. invites.spec.ts joins them and this spec reuses them.`,
+  ).toBeVisible();
+  await expect(
+    row.getByRole('cell', { name: 'Member', exact: true }),
+    `${MEMBER} must be a plain member. Another spec changed their role.`,
+  ).toBeVisible();
+  const toggle = page.getByRole('checkbox', { name: `Write notes for ${MEMBER}` });
   await expect(toggle).not.toBeChecked();
   await toggle.check();
   await page.reload();
   await expect(toggle).toBeChecked();
-  const owner = page.getByRole('checkbox', { name: /^write-notes for Ada/ });
+  const owner = page.getByRole('checkbox', { name: /^Write notes for Ada/ });
   await expect(owner).toBeChecked();
   await expect(owner).toBeDisabled();
 

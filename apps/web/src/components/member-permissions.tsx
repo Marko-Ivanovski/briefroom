@@ -38,7 +38,7 @@ export function MemberPermissions({ workspaceId, userId, name }: MemberPermissio
               id={id}
               type="checkbox"
               className="size-4"
-              aria-label={`${p.key} for ${name}`}
+              aria-label={`${p.label} for ${name}`}
               checked={p.implied || (pending[id] ?? p.granted)}
               disabled={p.implied}
               onChange={(e) => {
@@ -46,7 +46,8 @@ export function MemberPermissions({ workspaceId, userId, name }: MemberPermissio
                 set.mutate({ moduleId: p.moduleId, key: p.key, granted: e.target.checked });
               }}
             />
-            <Label htmlFor={id}>{p.key}</Label>
+            <Label htmlFor={id}>{p.label}</Label>
+            <span className="text-muted-foreground text-xs">{p.description}</span>
             {p.implied ? (
               <span className="text-muted-foreground text-xs">implied by role</span>
             ) : null}

@@ -1,5 +1,6 @@
 import { createRoute, type AnyRoute } from '@tanstack/react-router';
-import { ModuleGate } from './components/module-gate.tsx';
+import type { QueryClient } from '@tanstack/react-query';
+import { assertModuleEnabled, ModuleGate, ModuleGateError } from './components/module-gate.tsx';
 import { WEB_MODULES } from './modules.ts';
 
 // File routes and code routes meet here. Each module gets one gate route at m/<id> under the
@@ -14,7 +15,14 @@ export function mountModuleRoutes(workspaceRoute: AnyRoute): void {
     const gate = createRoute({
       getParentRoute: () => workspaceRoute,
       path: `m/${entry.id}`,
+      beforeLoad: ({ context, params }: { context: unknown; params: unknown }) =>
+        assertModuleEnabled(
+          (context as { queryClient: QueryClient }).queryClient,
+          (params as { workspaceId: string }).workspaceId,
+          entry.id,
+        ),
       component: Gate,
+      errorComponent: ModuleGateError,
     });
     const children = entry.routes.map((route) =>
       route.update({ getParentRoute: () => gate } as never),

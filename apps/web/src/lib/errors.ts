@@ -89,6 +89,9 @@ export const MEMBER_CODES: Record<string, string> = {
 
 export const MODULE_OFF_MESSAGE = 'This module is off in this workspace';
 
+export const MODULE_CHECK_FAILED_MESSAGE =
+  'Could not check whether this module is on. Reload the page and try again.';
+
 export const MODULE_ERRORS: Record<number, string> = {
   400: 'Check the module settings and try again.',
   403: "You don't have permission to change modules.",
