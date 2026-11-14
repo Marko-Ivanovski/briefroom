@@ -1,8 +1,10 @@
 import { DEV_DATABASE_URL } from '@briefroom/db';
+import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 
 const DEFAULT_WEB_DIR = fileURLToPath(new URL('../../../web/dist', import.meta.url));
+const DEFAULT_DATA_DIR = fileURLToPath(new URL('../../../../.data', import.meta.url));
 const DEV_PUBLIC_URL = 'http://localhost:5173';
 export const DEV_AUTH_SECRET = 'briefroom-dev-only-secret-never-use-in-production';
 
@@ -26,6 +28,9 @@ function schemaFor(production: boolean) {
     PORT: Port.default(4300),
     HOST: z.string().min(1).default('127.0.0.1'),
     BRIEFROOM_WEB_DIR: z.string().min(1).default(DEFAULT_WEB_DIR),
+    BRIEFROOM_DATA_DIR: production
+      ? z.string().min(1)
+      : z.string().min(1).default(DEFAULT_DATA_DIR),
     BRIEFROOM_TESTKIT: z
       .string()
       .optional()
@@ -44,6 +49,8 @@ export interface Env {
   port: number;
   host: string;
   webDir: string;
+  /** Absolute path of the folder that holds uploaded files. */
+  dataDir: string;
 }
 
 export const ENV = Symbol('ENV');
@@ -67,5 +74,6 @@ export function loadEnv(raw: Record<string, string | undefined> = process.env): 
     port: v.PORT,
     host: v.HOST,
     webDir: v.BRIEFROOM_WEB_DIR,
+    dataDir: resolve(v.BRIEFROOM_DATA_DIR),
   };
 }
