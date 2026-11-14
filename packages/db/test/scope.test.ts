@@ -1,7 +1,7 @@
 import { createTestDb, type TestDb } from '@briefroom/db/testing';
 import { pgTable, text } from 'drizzle-orm/pg-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { scoped } from '../src/scope.ts';
+import { scopedInsert, scopedUpdate, scoped, type WriteScope } from '../src/scope.ts';
 
 const workspaceNotes = pgTable('scope_ws_notes', {
   id: text('id').primaryKey(),
@@ -113,5 +113,42 @@ describe('scoped', () => {
       // @ts-expect-error a table without a workspaceId column is not a ScopedTable
       scoped({ workspaceId: 'w1', visibleProjectIds: 'all' }, bare),
     ).toThrow(/workspace_id/);
+  });
+});
+
+describe('scopedInsert and scopedUpdate', () => {
+  const scope: WriteScope = {
+    workspaceId: 'w1',
+    actor: { userId: 'u1', via: 'mcp', agent: 'claude' },
+  };
+
+  it('insert takes workspaceId from the scope, overriding the caller', () => {
+    const row = scopedInsert(scope, { id: 'a', workspaceId: 'w-evil' });
+    expect(row.workspaceId).toBe('w1');
+    expect(row.id).toBe('a');
+  });
+
+  it('insert adds the created and updated stamps', () => {
+    const row = scopedInsert(scope, { id: 'a' });
+    expect(row).toMatchObject({
+      createdBy: 'u1',
+      createdVia: 'mcp',
+      createdAgent: 'claude',
+      updatedBy: 'u1',
+      updatedVia: 'mcp',
+      updatedAgent: 'claude',
+    });
+    expect(row.createdAt).toBeInstanceOf(Date);
+  });
+
+  it('update adds only the updated stamp', () => {
+    const row = scopedUpdate(scope, { title: 'x' });
+    expect(row).toMatchObject({ title: 'x', updatedBy: 'u1', updatedVia: 'mcp' });
+    expect(row).not.toHaveProperty('createdBy');
+    expect(row).not.toHaveProperty('workspaceId');
+  });
+
+  it('update throws when values contain workspaceId', () => {
+    expect(() => scopedUpdate(scope, { workspaceId: 'w2' })).toThrow(/workspaceId/);
   });
 });

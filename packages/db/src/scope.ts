@@ -1,4 +1,11 @@
 import { and, eq, getTableColumns, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
+import {
+  createdStamp,
+  updatedStamp,
+  type Actor,
+  type CreatedStamp,
+  type UpdatedStamp,
+} from './audit.ts';
 import type { AnyPgColumn, PgColumn, PgTable } from 'drizzle-orm/pg-core';
 
 export interface ScopeFilter {
@@ -26,4 +33,23 @@ export function scoped(filter: ScopeFilter, table: ScopedTable): SQL {
     filter.visibleProjectIds.length > 0 ? [inArray(project, [...filter.visibleProjectIds])] : [];
   const projectRule = project.notNull ? visible[0] : or(isNull(project), ...visible);
   return and(inWorkspace, projectRule ?? sql`false`)!;
+}
+
+export interface WriteScope {
+  workspaceId: string;
+  actor: Actor;
+}
+
+/** The only way services build values for an insert into a scoped table. */
+export function scopedInsert<V extends object>(
+  scope: WriteScope,
+  values: V,
+): V & { workspaceId: string } & CreatedStamp {
+  return { ...values, workspaceId: scope.workspaceId, ...createdStamp(scope.actor) };
+}
+
+/** The only way services build values for an update of a scoped table. A row never changes workspace. */
+export function scopedUpdate<V extends object>(scope: WriteScope, values: V): V & UpdatedStamp {
+  if ('workspaceId' in values) throw new Error('scopedUpdate cannot change workspaceId');
+  return { ...values, ...updatedStamp(scope.actor) };
 }
