@@ -60,6 +60,12 @@ export const projectMembersQuery = (workspaceId: string, projectId: string) =>
     queryFn: () => api.projectMembers(workspaceId, projectId),
   });
 
+export const pendingRemovalsQuery = (workspaceId: string, projectId: string) =>
+  queryOptions({
+    queryKey: [...projectsKey(workspaceId), projectId, 'pending-removals'],
+    queryFn: () => api.pendingRemovals(workspaceId, projectId),
+  });
+
 export const checklistQuery = (
   workspaceId: string,
   projectId: string,

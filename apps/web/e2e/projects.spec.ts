@@ -8,6 +8,8 @@ const API_DIR = fileURLToPath(new URL('../../api', import.meta.url));
 test.use({ baseURL: process.env.E2E_BASE_URL });
 
 test.beforeAll(() => {
+  const databaseUrl = process.env.E2E_DATABASE_URL;
+  if (!databaseUrl) throw new Error('E2E_DATABASE_URL is not set: global setup did not run');
   execFileSync(
     process.execPath,
     ['--import', '@swc-node/register/esm-register', 'test/seed-e2e-member.ts'],
@@ -17,7 +19,7 @@ test.beforeAll(() => {
       env: {
         ...process.env,
         NODE_ENV: 'test',
-        DATABASE_URL: process.env.E2E_DATABASE_URL,
+        DATABASE_URL: databaseUrl,
         SEED_OWNER_EMAIL: OWNER.email,
         SEED_MEMBER_NAME: MEMBER.name,
         SEED_MEMBER_EMAIL: MEMBER.email,
@@ -89,6 +91,11 @@ test('owner manages project access, member sees only their project', async ({ pa
   await memberContext.close();
 
   await page.reload();
+  await page.getByRole('button', { name: `Checklist for ${MEMBER.name}` }).click();
+  const reopened = page.getByRole('region', { name: `Access to add for ${MEMBER.name}` });
+  await expect(reopened.getByRole('checkbox', { name: 'Repo' })).toBeChecked();
+  await reopened.getByRole('button', { name: 'Close' }).click();
+
   await page.getByRole('button', { name: `Remove ${MEMBER.name}` }).click();
   await expect(page.getByRole('row', { name: new RegExp(MEMBER.email) })).toBeVisible();
   await page.getByRole('button', { name: `Confirm remove ${MEMBER.name}` }).click();
@@ -96,4 +103,32 @@ test('owner manages project access, member sees only their project', async ({ pa
     page.getByRole('region', { name: `Access to remove for ${MEMBER.name}` }),
   ).toBeVisible();
   await expect(page.getByRole('row', { name: new RegExp(MEMBER.email) })).toHaveCount(0);
+
+  const removal = page.getByRole('region', { name: `Access to remove for ${MEMBER.name}` });
+  await removal.getByRole('button', { name: 'Close' }).click();
+  await expect(removal).toHaveCount(0);
+
+  const pending = page.getByRole('region', { name: 'Pending removals' });
+  const entry = pending.getByRole('button', { name: `${MEMBER.name}, 2 undone` });
+  await expect(entry).toBeVisible();
+  await entry.click();
+  await expect(removal.getByRole('checkbox')).toHaveCount(2);
+  await removal.getByRole('checkbox', { name: 'Repo' }).click();
+  await expect(removal.getByRole('checkbox', { name: 'Repo' })).toBeChecked();
+  await expect(pending.getByRole('button', { name: `${MEMBER.name}, 1 undone` })).toBeVisible();
+  await removal.getByRole('checkbox', { name: 'Board' }).click();
+  await expect(removal.getByRole('checkbox', { name: 'Board' })).toBeChecked();
+  await expect(pending.getByRole('button', { name: new RegExp(MEMBER.name) })).toHaveCount(0);
+
+  // The project is gone for this caller: the page must show the error, not the cached project.
+  await page.route(/\/api\/v1\/workspaces\/[^/]+\/projects\/[^/]+$/, (route) =>
+    route.fulfill({
+      status: 404,
+      contentType: 'application/json',
+      body: JSON.stringify({ message: 'Project not found' }),
+    }),
+  );
+  await page.evaluate(() => window.dispatchEvent(new Event('visibilitychange')));
+  await expect(page.getByRole('alert')).toHaveText('That project no longer exists.');
+  await expect(page.getByRole('heading', { name: 'Alpha' })).toHaveCount(0);
 });

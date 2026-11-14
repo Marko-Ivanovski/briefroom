@@ -2,8 +2,8 @@ import type { ChecklistItem, ChecklistKind } from '@briefroom/contracts';
 import { Button, Label } from '@briefroom/ui';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client.ts';
-import { checklistQuery } from '../api/queries.ts';
-import { messageFor, PROJECT_ERRORS } from '../lib/errors.ts';
+import { checklistQuery, pendingRemovalsQuery } from '../api/queries.ts';
+import { CHECKLIST_ERRORS, messageFor } from '../lib/errors.ts';
 import { FormError } from './form-error.tsx';
 
 interface AccessChecklistProps {
@@ -30,7 +30,13 @@ export function AccessChecklist({
   const toggle = useMutation({
     mutationFn: (input: { toolLinkId: string; done: boolean }) =>
       api.setChecklistItem(workspaceId, projectId, userId, { ...input, kind }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: query.queryKey }),
+    onSuccess: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: query.queryKey }),
+        queryClient.invalidateQueries({
+          queryKey: pendingRemovalsQuery(workspaceId, projectId).queryKey,
+        }),
+      ]),
   });
 
   const headingId = `checklist-${kind}-${userId}`;
@@ -46,7 +52,7 @@ export function AccessChecklist({
           Close
         </Button>
       </div>
-      <FormError message={error ? messageFor(error, PROJECT_ERRORS) : null} />
+      <FormError message={error ? messageFor(error, CHECKLIST_ERRORS) : null} />
       {items.length === 0 && !error ? (
         <p className="text-muted-foreground text-sm">This project has no tool links.</p>
       ) : (

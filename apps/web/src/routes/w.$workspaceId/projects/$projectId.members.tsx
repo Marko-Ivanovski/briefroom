@@ -16,6 +16,7 @@ import { api } from '../../../api/client.ts';
 import {
   invalidateProjects,
   membersQuery,
+  pendingRemovalsQuery,
   projectMembersQuery,
   workspacesQuery,
 } from '../../../api/queries.ts';
@@ -36,6 +37,12 @@ export const Route = createFileRoute('/w/$workspaceId/projects/$projectId/member
       admin
         ? queryClient.query({ ...membersQuery(params.workspaceId), staleTime: 'static' })
         : undefined,
+      admin
+        ? queryClient.query({
+            ...pendingRemovalsQuery(params.workspaceId, params.projectId),
+            staleTime: 'static',
+          })
+        : undefined,
     ]);
   },
   component: ProjectMembersPage,
@@ -54,6 +61,10 @@ function ProjectMembersPage() {
   const { data: members = [] } = useQuery(projectMembersQuery(workspaceId, projectId));
   const { data: workspaceMembers = [] } = useQuery({
     ...membersQuery(workspaceId),
+    enabled: isAdmin,
+  });
+  const { data: pendingRemovals = [] } = useQuery({
+    ...pendingRemovalsQuery(workspaceId, projectId),
     enabled: isAdmin,
   });
   const [selected, setSelected] = useState('');
@@ -157,14 +168,26 @@ function ProjectMembersPage() {
                       </Button>
                     </div>
                   ) : (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      aria-label={`Remove ${m.name}`}
-                      onClick={() => setConfirmingRemove(m.userId)}
-                    >
-                      Remove
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        aria-label={`Checklist for ${m.name}`}
+                        onClick={() =>
+                          setChecklist({ userId: m.userId, name: m.name, kind: 'add' })
+                        }
+                      >
+                        Checklist
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        aria-label={`Remove ${m.name}`}
+                        onClick={() => setConfirmingRemove(m.userId)}
+                      >
+                        Remove
+                      </Button>
+                    </div>
                   )}
                 </TableCell>
               ) : null}
@@ -172,6 +195,36 @@ function ProjectMembersPage() {
           ))}
         </TableBody>
       </Table>
+
+      {isAdmin ? (
+        <section aria-labelledby="pending-removals" className="mt-8">
+          <h2 id="pending-removals" className="font-semibold">
+            Pending removals
+          </h2>
+          {pendingRemovals.length === 0 ? (
+            <p className="text-muted-foreground mt-2 text-sm">
+              Nobody has access left to take away.
+            </p>
+          ) : (
+            <ul className="mt-2 grid gap-2">
+              {pendingRemovals.map((p) => {
+                const name = p.name ?? 'Deleted account';
+                return (
+                  <li key={p.userId}>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setChecklist({ userId: p.userId, name, kind: 'remove' })}
+                    >
+                      {name}, {p.undone} undone
+                    </Button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+      ) : null}
 
       {isAdmin && checklist ? (
         <AccessChecklist

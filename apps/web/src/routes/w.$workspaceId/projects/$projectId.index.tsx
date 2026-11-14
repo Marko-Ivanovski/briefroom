@@ -28,7 +28,7 @@ function ProjectOverview() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const isAdmin = useIsAdmin(workspaceId);
-  const { data: project } = useQuery(projectQuery(workspaceId, projectId));
+  const { data: project, error: loadError } = useQuery(projectQuery(workspaceId, projectId));
   const { data: members = [] } = useQuery(projectMembersQuery(workspaceId, projectId));
   const { data: me } = useQuery(meQuery);
   const [editing, setEditing] = useState(false);
@@ -68,6 +68,13 @@ function ProjectOverview() {
     },
   });
 
+  if (loadError) {
+    return (
+      <p role="alert" className="text-destructive text-sm">
+        {messageFor(loadError, PROJECT_ERRORS)}
+      </p>
+    );
+  }
   if (!project) return null;
   const onProject = members.some((m) => m.userId === me?.userId);
   const actionError = remove.error ?? leave.error;

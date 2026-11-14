@@ -2,6 +2,7 @@ import {
   ChecklistItem,
   MeResponse,
   MemberSummary,
+  PendingRemoval,
   ProjectDetail,
   ProjectMemberSummary,
   ProjectSummary,
@@ -115,6 +116,12 @@ export const api = {
     request(null, 'DELETE', memberPath(workspaceId, projectId, userId)),
   leaveProject: (workspaceId: string, projectId: string) =>
     request(null, 'POST', `${projectPath(workspaceId, projectId)}/members/leave`),
+  pendingRemovals: (workspaceId: string, projectId: string) =>
+    request(
+      PendingRemoval.array(),
+      'GET',
+      `${projectPath(workspaceId, projectId)}/pending-removals`,
+    ),
   checklist: (workspaceId: string, projectId: string, userId: string, kind: ChecklistKind) =>
     request(
       ChecklistItem.array(),

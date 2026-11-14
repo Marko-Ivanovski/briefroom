@@ -9,17 +9,23 @@ export const Route = createFileRoute('/w/$workspaceId/projects/$projectId')({
       ...projectQuery(params.workspaceId, params.projectId),
       staleTime: 'static',
     }),
-  errorComponent: ({ error }) => (
-    <p role="alert" className="text-destructive text-sm">
-      {messageFor(error, PROJECT_ERRORS)}
-    </p>
-  ),
+  errorComponent: ({ error }) => <ProjectError error={error} />,
   component: ProjectLayout,
 });
 
+function ProjectError({ error }: { error: unknown }) {
+  return (
+    <p role="alert" className="text-destructive text-sm">
+      {messageFor(error, PROJECT_ERRORS)}
+    </p>
+  );
+}
+
 function ProjectLayout() {
   const { workspaceId, projectId } = Route.useParams();
-  const { data: project } = useQuery(projectQuery(workspaceId, projectId));
+  const { data: project, error } = useQuery(projectQuery(workspaceId, projectId));
+  // A refetch that fails (access lost, project deleted) keeps the cached project in `data`.
+  if (error) return <ProjectError error={error} />;
   return (
     <section>
       <h1 className="text-2xl font-semibold">{project?.name}</h1>

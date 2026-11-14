@@ -26,3 +26,9 @@ export const ADD_MEMBER_CODES: Record<string, string> = {
   already_on_project: 'Already on this project.',
   not_a_workspace_member: "That person isn't in this workspace.",
 };
+
+export const CHECKLIST_ERRORS: Record<number, string> = {
+  ...PROJECT_ERRORS,
+  404: 'That person or link is no longer on this project.',
+  409: 'Someone else changed this at the same time. Reload and try again.',
+};
