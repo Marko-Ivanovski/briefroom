@@ -3,6 +3,7 @@ import { ServeStaticModule } from '@nestjs/serve-static';
 import { AuthModule } from './auth/auth.module.ts';
 import { ENV, type Env } from './config/env.ts';
 import { DatabaseModule } from './database/database.module.ts';
+import { InstallModule } from './install/install.module.ts';
 import { SystemController } from './system/system.controller.ts';
 
 @Module({})
@@ -13,6 +14,7 @@ export class AppModule {
       imports: [
         EnvModule.register(env),
         DatabaseModule,
+        InstallModule,
         AuthModule,
         ServeStaticModule.forRoot({
           rootPath: env.webDir,

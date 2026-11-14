@@ -25,7 +25,9 @@ describe('schema contract', () => {
   });
 
   it('every table outside Better Auth has the audit columns', () => {
-    for (const t of allTables()) {
+    const checked = allTables().filter((t) => !BETTER_AUTH_TABLES.includes(getTableName(t)));
+    expect(checked.map((t) => getTableName(t))).toContain('install');
+    for (const t of checked) {
       if (BETTER_AUTH_TABLES.includes(getTableName(t))) continue;
       const cols = Object.keys(getTableColumns(t));
       for (const c of AUDIT) expect(cols, `${getTableName(t)}.${c}`).toContain(c);

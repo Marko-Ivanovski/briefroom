@@ -20,7 +20,9 @@ const ALLOWED_HTTP_PATHS: ReadonlySet<string> = new Set([
   '/error',
 ]);
 
-export function createAuth(db: Db, env: Env) {
+export type CanCreateWorkspace = (userId: string) => Promise<boolean>;
+
+export function createAuth(db: Db, env: Env, canCreateWorkspace: CanCreateWorkspace) {
   return betterAuth({
     secret: env.authSecret,
     baseURL: env.publicUrl,
@@ -47,8 +49,20 @@ export function createAuth(db: Db, env: Env) {
       // Its user-level `role` is never a workspace role: workspace roles live only in the
       // organization `member` table.
       admin(),
-      // Only the server API creates workspaces. Task 2.2 replaces `false` with the install-owner check.
-      organization({ allowUserToCreateOrganization: false }),
+      // Better Auth skips allowUserToCreateOrganization for server calls that pass a userId, so the
+      // beforeCreateOrganization hook is what stops a non-owner there. The option still guards HTTP.
+      organization({
+        allowUserToCreateOrganization: (user) => canCreateWorkspace(user.id),
+        organizationHooks: {
+          beforeCreateOrganization: async ({ user }) => {
+            if (!(await canCreateWorkspace(user.id))) {
+              throw new APIError('FORBIDDEN', {
+                message: 'Only the install owner can create workspaces',
+              });
+            }
+          },
+        },
+      }),
       apiKey({ defaultPrefix: API_KEY_PREFIX, enableMetadata: true }),
     ],
   });

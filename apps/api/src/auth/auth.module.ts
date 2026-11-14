@@ -3,6 +3,7 @@ import { Global, Logger, Module } from '@nestjs/common';
 import { AuthModule as BetterAuthModule } from '@thallesp/nestjs-better-auth';
 import { ENV, type Env } from '../config/env.ts';
 import { DB } from '../database/database.module.ts';
+import { InstallService } from '../install/install.service.ts';
 import { createAuth, type Auth } from './auth.ts';
 
 export const AUTH = Symbol('AUTH');
@@ -12,15 +13,15 @@ export const AUTH = Symbol('AUTH');
   providers: [
     {
       provide: AUTH,
-      useFactory: (db: Db, env: Env): Auth => {
+      useFactory: (db: Db, env: Env, installs: InstallService): Auth => {
         if (env.usingDevAuthSecret) {
           new Logger('Auth').warn(
             'BETTER_AUTH_SECRET is not set: using the dev-only secret. Set it before exposing this install.',
           );
         }
-        return createAuth(db, env);
+        return createAuth(db, env, (userId) => installs.canCreateWorkspace(userId));
       },
-      inject: [DB, ENV],
+      inject: [DB, ENV, InstallService],
     },
   ],
   exports: [AUTH],

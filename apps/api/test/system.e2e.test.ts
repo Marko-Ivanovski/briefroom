@@ -25,7 +25,7 @@ describe('system routes', () => {
     expect(res.status).toBe(200);
     const body = VersionResponse.parse(res.body);
     expect(body.api).toBe('1');
-    expect(body.installId).toBeNull();
+    expect(body.installId).toMatch(/^[0-9a-f-]{36}$/);
   });
 
   it('serves index.html for a client route', async () => {

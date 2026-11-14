@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createAuth } from '../src/auth/auth.ts';
 import { userFromRequest } from '../src/auth/current-user.decorator.ts';
 import { loadEnv } from '../src/config/env.ts';
-import { createTestApp, type TestApp } from './helpers.ts';
+import { createTestApp, makeInstallOwner, type TestApp } from './helpers.ts';
 
 const ORIGIN = 'http://localhost:4300';
 const PASSWORD = 'correct horse battery';
@@ -79,6 +79,7 @@ describe('auth', () => {
     it('refuses remove-member with 403 for a workspace owner session and leaves the member in place', async () => {
       const ownerId = await createUser('ws-owner@example.com');
       const memberId = await createUser('ws-member@example.com');
+      await makeInstallOwner(t, ownerId);
       const org = await t.auth.api.createOrganization({
         body: { name: 'Acme', slug: 'acme', userId: ownerId },
       });
@@ -142,6 +143,7 @@ describe('auth', () => {
 
     it('still allows server-side organization calls', async () => {
       const userId = await createUser('server-side@example.com');
+      await makeInstallOwner(t, userId);
       const org = await t.auth.api.createOrganization({
         body: { name: 'Server', slug: 'server-side', userId },
       });
@@ -160,7 +162,7 @@ describe('auth', () => {
 
     it('uses secure cookies when the public url is https', () => {
       const env = loadEnv({ ...base, BRIEFROOM_PUBLIC_URL: 'https://briefroom.example' });
-      const auth = createAuth(t.db.db, env);
+      const auth = createAuth(t.db.db, env, async () => false);
       expect(auth.options.advanced?.useSecureCookies).toBe(true);
       expect(auth.options.baseURL).toBe('https://briefroom.example');
       expect(auth.options.trustedOrigins).toEqual(['https://briefroom.example']);
@@ -168,12 +170,16 @@ describe('auth', () => {
 
     it('reads the https scheme case-insensitively', () => {
       const env = loadEnv({ ...base, BRIEFROOM_PUBLIC_URL: 'HTTPS://Briefroom.example' });
-      expect(createAuth(t.db.db, env).options.advanced?.useSecureCookies).toBe(true);
+      expect(createAuth(t.db.db, env, async () => false).options.advanced?.useSecureCookies).toBe(
+        true,
+      );
     });
 
     it('does not force secure cookies for an http public url', () => {
       const env = loadEnv({ ...base, BRIEFROOM_PUBLIC_URL: 'http://localhost:4300' });
-      expect(createAuth(t.db.db, env).options.advanced?.useSecureCookies).toBe(false);
+      expect(createAuth(t.db.db, env, async () => false).options.advanced?.useSecureCookies).toBe(
+        false,
+      );
     });
   });
 

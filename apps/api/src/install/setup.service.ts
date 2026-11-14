@@ -1,0 +1,123 @@
+import { randomBytes } from 'node:crypto';
+import type { SetupRequest, SetupResponse } from '@briefroom/contracts';
+import { authSchema, type Db } from '@briefroom/db';
+import {
+  GoneException,
+  HttpException,
+  HttpStatus,
+  Inject,
+  Injectable,
+  Logger,
+  UnauthorizedException,
+} from '@nestjs/common';
+import { eq } from 'drizzle-orm';
+import { AUTH } from '../auth/auth.module.ts';
+import type { Auth } from '../auth/auth.ts';
+import { DB } from '../database/database.module.ts';
+import { InstallService } from './install.service.ts';
+import { setupCodeMatches } from './setup-code.ts';
+
+export const MAX_FAILED_SETUP_ATTEMPTS = 10;
+const SETUP_LOCK = `hashtext('briefroom:setup')`;
+
+export interface SetupResult extends SetupResponse {
+  cookies: string[];
+}
+
+function workspaceSlug(name: string): string {
+  const base =
+    name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 30) || 'workspace';
+  return `${base}-${randomBytes(3).toString('hex')}`;
+}
+
+@Injectable()
+export class SetupService {
+  private readonly logger = new Logger(SetupService.name);
+
+  constructor(
+    @Inject(DB) private readonly db: Db,
+    @Inject(AUTH) private readonly auth: Auth,
+    private readonly installs: InstallService,
+  ) {}
+
+  async needsSetup(): Promise<boolean> {
+    return (await this.installs.getRow()).ownerUserId === null;
+  }
+
+  async setup(req: SetupRequest): Promise<SetupResult> {
+    const row = await this.installs.getRow();
+    if (row.ownerUserId) throw new GoneException('Setup is already done');
+    if (row.failedSetupAttempts >= MAX_FAILED_SETUP_ATTEMPTS) {
+      throw new HttpException(
+        'Too many wrong setup codes. Restart Briefroom to get a new code.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+    if (!row.setupCodeHash || !setupCodeMatches(req.code, row.setupCodeHash)) {
+      await this.installs.registerFailedAttempt();
+      throw new UnauthorizedException('Wrong setup code');
+    }
+
+    // The auth adapter cannot share one transaction with the install row, so the lock keeps two
+    // setups apart and the owner is written last: a failure leaves nothing to unpick but the new rows.
+    const lock = await this.db.$client.connect();
+    try {
+      await lock.query(`SELECT pg_advisory_lock(${SETUP_LOCK})`);
+      try {
+        if ((await this.installs.getRow()).ownerUserId) {
+          throw new GoneException('Setup is already done');
+        }
+        return await this.createOwner(req);
+      } finally {
+        await lock.query(`SELECT pg_advisory_unlock(${SETUP_LOCK})`);
+      }
+    } finally {
+      lock.release();
+    }
+  }
+
+  private async createOwner(req: SetupRequest): Promise<SetupResult> {
+    const slug = workspaceSlug(req.name);
+    let userId: string | undefined;
+    try {
+      const created = await this.auth.api.createUser({
+        body: { email: req.email, password: req.password, name: req.name },
+      });
+      userId = created.user.id;
+      const ownerId = userId;
+      const workspace = await this.installs.runAsSetupOf(ownerId, () =>
+        this.auth.api.createOrganization({
+          body: { name: `${req.name}'s workspace`, slug, userId: ownerId },
+        }),
+      );
+      const signedIn = await this.auth.api.signInEmail({
+        body: { email: req.email, password: req.password },
+        asResponse: true,
+      });
+      if (!signedIn.ok) throw new Error(`sign-in after setup failed with ${signedIn.status}`);
+      await this.installs.completeSetup(ownerId);
+      return {
+        userId: ownerId,
+        workspaceId: workspace.id,
+        cookies: signedIn.headers.getSetCookie(),
+      };
+    } catch (err) {
+      await this.rollback(slug, userId);
+      this.logger.error('First-run setup failed and was rolled back', err);
+      throw err;
+    }
+  }
+
+  private async rollback(slug: string, userId: string | undefined): Promise<void> {
+    try {
+      await this.db.delete(authSchema.organization).where(eq(authSchema.organization.slug, slug));
+      if (userId) await this.db.delete(authSchema.user).where(eq(authSchema.user.id, userId));
+    } catch (cleanupErr) {
+      this.logger.error('Setup rollback failed, clean up by hand', cleanupErr);
+    }
+  }
+}
