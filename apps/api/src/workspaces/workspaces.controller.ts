@@ -18,6 +18,6 @@ export class WorkspacesController {
     if (!parsed.success) {
       throw new BadRequestException(parsed.error.issues.map((i) => i.message).join('; '));
     }
-    return this.workspaces.create(user.id, parsed.data.name);
+    return this.workspaces.create(user.id, parsed.data.name, parsed.data.modules);
   }
 }

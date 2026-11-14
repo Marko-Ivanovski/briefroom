@@ -1,5 +1,7 @@
+import { memberPermissions, scopedInsert } from '@briefroom/db';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { WorkspaceModulesService } from '../src/module-registry/workspace-modules.service.ts';
 import { createTestApp, makeInstallOwner, type TestApp } from './helpers.ts';
 
 const PASSWORD = 'correct horse battery';
@@ -43,6 +45,18 @@ describe('module routes', () => {
       body: { name: 'Other', slug: 'other', userId: ids.owner! },
     });
     otherWorkspaceId = other.id;
+    const actor = { userId: ids.owner!, via: 'web' } as const;
+    const modules = t.app.get(WorkspaceModulesService);
+    await modules.enableStarting(workspaceId, actor, ['testkit']);
+    await modules.enableStarting(otherWorkspaceId, actor, ['testkit']);
+    await t.db.db
+      .insert(memberPermissions)
+      .values(
+        scopedInsert(
+          { workspaceId, actor },
+          { userId: ids.member!, moduleId: 'testkit', key: 'write-notes' },
+        ),
+      );
   });
 
   afterAll(async () => {

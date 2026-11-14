@@ -12,6 +12,10 @@ export interface Scope {
   actor: Actor;
 }
 
+export function hasPermission(scope: Scope, moduleId: string, key: string): boolean {
+  return scope.permissions.has(`${moduleId}:${key}`);
+}
+
 /** The injection token for the shared Drizzle client. */
 export const DB = Symbol('DB');
 

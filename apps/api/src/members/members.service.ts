@@ -2,6 +2,7 @@ import { Role, type MemberSummary, type RemovalResult } from '@briefroom/contrac
 import {
   authSchema,
   inviteLinks,
+  memberPermissions,
   passwordResetLinks,
   projectAccessChecklist,
   projects,
@@ -208,6 +209,15 @@ export class MembersService {
           target: [workspaceRemovals.workspaceId, workspaceRemovals.userId],
           set: updatedStamp(scope.actor),
         });
+      // R110: a rejoin starts with no module grants, so an old grant cannot come back with the member.
+      await tx
+        .delete(memberPermissions)
+        .where(
+          and(
+            eq(memberPermissions.workspaceId, scope.workspaceId),
+            eq(memberPermissions.userId, userId),
+          ),
+        );
       await tx.delete(authSchema.member).where(eq(authSchema.member.id, target.id));
       await tx
         .update(authSchema.session)

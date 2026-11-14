@@ -9,7 +9,7 @@ import { DatabaseModule } from './database/database.module.ts';
 import { SafeExceptionFilter } from './errors/safe-exception.filter.ts';
 import { InstallModule } from './install/install.module.ts';
 import { InvitesModule } from './invites/invites.module.ts';
-import { ModuleRegistryService } from './module-registry/module-registry.service.ts';
+import { ModuleRegistryModule } from './module-registry/module-registry.module.ts';
 import { REGISTERED_MODULES } from './module-registry/registered-modules.ts';
 import { ProjectsModule } from './projects/projects.module.ts';
 import { SystemController } from './system/system.controller.ts';
@@ -30,6 +30,7 @@ export class AppModule {
         EnvModule.register(env),
         DatabaseModule,
         InstallModule,
+        ModuleRegistryModule,
         AuthModule,
         ...(accessAtRoot ? [AccessModule] : []),
         WorkspacesModule,
@@ -43,7 +44,7 @@ export class AppModule {
         }),
       ],
       controllers: [SystemController, ...extraControllers],
-      providers: [{ provide: APP_FILTER, useClass: SafeExceptionFilter }, ModuleRegistryService],
+      providers: [{ provide: APP_FILTER, useClass: SafeExceptionFilter }],
     };
   }
 }

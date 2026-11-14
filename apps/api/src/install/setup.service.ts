@@ -15,6 +15,7 @@ import { AUTH } from '../auth/auth.module.ts';
 import type { Auth } from '../auth/auth.ts';
 import { DB } from '../database/database.module.ts';
 import { describeError } from '../errors/safe-error.ts';
+import { WorkspaceModulesService } from '../module-registry/workspace-modules.service.ts';
 import { workspaceSlug } from '../workspaces/workspace-slug.ts';
 import { InstallService } from './install.service.ts';
 import { setupCodeMatches } from './setup-code.ts';
@@ -34,6 +35,7 @@ export class SetupService {
     @Inject(DB) private readonly db: Db,
     @Inject(AUTH) private readonly auth: Auth,
     private readonly installs: InstallService,
+    private readonly modules: WorkspaceModulesService,
   ) {}
 
   async needsSetup(): Promise<boolean> {
@@ -101,6 +103,11 @@ export class SetupService {
         this.auth.api.createOrganization({
           body: { name: `${req.name}'s workspace`, slug, userId: ownerId },
         }),
+      );
+      await this.modules.enableStarting(
+        workspace.id,
+        { userId: ownerId, via: 'web' },
+        this.modules.validateStarting(req.modules),
       );
       const signedIn = await this.auth.api.signInEmail({
         body: { email: req.email, password: req.password },

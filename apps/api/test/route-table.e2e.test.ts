@@ -17,6 +17,7 @@ const OUTSIDE_A_WORKSPACE: ReadonlySet<string> = new Set([
   'DELETE /api/v1/bookmarks/:id',
   'GET /api/v1/setup',
   'POST /api/v1/setup',
+  'GET /api/v1/setup/modules',
   'POST /api/v1/reset/:token',
   // Not inside a workspace because the caller has no account yet. Its anonymity is pinned separately in ANONYMOUS_ROUTES.
   'GET /api/v1/join/:token',
@@ -32,6 +33,7 @@ const ANONYMOUS_ROUTES: readonly string[] = [
   'GET /api/version',
   'GET /api/v1/setup',
   'POST /api/v1/setup',
+  'GET /api/v1/setup/modules',
   'POST /api/v1/reset/:token',
   'GET /api/v1/join/:token',
   'POST /api/v1/join/:token/sign-up',
