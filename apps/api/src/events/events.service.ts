@@ -69,16 +69,6 @@ export class EventsService implements EventPublisher {
     if (!row) throw new Error('The event names a project this workspace scope cannot see');
   }
 
-  /** The core's own path: only `core.*` types. */
-  async publishCore(
-    event: { workspaceId: string; projectId?: string; type: string; payload?: unknown },
-    tx?: Tx,
-  ): Promise<void> {
-    if (this.checkType(event.type) !== 'core')
-      throw new Error('The core publishes core.* events only');
-    await this.send({ ...event, payload: event.payload ?? null }, tx);
-  }
-
   private checkType(type: string): string {
     if (!EVENT_TYPE.test(type)) {
       throw new Error(`"${type}" is not an event type: use <moduleId>.<name>`);

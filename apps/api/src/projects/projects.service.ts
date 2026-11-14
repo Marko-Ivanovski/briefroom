@@ -14,6 +14,7 @@ import {
   scopedInsert,
   scopedUpdate,
   type Db,
+  type Tx,
 } from '@briefroom/db';
 import {
   BadRequestException,
@@ -32,7 +33,6 @@ import { InvalidRemoteError, normalizeRemote, stripCredentials } from './remote.
 import { SettingsService } from './settings.service.ts';
 
 export type Project = typeof projects.$inferSelect;
-type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 
 const PG_UNIQUE_VIOLATION = '23505';
 

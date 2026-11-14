@@ -10,6 +10,7 @@ import {
   scopedProjects,
   scopedUpdate,
   type Db,
+  type Tx,
 } from '@briefroom/db';
 import {
   BadRequestException,
@@ -23,8 +24,6 @@ import { z } from 'zod';
 import { canViewProject, type Scope } from '../access/scope.ts';
 import { DB } from '../database/database.module.ts';
 import { RevocationService } from '../members/revocation.service.ts';
-
-export type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 
 const PG_UNIQUE_VIOLATION = '23505';
 const PG_FOREIGN_KEY_VIOLATION = '23503';
