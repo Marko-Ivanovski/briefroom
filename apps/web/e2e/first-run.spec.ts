@@ -40,9 +40,13 @@ test('first run: setup, sign out, sign in, switcher and members', async ({ page 
   await expect(row.getByRole('cell', { name: 'Owner' })).toBeVisible();
 
   // The session dies while the page is open: the next data refetch gets a 401 and must end in sign-in.
+  // A focus refetch is deduped into any fetch still in flight from navigation (sent with the old
+  // cookie), so the focus event is repeated until a fresh request carries no session.
   await page.context().clearCookies();
-  await page.evaluate(() => window.dispatchEvent(new Event('visibilitychange')));
-  await expect(page).toHaveURL(/\/sign-in$/);
+  await expect(async () => {
+    await page.evaluate(() => window.dispatchEvent(new Event('visibilitychange')));
+    await expect(page).toHaveURL(/\/sign-in$/, { timeout: 1_000 });
+  }).toPass({ timeout: 10_000 });
 });
 
 test('a reset link that no longer works says so', async ({ page }) => {
