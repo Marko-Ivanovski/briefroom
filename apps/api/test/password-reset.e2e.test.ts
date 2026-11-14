@@ -144,6 +144,29 @@ describe('password reset links', () => {
     expect(unknown.status).toBe(410);
   });
 
+  it('hashes only after the token is known to be live (R57)', async () => {
+    const ctx = await t.auth.$context;
+    const hash = vi.spyOn(ctx.password, 'hash');
+    try {
+      const unknown = await http().post('/api/v1/reset/nope').send({ password: NEW_PASSWORD });
+      expect(unknown.status).toBe(410);
+      const token = tokenOf(await issue('admin', 'member'));
+      await t.db.db
+        .update(passwordResetLinks)
+        .set({ expiresAt: new Date(Date.now() - 1000) })
+        .where(eq(passwordResetLinks.userId, ids.member!));
+      const expired = await http().post(`/api/v1/reset/${token}`).send({ password: NEW_PASSWORD });
+      expect(expired.status).toBe(410);
+      expect(hash).not.toHaveBeenCalled();
+
+      const live = await issue('admin', 'member');
+      expect((await redeem(live, PASSWORD)).status).toBe(204);
+      expect(hash).toHaveBeenCalledTimes(1);
+    } finally {
+      hash.mockRestore();
+    }
+  });
+
   it('rejects a short password with 400 and leaves the link usable', async () => {
     const token = tokenOf(await issue('admin', 'member'));
     const short = await http().post(`/api/v1/reset/${token}`).send({ password: 'short' });

@@ -96,6 +96,22 @@ export class PasswordResetService {
 
   private async redeemUnsafe(token: string, password: string): Promise<void> {
     const ctx = await this.auth.$context;
+    const tokenHash = hashResetToken(token);
+
+    // Hashing costs real CPU and this route is anonymous, so an unknown, used or expired token is
+    // turned away before any hash. The claim below stays the real guard against parallel uses.
+    const [live] = await this.db
+      .select({ id: passwordResetLinks.id })
+      .from(passwordResetLinks)
+      .where(
+        and(
+          eq(passwordResetLinks.tokenHash, tokenHash),
+          isNull(passwordResetLinks.usedAt),
+          gt(passwordResetLinks.expiresAt, sql`now()`),
+        ),
+      );
+    if (!live) throw new GoneException('This reset link is no longer valid');
+
     const hash = await ctx.password.hash(password);
 
     // One statement claims the link, so two parallel uses cannot both pass.
@@ -104,7 +120,7 @@ export class PasswordResetService {
       .set({ usedAt: sql`now()`, ...updatedStamp({ userId: 'reset-link', via: 'web' }) })
       .where(
         and(
-          eq(passwordResetLinks.tokenHash, hashResetToken(token)),
+          eq(passwordResetLinks.tokenHash, tokenHash),
           isNull(passwordResetLinks.usedAt),
           gt(passwordResetLinks.expiresAt, sql`now()`),
         ),
