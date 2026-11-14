@@ -1,4 +1,4 @@
-import { and, eq, getTableColumns, inArray, sql, type SQL } from 'drizzle-orm';
+import { and, eq, getTableColumns, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
 import type { AnyPgColumn, PgColumn, PgTable } from 'drizzle-orm/pg-core';
 
 export interface ScopeFilter {
@@ -21,6 +21,9 @@ export function scoped(filter: ScopeFilter, table: ScopedTable): SQL {
 
   const project = columnNamed(table, 'project_id');
   if (!project || filter.visibleProjectIds === 'all') return inWorkspace;
-  if (filter.visibleProjectIds.length === 0) return sql`false`;
-  return and(inWorkspace, inArray(project, [...filter.visibleProjectIds]))!;
+  // A nullable project_id marks workspace-wide content, which every member sees.
+  const visible =
+    filter.visibleProjectIds.length > 0 ? [inArray(project, [...filter.visibleProjectIds])] : [];
+  const projectRule = project.notNull ? visible[0] : or(isNull(project), ...visible);
+  return and(inWorkspace, projectRule ?? sql`false`)!;
 }

@@ -14,6 +14,12 @@ const projectNotes = pgTable('scope_project_notes', {
   projectId: text('project_id').notNull(),
 });
 
+const mixedNotes = pgTable('scope_mixed_notes', {
+  id: text('id').primaryKey(),
+  workspaceId: text('workspace_id').notNull(),
+  projectId: text('project_id'),
+});
+
 describe('scoped', () => {
   let t: TestDb;
 
@@ -21,8 +27,15 @@ describe('scoped', () => {
     t = await createTestDb();
     await t.db.$client.query(
       `CREATE TABLE scope_ws_notes (id text PRIMARY KEY, workspace_id text NOT NULL);
-       CREATE TABLE scope_project_notes (id text PRIMARY KEY, workspace_id text NOT NULL, project_id text NOT NULL);`,
+       CREATE TABLE scope_project_notes (id text PRIMARY KEY, workspace_id text NOT NULL, project_id text NOT NULL);
+       CREATE TABLE scope_mixed_notes (id text PRIMARY KEY, workspace_id text NOT NULL, project_id text);`,
     );
+    await t.db.insert(mixedNotes).values([
+      { id: 'wide', workspaceId: 'w1', projectId: null },
+      { id: 'p1', workspaceId: 'w1', projectId: 'p1' },
+      { id: 'p2', workspaceId: 'w1', projectId: 'p2' },
+      { id: 'other', workspaceId: 'w2', projectId: null },
+    ]);
     await t.db.insert(workspaceNotes).values([
       { id: 'a', workspaceId: 'w1' },
       { id: 'b', workspaceId: 'w2' },
@@ -68,6 +81,30 @@ describe('scoped', () => {
       .from(projectNotes)
       .where(scoped({ workspaceId: 'w1', visibleProjectIds: [] }, projectNotes));
     expect(rows).toEqual([]);
+  });
+
+  describe('a table whose project_id is nullable', () => {
+    const ids = async (visibleProjectIds: 'all' | string[]) =>
+      (
+        await t.db
+          .select()
+          .from(mixedNotes)
+          .where(scoped({ workspaceId: 'w1', visibleProjectIds }, mixedNotes))
+      )
+        .map((r) => r.id)
+        .sort();
+
+    it('shows only workspace-wide rows to a member with no visible projects', async () => {
+      expect(await ids([])).toEqual(['wide']);
+    });
+
+    it('shows workspace-wide rows plus the visible projects', async () => {
+      expect(await ids(['p1'])).toEqual(['p1', 'wide']);
+    });
+
+    it("shows every row of the workspace for 'all'", async () => {
+      expect(await ids('all')).toEqual(['p1', 'p2', 'wide']);
+    });
   });
 
   it('rejects a table without workspace_id at the type level and at runtime', () => {
