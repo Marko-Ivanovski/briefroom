@@ -34,8 +34,13 @@ class AuthCoreModule {}
     BetterAuthModule.forRootAsync({
       imports: [AuthCoreModule],
       inject: [AUTH],
+      // RequestGuard (AccessModule) runs the package's AuthGuard itself, in a fixed order.
+      disableGlobalAuthGuard: true,
       // Our API is JSON only, so form bodies are left unparsed on non-auth routes.
-      useFactory: (auth: Auth) => ({ auth, bodyParser: { urlencoded: { enabled: false } } }),
+      useFactory: (auth: Auth) => ({
+        auth,
+        bodyParser: { urlencoded: { enabled: false } },
+      }),
     }),
   ],
 })

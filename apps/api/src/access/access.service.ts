@@ -1,5 +1,5 @@
 import { Role } from '@briefroom/contracts';
-import { authSchema, type Db, type Via } from '@briefroom/db';
+import { authSchema, projectMembers, type Db, type Via } from '@briefroom/db';
 import { Inject, Injectable } from '@nestjs/common';
 import { and, eq } from 'drizzle-orm';
 import { DB } from '../database/database.module.ts';
@@ -28,14 +28,22 @@ export class AccessService {
     const role = Role.safeParse(row?.role);
     if (!role.success) return null;
 
-    // Project visibility and permissions are filled in by the projects and permissions tasks.
     return {
       userId,
       workspaceId,
       role: role.data,
-      visibleProjectIds: role.data === 'member' ? [] : 'all',
+      visibleProjectIds:
+        role.data === 'member' ? await this.projectIdsOf(userId, workspaceId) : 'all',
       permissions: new Set(),
       actor: { userId, via, ...(agent ? { agent } : {}) },
     };
+  }
+
+  private async projectIdsOf(userId: string, workspaceId: string): Promise<string[]> {
+    const rows = await this.db
+      .select({ projectId: projectMembers.projectId })
+      .from(projectMembers)
+      .where(and(eq(projectMembers.workspaceId, workspaceId), eq(projectMembers.userId, userId)));
+    return rows.map((r) => r.projectId);
   }
 }

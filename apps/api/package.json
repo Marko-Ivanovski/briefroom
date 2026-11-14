@@ -8,7 +8,7 @@
     "start": "node --import @swc-node/register/esm-register src/main.ts",
     "admin": "node --env-file-if-exists=../../.env --import @swc-node/register/esm-register src/admin-cli.ts",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "node ../../scripts/run-vitest.mjs"
   },
   "dependencies": {
     "@better-auth/api-key": "1.7.22",

@@ -1,19 +1,26 @@
 import { Module, type DynamicModule, type Type } from '@nestjs/common';
 import { APP_FILTER } from '@nestjs/core';
 import { ServeStaticModule } from '@nestjs/serve-static';
+import { AccessModule } from './access/access.module.ts';
 import { AuthModule } from './auth/auth.module.ts';
 import { EnvModule } from './config/env.module.ts';
 import type { Env } from './config/env.ts';
 import { DatabaseModule } from './database/database.module.ts';
 import { SafeExceptionFilter } from './errors/safe-exception.filter.ts';
 import { InstallModule } from './install/install.module.ts';
+import { ProjectsModule } from './projects/projects.module.ts';
 import { SystemController } from './system/system.controller.ts';
 import { WorkspacesModule } from './workspaces/workspaces.module.ts';
 
 @Module({})
 export class AppModule {
-  // extraControllers exists for tests that need probe routes; production passes none.
-  static register(env: Env, extraControllers: Type[] = []): DynamicModule {
+  // extraControllers, extraImports and accessAtRoot exist for tests; production passes none.
+  static register(
+    env: Env,
+    extraControllers: Type[] = [],
+    extraImports: Type[] = [],
+    accessAtRoot = true,
+  ): DynamicModule {
     return {
       module: AppModule,
       imports: [
@@ -21,7 +28,10 @@ export class AppModule {
         DatabaseModule,
         InstallModule,
         AuthModule,
+        ...(accessAtRoot ? [AccessModule] : []),
         WorkspacesModule,
+        ProjectsModule,
+        ...extraImports,
         ServeStaticModule.forRoot({
           rootPath: env.webDir,
           exclude: ['/api/{*path}', '/mcp', '/mcp/{*path}', '/.well-known/{*path}'],

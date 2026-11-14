@@ -20,8 +20,8 @@ interface ScopedRequest {
 }
 
 /**
- * Registered globally (APP_GUARD) after the Better Auth guard, so the session is already on the
- * request and no controller can forget the membership and role checks.
+ * Runs inside RequestGuard right after the session check, so the session is already on the request
+ * and no controller can forget the membership and role checks.
  */
 @Injectable()
 export class WorkspaceScopeGuard implements CanActivate {

@@ -99,6 +99,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     await waitForHealth(baseUrl);
     process.env.E2E_BASE_URL = baseUrl;
     process.env.E2E_SETUP_CODE = code;
+    process.env.E2E_DATABASE_URL = testDb.url;
   } catch (err) {
     await teardown();
     throw err;

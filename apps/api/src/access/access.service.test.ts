@@ -1,5 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import { roleAtLeast, type Role, type Scope } from './scope.ts';
+import { canViewProject, roleAtLeast, type Role, type Scope } from './scope.ts';
+
+describe('canViewProject', () => {
+  const scope = (visibleProjectIds: Scope['visibleProjectIds']): Scope => ({
+    userId: 'u1',
+    workspaceId: 'w1',
+    role: 'member',
+    visibleProjectIds,
+    permissions: new Set(),
+    actor: { userId: 'u1', via: 'web' },
+  });
+
+  it('allows everything for all, only listed ids otherwise', () => {
+    expect(canViewProject(scope('all'), 'p1')).toBe(true);
+    expect(canViewProject(scope(['p1']), 'p1')).toBe(true);
+    expect(canViewProject(scope(['p1']), 'p2')).toBe(false);
+    expect(canViewProject(scope([]), 'p1')).toBe(false);
+  });
+});
 
 function scopeWith(role: Role): Scope {
   return {

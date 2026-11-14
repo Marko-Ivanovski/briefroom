@@ -1,0 +1,485 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "d26a4231-e296-45e7-8ef6-dcbe70f97f0b",
+  "prevIds": [
+    "7e3f01e3-70f6-4f07-8224-4f33a91e9ade"
+  ],
+  "footprints": [
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "project_access_checklist"
+      ],
+      "writes": [
+        "s|tbl|public.project_access_checklist",
+        "n|tbl|public.project_access_checklist",
+        "e|tbl|public.project_access_checklist",
+        "n|rel|public.project_access_checklist",
+        "n|type|public.project_access_checklist",
+        "n|rel|public.project_access_checklist_pkey",
+        "n|rel|public.project_access_checklist_item_key"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "project_access_checklist",
+        "project_access_checklist_workspace_id_idx"
+      ],
+      "writes": [
+        "s|idx|public.project_access_checklist_workspace_id_idx",
+        "n|idx|public.project_access_checklist_workspace_id_idx",
+        "e|idx|public.project_access_checklist_workspace_id_idx",
+        "n|rel|public.project_access_checklist_workspace_id_idx"
+      ],
+      "reads": [
+        "n|tbl|public.project_access_checklist",
+        "n|sch|public",
+        "n|col|public.project_access_checklist.workspace_id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "project_access_checklist"
+      ],
+      "writes": [
+        "s|fk|public.project_access_checklist.project_access_checklist_workspace_id_organization_id_fkey",
+        "n|fk|public.project_access_checklist.project_access_checklist_workspace_id_organization_id_fkey",
+        "e|fk|public.project_access_checklist.project_access_checklist_workspace_id_organization_id_fkey",
+        "n|con|public.project_access_checklist.project_access_checklist_workspace_id_organization_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.project_access_checklist",
+        "n|sch|public",
+        "n|tbl|public.organization",
+        "n|sch|public",
+        "n|col|public.project_access_checklist.workspace_id",
+        "n|col|public.organization.id",
+        "e|uniqueness|public.organization.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "project_access_checklist"
+      ],
+      "writes": [
+        "s|fk|public.project_access_checklist.project_access_checklist_project_id_projects_id_fkey",
+        "n|fk|public.project_access_checklist.project_access_checklist_project_id_projects_id_fkey",
+        "e|fk|public.project_access_checklist.project_access_checklist_project_id_projects_id_fkey",
+        "n|con|public.project_access_checklist.project_access_checklist_project_id_projects_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.project_access_checklist",
+        "n|sch|public",
+        "n|tbl|public.projects",
+        "n|sch|public",
+        "n|col|public.project_access_checklist.project_id",
+        "n|col|public.projects.id",
+        "e|uniqueness|public.projects.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "project_access_checklist"
+      ],
+      "writes": [
+        "s|fk|public.project_access_checklist.project_access_checklist_GCNWfM0rCf2U_fkey",
+        "n|fk|public.project_access_checklist.project_access_checklist_GCNWfM0rCf2U_fkey",
+        "e|fk|public.project_access_checklist.project_access_checklist_GCNWfM0rCf2U_fkey",
+        "n|con|public.project_access_checklist.project_access_checklist_GCNWfM0rCf2U_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.project_access_checklist",
+        "n|sch|public",
+        "n|tbl|public.project_tool_links",
+        "n|sch|public",
+        "n|col|public.project_access_checklist.tool_link_id",
+        "n|col|public.project_tool_links.id",
+        "e|uniqueness|public.project_tool_links.id"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "project_access_checklist",
+        "isRlsEnabled": false,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_access_checklist",
+        "name": "id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "gen_random_uuid()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_access_checklist",
+        "name": "workspace_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_access_checklist",
+        "name": "project_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_access_checklist",
+        "name": "user_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_access_checklist",
+        "name": "tool_link_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_access_checklist",
+        "name": "kind",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_access_checklist",
+        "name": "done",
+        "type": "boolean",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "false",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_access_checklist",
+        "name": "created_by",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_access_checklist",
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_access_checklist",
+        "name": "created_via",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_access_checklist",
+        "name": "created_agent",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_access_checklist",
+        "name": "updated_by",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_access_checklist",
+        "name": "updated_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_access_checklist",
+        "name": "updated_via",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_access_checklist",
+        "name": "updated_agent",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_access_checklist",
+        "name": "project_access_checklist_workspace_id_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "workspace_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_access_checklist",
+        "name": "project_access_checklist_workspace_id_organization_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "workspace_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "organization",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_access_checklist",
+        "name": "project_access_checklist_project_id_projects_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "project_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "projects",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_access_checklist",
+        "name": "project_access_checklist_GCNWfM0rCf2U_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "tool_link_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "project_tool_links",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_access_checklist",
+        "name": "project_access_checklist_pkey",
+        "columns": [
+          "id"
+        ],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_access_checklist",
+        "name": "project_access_checklist_item_key",
+        "nameExplicit": true,
+        "columns": [
+          "project_id",
+          "user_id",
+          "tool_link_id",
+          "kind"
+        ],
+        "nullsNotDistinct": false,
+        "entityType": "uniques"
+      }
+    }
+  ]
+}
