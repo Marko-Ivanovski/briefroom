@@ -25,6 +25,8 @@ export class EventsListener implements OnApplicationBootstrap, BeforeApplication
   private client: pg.Client | undefined;
   private timer: NodeJS.Timeout | undefined;
   private attempt = 0;
+  /** First retry delay, doubled per failed attempt. Tests widen it to get a steady window. */
+  backoffStartMs = BACKOFF_START_MS;
   private stopped = false;
 
   constructor(
@@ -95,7 +97,7 @@ export class EventsListener implements OnApplicationBootstrap, BeforeApplication
   }
 
   private retryLater(): void {
-    const delay = Math.min(BACKOFF_START_MS * 2 ** this.attempt, BACKOFF_MAX_MS);
+    const delay = Math.min(this.backoffStartMs * 2 ** this.attempt, BACKOFF_MAX_MS);
     this.attempt++;
     this.timer = setTimeout(() => void this.connect(), delay);
     this.timer.unref();

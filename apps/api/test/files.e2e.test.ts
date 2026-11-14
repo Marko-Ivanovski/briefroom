@@ -98,6 +98,9 @@ describe('file store', () => {
     if (!server.listening) await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
     const { port } = server.address() as { port: number };
     const agent = new nodeHttp.Agent({ keepAlive: true });
+    const { budget } = t.app.get(FilesService);
+    const reservedBefore = budget.used;
+    let answered = false;
     let socketClosed!: () => void;
     const closed = new Promise<void>((done) => {
       socketClosed = done;
@@ -120,6 +123,7 @@ describe('file store', () => {
         },
       },
       (res) => {
+        answered = true;
         const parts: Buffer[] = [];
         res.on('data', (c: Buffer) => parts.push(c));
         res.on('end', () =>
@@ -137,7 +141,8 @@ describe('file store', () => {
       const timer = setInterval(() => req.write(Buffer.alloc(1, 1)), 50);
       closed.then(() => clearInterval(timer));
     }
-    await new Promise((done) => setTimeout(done, 300));
+    // The server has taken the upload on once its bytes are reserved, or it has already refused it.
+    await vi.waitFor(() => expect(answered || budget.used > reservedBefore).toBe(true));
     return { req, response, closed };
   };
   const dirCount = async () => (await readdir(join(dataDir, 'files', ws)).catch(() => [])).length;

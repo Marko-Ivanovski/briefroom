@@ -593,9 +593,17 @@ describe('workspace event stream', () => {
     const registry = t.app.get(StreamRegistry);
     const real = access.scopeFor.bind(access);
     let slow = true;
+    const opened = vi.spyOn(registry, 'open');
+    let inGuard = 0;
+    let leftGuard = 0;
     const spy = vi.spyOn(access, 'scopeFor').mockImplementation(async (...args) => {
+      const hold = args[0] === ids.aborter && slow;
+      if (hold) inGuard++;
       const scope = await real(...args);
-      if (args[0] === ids.aborter && slow) await new Promise((r) => setTimeout(r, 300));
+      if (hold) {
+        await new Promise((r) => setTimeout(r, 300));
+        leftGuard++;
+      }
       return scope;
     });
     try {
@@ -605,18 +613,24 @@ describe('workspace event stream', () => {
           headers: { cookie: cookies.aborter! },
           signal: controller.signal,
         }).catch(() => undefined);
-        await new Promise((r) => setTimeout(r, 60));
+        await vi.waitFor(() => expect(inGuard).toBe(i + 1));
         controller.abort();
         await pending;
       }
-      await new Promise((r) => setTimeout(r, 500));
-      expect(registry.count(ws, ids.aborter!)).toBe(0);
+      await vi.waitFor(() => expect(leftGuard).toBe(5), { timeout: 4000 });
+      // The server has finished with every aborted request: each reached the registry and was closed.
+      await vi.waitFor(() => expect(opened).toHaveBeenCalledTimes(5));
+      await vi.waitFor(() => expect(registry.count(ws, ids.aborter!)).toBe(0));
       slow = false;
+      // One turn of the event loop, so the client's pool has dropped the aborted sockets.
+      await new Promise((done) => setImmediate(done));
       const sixth = await connect('aborter');
       expect(sixth.status).toBe(200);
+      expect(registry.count(ws, ids.aborter!)).toBe(1);
       sixth.abort();
     } finally {
       spy.mockRestore();
+      opened.mockRestore();
     }
   });
 
@@ -644,20 +658,26 @@ describe('workspace event stream', () => {
     const listener = t.app.get(EventsListener);
     const pool = t.db.db.$client;
     await vi.waitFor(() => expect(listener.isUp()).toBe(true));
-    await pool.query(
-      `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name = 'briefroom-events' AND datname = current_database()`,
-    );
-    let refused: Sse | undefined;
-    await vi.waitFor(
-      async () => {
-        const s = await connect('owner');
-        if (s.status === 200) s.abort();
-        expect(s.status).toBe(503);
-        refused = s;
-      },
-      { timeout: 3000, interval: 20 },
-    );
-    expect(refused!.body).toMatchObject({ code: 'events_unavailable' });
+    // A wide first retry delay keeps the listener down long enough to be seen, however slow the machine.
+    listener.backoffStartMs = 3000;
+    try {
+      await pool.query(
+        `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name = 'briefroom-events' AND datname = current_database()`,
+      );
+      let refused: Sse | undefined;
+      await vi.waitFor(
+        async () => {
+          const s = await connect('owner');
+          if (s.status === 200) s.abort();
+          expect(s.status).toBe(503);
+          refused = s;
+        },
+        { timeout: 2500, interval: 20 },
+      );
+      expect(refused!.body).toMatchObject({ code: 'events_unavailable' });
+    } finally {
+      listener.backoffStartMs = 500;
+    }
     await vi.waitFor(() => expect(listener.isUp()).toBe(true), { timeout: 8000 });
   });
 
