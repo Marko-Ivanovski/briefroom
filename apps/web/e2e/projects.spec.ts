@@ -1,44 +1,16 @@
-import { execFileSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import { MEMBER, OWNER } from './accounts.ts';
-
-const API_DIR = fileURLToPath(new URL('../../api', import.meta.url));
+import { createInviteLink, signIn, signUpThroughInvite } from './join.ts';
 
 test.use({ baseURL: process.env.E2E_BASE_URL });
 
-test.beforeAll(() => {
-  const databaseUrl = process.env.E2E_DATABASE_URL;
-  if (!databaseUrl) throw new Error('E2E_DATABASE_URL is not set: global setup did not run');
-  execFileSync(
-    process.execPath,
-    ['--import', '@swc-node/register/esm-register', 'test/seed-e2e-member.ts'],
-    {
-      cwd: API_DIR,
-      stdio: 'inherit',
-      env: {
-        ...process.env,
-        NODE_ENV: 'test',
-        DATABASE_URL: databaseUrl,
-        SEED_OWNER_EMAIL: OWNER.email,
-        SEED_MEMBER_NAME: MEMBER.name,
-        SEED_MEMBER_EMAIL: MEMBER.email,
-        SEED_MEMBER_PASSWORD: MEMBER.password,
-      },
-    },
-  );
-});
-
-async function signIn(page: Page, email: string, password: string): Promise<void> {
-  await page.goto('/sign-in');
-  await page.getByLabel('Email').fill(email);
-  await page.getByLabel('Password').fill(password);
-  await page.getByRole('button', { name: 'Sign in' }).click();
-  await expect(page).toHaveURL(/\/w\/[^/]+$/);
-}
-
 test('owner manages project access, member sees only their project', async ({ page, browser }) => {
-  await signIn(page, OWNER.email, OWNER.password);
+  await signIn(page, OWNER);
+  const inviteUrl = await createInviteLink(page);
+  const joined = await signUpThroughInvite(browser, process.env.E2E_BASE_URL, inviteUrl, MEMBER);
+  await expect(joined.page).toHaveURL(/\/w\/[^/]+$/);
+  await joined.close();
+
   await page.getByRole('link', { name: 'Projects' }).click();
   await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible();
 
@@ -83,7 +55,7 @@ test('owner manages project access, member sees only their project', async ({ pa
 
   const memberContext = await browser.newContext({ baseURL: process.env.E2E_BASE_URL });
   const memberPage = await memberContext.newPage();
-  await signIn(memberPage, MEMBER.email, MEMBER.password);
+  await signIn(memberPage, MEMBER);
   await memberPage.getByRole('link', { name: 'Projects' }).click();
   await expect(memberPage.getByRole('link', { name: 'Alpha' })).toBeVisible();
   await expect(memberPage.getByRole('link', { name: 'Beta' })).toHaveCount(0);
