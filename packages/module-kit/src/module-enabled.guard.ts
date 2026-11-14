@@ -17,11 +17,16 @@ export interface ModuleState {
 
 export const MODULE_STATE = Symbol('MODULE_STATE');
 
+// One class per id, so the contract test can compare a controller's guard by identity.
+const GUARDS = new Map<string, Type<CanActivate>>();
+
 /**
  * Runs after the global RequestGuard, so `req.scope` already exists. One guard class per module id
  * keeps the id out of reflection and out of anything a request can influence.
  */
 export function moduleEnabledGuard(moduleId: string): Type<CanActivate> {
+  const existing = GUARDS.get(moduleId);
+  if (existing) return existing;
   @Injectable()
   class ModuleEnabledGuard implements CanActivate {
     constructor(@Inject(MODULE_STATE) private readonly state: ModuleState) {}
@@ -37,5 +42,6 @@ export function moduleEnabledGuard(moduleId: string): Type<CanActivate> {
       });
     }
   }
+  GUARDS.set(moduleId, ModuleEnabledGuard);
   return ModuleEnabledGuard;
 }

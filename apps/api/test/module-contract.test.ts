@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createTestDb } from '@briefroom/db/testing';
-import type { ModuleManifest } from '@briefroom/module-kit';
+import { moduleEnabledGuard, type ModuleManifest } from '@briefroom/module-kit';
 import { TESTKIT_SQL_PATH } from '@briefroom/module-testkit/sql';
 import { GUARDS_METADATA, PATH_METADATA } from '@nestjs/common/constants';
 import { getTableColumns, getTableName } from 'drizzle-orm';
@@ -128,6 +128,55 @@ function tablesMissingFromHistory(manifests: ModuleManifest[], history: Set<stri
     .filter((name) => !history.has(name));
 }
 
+type ModuleRef = unknown;
+
+/** A Nest module reference as it appears in `imports`: a class, a dynamic module or a forwardRef. */
+function resolveModuleRef(ref: ModuleRef): object | undefined {
+  if (typeof ref === 'function') return ref;
+  if (!ref || typeof ref !== 'object') return undefined;
+  const r = ref as { forwardRef?: () => ModuleRef; module?: object };
+  if (r.forwardRef) return resolveModuleRef(r.forwardRef());
+  if (!r.module) return undefined;
+  return r.module;
+}
+
+/** Every controller of a Nest module and of everything it imports, following dynamic modules and forwardRef. */
+function moduleControllers(root: ModuleRef): object[] {
+  const seen = new Set<object>();
+  const controllers = new Set<object>();
+  const visit = (ref: ModuleRef): void => {
+    const cls = resolveModuleRef(ref);
+    if (!cls || seen.has(cls)) return;
+    seen.add(cls);
+    for (const c of Reflect.getMetadata('controllers', cls) ?? []) controllers.add(c);
+    for (const i of Reflect.getMetadata('imports', cls) ?? []) visit(i);
+    if (typeof ref === 'object' && ref) {
+      const dynamic = ref as { controllers?: object[]; imports?: ModuleRef[] };
+      for (const c of dynamic.controllers ?? []) controllers.add(c);
+      for (const i of dynamic.imports ?? []) visit(i);
+    }
+  };
+  visit(root);
+  return [...controllers];
+}
+
+/** One message per controller that is mounted outside `m/<id>` or lacks the module's guard. */
+function controllerProblems(root: ModuleRef, id: string): string[] {
+  const prefix = `v1/workspaces/:workspaceId/m/${id}`;
+  const guard = moduleEnabledGuard(id);
+  return moduleControllers(root).flatMap((c) => {
+    const name = (c as { name: string }).name;
+    const raw: unknown = Reflect.getMetadata(PATH_METADATA, c);
+    const paths = (Array.isArray(raw) ? raw : [raw]).map(String);
+    const problems = paths
+      .filter((p) => p !== prefix && !p.startsWith(`${prefix}/`))
+      .map((p) => `${name}: path "${p}" is outside ${prefix}`);
+    const guards: unknown[] = Reflect.getMetadata(GUARDS_METADATA, c) ?? [];
+    if (!guards.includes(guard)) problems.push(`${name}: missing the ${id} module-enabled guard`);
+    return problems;
+  });
+}
+
 function configuredModuleSchemas(): string[] {
   return [...readFileSync(DRIZZLE_CONFIG, 'utf8').matchAll(MODULE_SCHEMA_PATH)].map((m) => m[1]!);
 }
@@ -156,18 +205,8 @@ describe('module contract', () => {
 
       it('mounts every controller under its own prefix, behind the module-enabled guard', () => {
         const nestModule = REGISTERED_MODULES.find((m) => m.manifest.id === id)!.nestModule;
-        const controllers: object[] = Reflect.getMetadata('controllers', nestModule) ?? [];
-        expect(controllers.length).toBeGreaterThan(0);
-        for (const c of controllers) {
-          const name = (c as { name: string }).name;
-          const path = String(Reflect.getMetadata(PATH_METADATA, c));
-          expect(path.startsWith(`v1/workspaces/:workspaceId/m/${id}`), name).toBe(true);
-          const guards: { name: string }[] = Reflect.getMetadata(GUARDS_METADATA, c) ?? [];
-          expect(
-            guards.map((g) => g.name),
-            name,
-          ).toContain('ModuleEnabledGuard');
-        }
+        expect(moduleControllers(nestModule).length).toBeGreaterThan(0);
+        expect(controllerProblems(nestModule, id)).toEqual([]);
       });
 
       it('prefixes its table names with the module id', () => {
@@ -218,6 +257,59 @@ describe('module contract', () => {
     expect(
       tablesMissingFromHistory([{ ...testkit, id: 'design', tables: [forgotten] }], history),
     ).toEqual(['design_boards']);
+  });
+
+  describe('the controller check', () => {
+    const P = 'v1/workspaces/:workspaceId/m/design';
+    const guard = moduleEnabledGuard('design');
+    function controller(path: string | string[], guards: object[] = [guard]) {
+      class C {}
+      Reflect.defineMetadata(PATH_METADATA, path, C);
+      Reflect.defineMetadata(GUARDS_METADATA, guards, C);
+      return C;
+    }
+    function nest(controllers: object[], imports: unknown[] = []) {
+      class M {}
+      Reflect.defineMetadata('controllers', controllers, M);
+      Reflect.defineMetadata('imports', imports, M);
+      return M;
+    }
+
+    it('passes a guarded controller at the prefix and below it', () => {
+      expect(
+        controllerProblems(nest([controller(P), controller(`${P}/boards`)]), 'design'),
+      ).toEqual([]);
+    });
+
+    it('follows imports, dynamic modules and forwardRef', () => {
+      const bad = controller(P, []);
+      expect(controllerProblems(nest([], [nest([bad])]), 'design')).toHaveLength(1);
+      expect(controllerProblems(nest([], [{ module: nest([bad]) }]), 'design')).toHaveLength(1);
+      expect(
+        controllerProblems(nest([], [{ forwardRef: () => nest([bad]) }]), 'design'),
+      ).toHaveLength(1);
+      expect(
+        controllerProblems(nest([], [{ module: nest([]), controllers: [bad] }]), 'design'),
+      ).toHaveLength(1);
+    });
+
+    it('checks every element of an array path', () => {
+      expect(controllerProblems(nest([controller([P, 'v1/other'])]), 'design')).toHaveLength(1);
+    });
+
+    it('requires the prefix to end at a segment boundary', () => {
+      expect(controllerProblems(nest([controller(`${P}x`)]), 'design')).toHaveLength(1);
+    });
+
+    it('compares the guard by identity, not by name', () => {
+      class ModuleEnabledGuard {}
+      expect(
+        controllerProblems(nest([controller(P, [ModuleEnabledGuard])]), 'design'),
+      ).toHaveLength(1);
+      expect(
+        controllerProblems(nest([controller(P, [moduleEnabledGuard('other')])]), 'design'),
+      ).toHaveLength(1);
+    });
   });
 
   it('the project_id rule rejects a project-only module with a nullable project_id', () => {
