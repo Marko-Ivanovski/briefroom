@@ -1,6 +1,6 @@
 import { createTestDb, type TestDb } from '@briefroom/db/testing';
 import { pgTable, text } from 'drizzle-orm/pg-core';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, expectTypeOf, it } from 'vitest';
 import { scopedInsert, scopedUpdate, scoped, type WriteScope } from '../src/scope.ts';
 
 const workspaceNotes = pgTable('scope_ws_notes', {
@@ -148,7 +148,28 @@ describe('scopedInsert and scopedUpdate', () => {
     expect(row).not.toHaveProperty('workspaceId');
   });
 
+  it('insert types workspaceId as string even when the caller passes a literal', () => {
+    const row = scopedInsert(scope, { id: 'a', workspaceId: 'w-evil' });
+    expectTypeOf(row.workspaceId).toEqualTypeOf<string>();
+  });
+
   it('update throws when values contain workspaceId', () => {
+    // @ts-expect-error workspaceId is rejected at compile time
     expect(() => scopedUpdate(scope, { workspaceId: 'w2' })).toThrow(/workspaceId/);
+  });
+
+  it.each(['createdBy', 'createdAt', 'createdVia', 'createdAgent'])(
+    'update throws when values contain %s',
+    (key) => {
+      // @ts-expect-error creation audit columns are rejected at compile time
+      expect(() => scopedUpdate(scope, { [key]: 'x', createdBy: 'x' })).toThrow(/created/);
+    },
+  );
+
+  it('update rejects the creation audit fields at the type level', () => {
+    // @ts-expect-error createdBy is rejected at compile time
+    expect(() => scopedUpdate(scope, { createdBy: 'x' })).toThrow();
+    // @ts-expect-error createdAt is rejected at compile time
+    expect(() => scopedUpdate(scope, { createdAt: new Date() })).toThrow();
   });
 });

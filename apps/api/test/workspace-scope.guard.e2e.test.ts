@@ -1,6 +1,6 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Module, type Type } from '@nestjs/common';
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { AccessModule } from '../src/access/access.module.ts';
 import { RequireRole } from '../src/access/require-role.decorator.ts';
 import { createTestApp, makeInstallOwner, type TestApp } from './helpers.ts';
@@ -33,10 +33,24 @@ class OrphanController {
   }
 }
 
-describe.each([
-  ['default wiring', []],
-  ['AccessModule also imported from the root, ahead of everything', [AccessModule]],
-])('global workspace scope guard (%s)', (_label, extraImports) => {
+@Module({ imports: [AccessModule] })
+class InnerFeatureModule {}
+
+@Module({ imports: [InnerFeatureModule] })
+class OuterFeatureModule {}
+
+interface Wiring {
+  extraImports: Type[];
+  accessAtRoot: boolean;
+}
+
+describe.each<[string, Wiring]>([
+  ['AccessModule at the root', { extraImports: [], accessAtRoot: true }],
+  [
+    'AccessModule only two levels down in a feature module',
+    { extraImports: [OuterFeatureModule], accessAtRoot: false },
+  ],
+])('global workspace scope guard (%s)', (_label, { extraImports, accessAtRoot }) => {
   let t: TestApp;
   const ids: Record<string, string> = {};
   const cookies: Record<string, string> = {};
@@ -45,7 +59,7 @@ describe.each([
   const http = () => request(t.app.getHttpServer());
 
   beforeAll(async () => {
-    t = await createTestApp({}, [ProbeController, OrphanController], extraImports);
+    t = await createTestApp({}, [ProbeController, OrphanController], extraImports, accessAtRoot);
     for (const key of ['owner', 'member', 'outsider']) {
       const email = `${key}@example.com`;
       const { user } = await t.auth.api.createUser({
@@ -102,6 +116,16 @@ describe.each([
       .get(`/api/v1/workspaces/${workspaceId}/probe/admin`)
       .set({ cookie: cookies.owner! });
     expect(owner.status).toBe(200);
+  });
+
+  it('calls getSession exactly once for a protected request', async () => {
+    const spy = vi.spyOn(t.auth.api, 'getSession');
+    const res = await http()
+      .get(`/api/v1/workspaces/${workspaceId}/probe`)
+      .set({ cookie: cookies.owner! });
+    expect(res.status).toBe(200);
+    expect(spy).toHaveBeenCalledTimes(1);
+    spy.mockRestore();
   });
 
   it('requires a session', async () => {

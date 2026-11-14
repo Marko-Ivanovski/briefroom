@@ -40,16 +40,25 @@ export interface WriteScope {
   actor: Actor;
 }
 
+const CREATION_AUDIT_KEYS = ['createdBy', 'createdAt', 'createdVia', 'createdAgent'] as const;
+
+type Immutable = { workspaceId?: never } & { [K in (typeof CREATION_AUDIT_KEYS)[number]]?: never };
+
 /** The only way services build values for an insert into a scoped table. */
 export function scopedInsert<V extends object>(
   scope: WriteScope,
   values: V,
-): V & { workspaceId: string } & CreatedStamp {
+): Omit<V, 'workspaceId' | keyof CreatedStamp> & { workspaceId: string } & CreatedStamp {
   return { ...values, workspaceId: scope.workspaceId, ...createdStamp(scope.actor) };
 }
 
-/** The only way services build values for an update of a scoped table. A row never changes workspace. */
-export function scopedUpdate<V extends object>(scope: WriteScope, values: V): V & UpdatedStamp {
-  if ('workspaceId' in values) throw new Error('scopedUpdate cannot change workspaceId');
+/** The only way services build values for an update of a scoped table. A row keeps its workspace and its creation audit. */
+export function scopedUpdate<V extends object & Immutable>(
+  scope: WriteScope,
+  values: V,
+): V & UpdatedStamp {
+  for (const key of ['workspaceId', ...CREATION_AUDIT_KEYS]) {
+    if (key in values) throw new Error(`scopedUpdate cannot change ${key}`);
+  }
   return { ...values, ...updatedStamp(scope.actor) };
 }

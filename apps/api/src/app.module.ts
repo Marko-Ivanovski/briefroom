@@ -13,11 +13,12 @@ import { WorkspacesModule } from './workspaces/workspaces.module.ts';
 
 @Module({})
 export class AppModule {
-  // extraControllers and extraImports exist for tests; production passes none.
+  // extraControllers, extraImports and accessAtRoot exist for tests; production passes none.
   static register(
     env: Env,
     extraControllers: Type[] = [],
     extraImports: Type[] = [],
+    accessAtRoot = true,
   ): DynamicModule {
     return {
       module: AppModule,
@@ -26,7 +27,7 @@ export class AppModule {
         DatabaseModule,
         InstallModule,
         AuthModule,
-        AccessModule,
+        ...(accessAtRoot ? [AccessModule] : []),
         WorkspacesModule,
         ...extraImports,
         ServeStaticModule.forRoot({
