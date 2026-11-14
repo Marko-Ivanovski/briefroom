@@ -86,6 +86,7 @@ export class MembersService {
         email: authSchema.user.email,
         role: authSchema.member.role,
         joinedAt: authSchema.member.createdAt,
+        emailVerified: authSchema.user.emailVerified,
       })
       .from(authSchema.member)
       .innerJoin(authSchema.user, eq(authSchema.member.userId, authSchema.user.id))
@@ -102,6 +103,7 @@ export class MembersService {
       email: r.email,
       role: Role.parse(r.role),
       joinedAt: r.joinedAt.toISOString(),
+      emailVerified: r.emailVerified,
     }));
   }
 }

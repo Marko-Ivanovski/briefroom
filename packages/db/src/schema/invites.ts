@@ -37,6 +37,7 @@ export const inviteLinks = pgTable(
   },
   (t) => [
     index('invite_links_workspace_id_idx').on(t.workspaceId),
+    check('invite_links_admin_needs_approval', sql`${t.role} <> 'admin' or ${t.requiresApproval}`),
     check('invite_links_role_valid', sql`${t.role} in ('admin', 'member')`),
     check('invite_links_max_uses_positive', sql`${t.maxUses} is null or ${t.maxUses} > 0`),
   ],

@@ -63,5 +63,6 @@ export const JoinRequestSummary = z.object({
   email: z.string(),
   role: InviteRole,
   requestedAt: z.string(),
+  emailVerified: z.boolean(),
 });
 export type JoinRequestSummary = z.infer<typeof JoinRequestSummary>;

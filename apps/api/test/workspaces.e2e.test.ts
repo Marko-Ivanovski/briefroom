@@ -157,6 +157,7 @@ describe('workspaces, scope and roles', () => {
       const res = await http().get(`/api/v1/workspaces/${workspaceId}/members`).set(as('member'));
       expect(res.status).toBe(200);
       const list = MemberSummary.array().parse(res.body);
+      expect(list.every((m) => m.emailVerified === false)).toBe(true);
       expect(list.map((m) => [m.userId, m.role]).sort()).toEqual(
         [
           [ids.owner, 'owner'],

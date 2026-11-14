@@ -1,4 +1,11 @@
-import { authSchema, inviteLinks, joinRequests, projectMembers, projects } from '@briefroom/db';
+import {
+  authSchema,
+  inviteLinks,
+  joinRequests,
+  projectAccessChecklist,
+  projectMembers,
+  projects,
+} from '@briefroom/db';
 import { and, eq } from 'drizzle-orm';
 import request from 'supertest';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -217,9 +224,10 @@ describe('joining a workspace', () => {
       email: 'wannabe@example.com',
       role: 'member',
       requestedAt: expect.any(String),
+      emailVerified: false,
     });
     expect(Object.keys(mine).sort()).toEqual(
-      ['email', 'id', 'name', 'requestedAt', 'role', 'userId'].sort(),
+      ['email', 'emailVerified', 'id', 'name', 'requestedAt', 'role', 'userId'].sort(),
     );
 
     const ok = await http().post(`${base}/${ws}/join-requests/${mine.id}/approve`).set(as('admin'));
@@ -330,8 +338,15 @@ describe('joining a workspace', () => {
     const { id, token } = await invite({ projectIds: [p1] });
     vi.spyOn(t.auth.api, 'addMember').mockRejectedValueOnce(new Error('boom with secret@x.com'));
     const body = newBody('failing');
+    const count = async () => [
+      (await t.db.db.select().from(authSchema.session)).length,
+      (await t.db.db.select().from(authSchema.member)).length,
+      (await t.db.db.select().from(joinRequests)).length,
+    ];
+    const before = await count();
     const res = await signUp(token, body);
     expect(res.status).toBe(500);
+    expect(await count()).toEqual(before);
     expect(JSON.stringify(res.body)).not.toContain('secret');
     expect(await userByEmail(body.email)).toBeUndefined();
     expect((await link(id)).uses).toBe(0);
@@ -339,15 +354,28 @@ describe('joining a workspace', () => {
 
   it('rolls back the member and the use when the project step fails on accept', async () => {
     await makeAccount('halfway');
-    const { id, token } = await invite({ projectIds: [p1] });
-    const failing = await import('../src/projects/project-members.service.ts');
-    vi.spyOn(failing.ProjectMembersService.prototype, 'add').mockRejectedValueOnce(
-      new Error('boom'),
-    );
+    const withLink = await http()
+      .post(`${base}/${ws}/projects`)
+      .set(as('admin'))
+      .send({ name: 'Linked', toolLinks: [{ label: 'Wiki', url: 'https://wiki.example.com/x' }] });
+    const { id, token } = await invite({ projectIds: [withLink.body.id, p1] });
+    const { ProjectMembersService } = await import('../src/projects/project-members.service.ts');
+    const real = ProjectMembersService.prototype.add;
+    vi.spyOn(ProjectMembersService.prototype, 'add')
+      .mockImplementationOnce(function (this: unknown, ...args) {
+        return real.apply(this as never, args);
+      })
+      .mockRejectedValueOnce(new Error('boom'));
     const res = await accept(token, 'halfway');
     expect(res.status).toBe(500);
     expect(await roleOf(ids.halfway!)).toBeUndefined();
     expect(await projectsOf(ids.halfway!)).toEqual([]);
+    expect(
+      await t.db.db
+        .select()
+        .from(projectAccessChecklist)
+        .where(eq(projectAccessChecklist.userId, ids.halfway!)),
+    ).toEqual([]);
     expect((await link(id)).uses).toBe(0);
     const retry = await accept(token, 'halfway');
     expect(retry.body).toEqual({ status: 'joined', workspaceId: ws });

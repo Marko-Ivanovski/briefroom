@@ -43,6 +43,17 @@ export interface SignUpOutcome {
 }
 
 const PG_UNIQUE_VIOLATION = '23505';
+const DELETE_ATTEMPTS = 3;
+const DELETE_BACKOFF_MS = 50;
+const MEMBER_UNIQUE = 'member_organization_user_key';
+const MEMBER_EXISTS = 'USER_IS_ALREADY_A_MEMBER_OF_THIS_ORGANIZATION';
+const PENDING_UNIQUE = 'join_requests_one_pending_per_user';
+const JOINER_CODES: ReadonlySet<string> = new Set([
+  'invite_invalid',
+  'already_member',
+  'already_requested',
+  'account_exists',
+]);
 const uuid = z.uuid();
 
 const invalid = () =>
@@ -67,6 +78,21 @@ function hasPgCode(err: unknown, code: string): boolean {
     e = (e as { cause?: unknown }).cause;
   }
   return false;
+}
+
+function codeOf(err: HttpException): string {
+  const body = err.getResponse();
+  const code = typeof body === 'object' ? (body as { code?: unknown }).code : undefined;
+  return typeof code === 'string' ? code : '';
+}
+
+function pgConstraintOf(err: unknown): string | undefined {
+  for (let e = err, depth = 0; e && typeof e === 'object' && depth < 5; depth++) {
+    const constraint = (e as { constraint?: unknown }).constraint;
+    if (typeof constraint === 'string') return constraint;
+    e = (e as { cause?: unknown }).cause;
+  }
+  return undefined;
 }
 
 @Injectable()
@@ -112,6 +138,7 @@ export class JoinService {
         email: authSchema.user.email,
         role: joinRequests.role,
         requestedAt: joinRequests.createdAt,
+        emailVerified: authSchema.user.emailVerified,
       })
       .from(joinRequests)
       .innerJoin(authSchema.user, eq(authSchema.user.id, joinRequests.userId))
@@ -184,7 +211,8 @@ export class JoinService {
     const reserved = await this.reserveUse(link.id);
     const scope = this.joinerScope(reserved.workspaceId, userId, reserved.role);
     try {
-      if (reserved.requiresApproval) {
+      // R87 again at join time, in case the stored flag was ever cleared on an admin link.
+      if (reserved.requiresApproval || reserved.role === 'admin') {
         await this.db.insert(joinRequests).values(
           scopedInsert(scope, {
             inviteId: reserved.id,
@@ -199,7 +227,6 @@ export class JoinService {
       return { status: 'joined', workspaceId: reserved.workspaceId };
     } catch (err) {
       await this.releaseUse(reserved.id);
-      if (hasPgCode(err, PG_UNIQUE_VIOLATION)) throw alreadyRequested();
       throw this.sanitize(err, 'Joining failed');
     }
   }
@@ -226,26 +253,32 @@ export class JoinService {
     }
   }
 
-  /** Better Auth cannot share our transaction, so a failed project step undoes the member by hand. */
+  /** Better Auth cannot share our transaction, so a failed project step undoes exactly what this call created. */
   private async admit(
     scope: Scope,
     userId: string,
     role: InviteRole,
     projectIds: string[],
   ): Promise<void> {
-    await this.auth.api.addMember({
+    const member = await this.auth.api.addMember({
       body: { userId, role, organizationId: scope.workspaceId },
     });
+    const added: string[] = [];
     try {
-      await this.addToProjects(scope, userId, projectIds);
+      await this.addToProjects(scope, userId, projectIds, added);
     } catch (err) {
-      await this.undoAdmit(scope.workspaceId, userId, projectIds);
+      await this.undoAdmit(scope.workspaceId, userId, member.id, added);
       throw err;
     }
   }
 
   // Regenerate keeps project ids that were deleted since, so only the ones that still exist count.
-  private async addToProjects(scope: Scope, userId: string, projectIds: string[]): Promise<void> {
+  private async addToProjects(
+    scope: Scope,
+    userId: string,
+    projectIds: string[],
+    added: string[],
+  ): Promise<void> {
     if (projectIds.length === 0) return;
     const existing = await this.db
       .select({ id: projects.id })
@@ -256,6 +289,7 @@ export class JoinService {
       if (!alive.has(projectId)) continue;
       try {
         await this.projectMembers.add(scope, projectId, userId);
+        added.push(projectId);
       } catch (err) {
         // Deleted between the lookup above and the add.
         if (!(err instanceof NotFoundException)) throw err;
@@ -266,24 +300,21 @@ export class JoinService {
   private async undoAdmit(
     workspaceId: string,
     userId: string,
-    projectIds: string[],
+    memberId: string,
+    addedProjectIds: string[],
   ): Promise<void> {
     try {
+      await this.db.delete(authSchema.member).where(eq(authSchema.member.id, memberId));
+      if (addedProjectIds.length === 0) return;
       await this.db
-        .delete(authSchema.member)
+        .delete(projectMembers)
         .where(
           and(
-            eq(authSchema.member.organizationId, workspaceId),
-            eq(authSchema.member.userId, userId),
+            eq(projectMembers.workspaceId, workspaceId),
+            eq(projectMembers.userId, userId),
+            inArray(projectMembers.projectId, addedProjectIds),
           ),
         );
-      if (projectIds.length === 0) return;
-      const mine = and(
-        eq(projectMembers.workspaceId, workspaceId),
-        eq(projectMembers.userId, userId),
-        inArray(projectMembers.projectId, projectIds),
-      );
-      await this.db.delete(projectMembers).where(mine);
       await this.db
         .delete(projectAccessChecklist)
         .where(
@@ -291,7 +322,7 @@ export class JoinService {
             eq(projectAccessChecklist.workspaceId, workspaceId),
             eq(projectAccessChecklist.userId, userId),
             eq(projectAccessChecklist.kind, 'add'),
-            inArray(projectAccessChecklist.projectId, projectIds),
+            inArray(projectAccessChecklist.projectId, addedProjectIds),
           ),
         );
     } catch (err) {
@@ -319,14 +350,23 @@ export class JoinService {
     }
   }
 
-  // FKs cascade the account's sessions, memberships, project memberships and join requests.
+  // Sessions go first: even if the account delete keeps failing, nobody is left signed in.
+  // FKs cascade the memberships, project memberships and join requests of the account.
   private async deleteAccount(userId: string): Promise<void> {
-    try {
-      await this.db.delete(authSchema.user).where(eq(authSchema.user.id, userId));
-    } catch (err) {
-      this.logger.error(
-        `Deleting a half-made account failed, clean up by hand: ${describeError(err)}`,
-      );
+    for (let attempt = 1; attempt <= DELETE_ATTEMPTS; attempt++) {
+      try {
+        await (await this.auth.$context).internalAdapter.deleteUserSessions(userId);
+        await this.db.delete(authSchema.user).where(eq(authSchema.user.id, userId));
+        return;
+      } catch (err) {
+        if (attempt === DELETE_ATTEMPTS) {
+          this.logger.error(
+            `Deleting half-made account ${userId} failed, clean up by hand: ${describeError(err)}`,
+          );
+        } else {
+          await new Promise((resolve) => setTimeout(resolve, DELETE_BACKOFF_MS * attempt));
+        }
+      }
     }
   }
 
@@ -368,9 +408,17 @@ export class JoinService {
     };
   }
 
-  /** Known HTTP errors pass through. Anything else may carry SQL parameters or emails, so it becomes a generic 500. */
+  /**
+   * Only the join contract's codes reach the joiner. A unique violation is a lost race, and
+   * anything else may carry SQL parameters, emails or internal codes, so it becomes a generic 500.
+   */
   private sanitize(err: unknown, logLine: string): HttpException {
-    if (err instanceof HttpException) return err;
+    const constraint = pgConstraintOf(err);
+    if (constraint === MEMBER_UNIQUE || (isAPIError(err) && err.body?.code === MEMBER_EXISTS)) {
+      return alreadyMember();
+    }
+    if (constraint === PENDING_UNIQUE) return alreadyRequested();
+    if (err instanceof HttpException && JOINER_CODES.has(codeOf(err))) return err;
     this.logger.error(`${logLine}: ${describeError(err)}`);
     return new InternalServerErrorException({
       code: 'join_failed',

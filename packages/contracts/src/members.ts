@@ -7,6 +7,7 @@ export const MemberSummary = z.object({
   email: z.string(),
   role: Role,
   joinedAt: z.iso.datetime(),
+  emailVerified: z.boolean(),
 });
 export type MemberSummary = z.infer<typeof MemberSummary>;
 
