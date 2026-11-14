@@ -1,5 +1,4 @@
 import {
-  createParamDecorator,
   ForbiddenException,
   Injectable,
   InternalServerErrorException,
@@ -52,8 +51,4 @@ export class WorkspaceScopeGuard implements CanActivate {
   }
 }
 
-export const CurrentScope = createParamDecorator((_data: unknown, context: ExecutionContext) => {
-  const scope = context.switchToHttp().getRequest<ScopedRequest>().scope;
-  if (!scope) throw new Error('CurrentScope used on a route without WorkspaceScopeGuard');
-  return scope;
-});
+export { CurrentScope } from '@briefroom/module-kit';

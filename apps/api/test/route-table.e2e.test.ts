@@ -90,6 +90,7 @@ describe('route table', () => {
     const routes = registeredRoutes(t);
     expect(routes).toContain('GET /api/v1/me');
     expect(routes).toContain('POST /api/v1/workspaces/:workspaceId/leave');
+    expect(routes).toContain('GET /api/v1/workspaces/:workspaceId/m/testkit/notes');
   });
 
   it('keeps every /api/v1 route inside a workspace unless it is on the allowlist', () => {
