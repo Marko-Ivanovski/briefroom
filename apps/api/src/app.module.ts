@@ -14,7 +14,7 @@ export class AppModule {
         DatabaseModule,
         ServeStaticModule.forRoot({
           rootPath: env.webDir,
-          exclude: ['/api/{*path}', '/mcp', '/mcp/{*path}'],
+          exclude: ['/api/{*path}', '/mcp', '/mcp/{*path}', '/.well-known/{*path}'],
         }),
       ],
       controllers: [SystemController],

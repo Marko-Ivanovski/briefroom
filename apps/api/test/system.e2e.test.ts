@@ -47,6 +47,12 @@ describe('system routes', () => {
     expect(res.headers['content-type']).toMatch(/application\/json/);
   });
 
+  it('does not fall back to index.html under /.well-known', async () => {
+    const res = await request(t.app.getHttpServer()).get('/.well-known/oauth-protected-resource');
+    expect(res.status).toBe(404);
+    expect(res.headers['content-type']).toMatch(/application\/json/);
+  });
+
   it('does not fall back to index.html under /mcp', async () => {
     const res = await request(t.app.getHttpServer()).get('/mcp/anything');
     expect(res.status).toBe(404);
