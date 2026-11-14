@@ -208,6 +208,7 @@ describe('invite links', () => {
     expect((await lookup(tokenOf(old.body.url))).body).toEqual({ valid: false });
     expect((await lookup(tokenOf(res.body.url))).body).toEqual({
       valid: true,
+      workspaceId: expect.any(String),
       workspaceName: 'Acme',
       role: 'member',
       requiresApproval: true,
@@ -232,6 +233,7 @@ describe('invite links', () => {
     expect(ok.status).toBe(200);
     expect(ok.body).toEqual({
       valid: true,
+      workspaceId: expect.any(String),
       workspaceName: 'Acme',
       role: 'member',
       requiresApproval: false,

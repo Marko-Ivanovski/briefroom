@@ -6,7 +6,7 @@ import {
   Module,
   UseGuards,
 } from '@nestjs/common';
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { Throttle, ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { CLIENT_IP_HEADER } from '../auth/client-ip.middleware.ts';
 
 export const RATE_LIMIT_PER_MINUTE = 20;
@@ -31,16 +31,29 @@ export class ClientIpThrottlerGuard extends ThrottlerGuard {
   }
 }
 
+/** Keys on the signed-in user, so one account's attempts never use up another's on a shared IP. */
+@Injectable()
+export class UserThrottlerGuard extends ClientIpThrottlerGuard {
+  protected override getTracker(req: Record<string, unknown>): Promise<string> {
+    const id = (req.session as { user?: { id?: string } } | undefined)?.user?.id;
+    return id ? Promise.resolve(`user:${id}`) : super.getTracker(req);
+  }
+}
+
 @Module({
   imports: [
     ThrottlerModule.forRoot({
       throttlers: [{ name: 'default', ttl: 60_000, limit: RATE_LIMIT_PER_MINUTE }],
     }),
   ],
-  providers: [ClientIpThrottlerGuard],
-  exports: [ThrottlerModule, ClientIpThrottlerGuard],
+  providers: [ClientIpThrottlerGuard, UserThrottlerGuard],
+  exports: [ThrottlerModule, ClientIpThrottlerGuard, UserThrottlerGuard],
 })
 export class RateLimitModule {}
 
 /** Per-route, opt-in: 20 requests a minute per client. The importing module must import RateLimitModule. */
 export const RateLimit = () => applyDecorators(UseGuards(ClientIpThrottlerGuard));
+
+/** Per-route, opt-in: `limit` requests a minute per signed-in user. */
+export const UserRateLimit = (limit: number) =>
+  applyDecorators(UseGuards(UserThrottlerGuard), Throttle({ default: { limit, ttl: 60_000 } }));

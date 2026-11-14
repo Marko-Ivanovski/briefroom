@@ -1,3 +1,4 @@
+export * from './bookmarks.ts';
 export * from './install.ts';
 export * from './invites.ts';
 export * from './members.ts';

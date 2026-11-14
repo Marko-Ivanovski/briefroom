@@ -11,6 +11,10 @@ const OUTSIDE_A_WORKSPACE: ReadonlySet<string> = new Set([
   'GET /api/v1/me',
   'GET /api/v1/workspaces',
   'POST /api/v1/workspaces',
+  // Personal to the signed-in user on this install, not workspace content.
+  'GET /api/v1/bookmarks',
+  'POST /api/v1/bookmarks',
+  'DELETE /api/v1/bookmarks/:id',
   'GET /api/v1/setup',
   'POST /api/v1/setup',
   'POST /api/v1/reset/:token',

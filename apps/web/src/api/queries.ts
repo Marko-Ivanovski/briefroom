@@ -28,6 +28,12 @@ export const workspacesQuery = queryOptions({
   staleTime: 30_000,
 });
 
+export const bookmarksQuery = queryOptions({
+  queryKey: ['bookmarks'],
+  queryFn: api.bookmarks,
+  staleTime: 30_000,
+});
+
 export const membersQuery = (workspaceId: string) =>
   queryOptions({
     queryKey: ['workspaces', workspaceId, 'members'],

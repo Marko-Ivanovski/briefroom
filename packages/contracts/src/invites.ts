@@ -36,6 +36,7 @@ export const JoinLookup = z.discriminatedUnion('valid', [
   z.object({ valid: z.literal(false) }),
   z.object({
     valid: z.literal(true),
+    workspaceId: z.string(),
     workspaceName: z.string(),
     role: InviteRole,
     requiresApproval: z.boolean(),

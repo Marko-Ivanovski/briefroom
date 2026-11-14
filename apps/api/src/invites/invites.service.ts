@@ -87,6 +87,7 @@ export class InvitesService {
   async lookup(token: string): Promise<JoinLookup> {
     const [row] = await this.db
       .select({
+        workspaceId: inviteLinks.workspaceId,
         workspaceName: authSchema.organization.name,
         role: inviteLinks.role,
         requiresApproval: inviteLinks.requiresApproval,

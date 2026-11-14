@@ -1,10 +1,14 @@
 import { Button } from '@briefroom/ui';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, Link, Outlet, redirect } from '@tanstack/react-router';
+import { useState } from 'react';
+import { api } from '../../api/client.ts';
+import { bookmarksQuery, meQuery, workspacesQuery } from '../../api/queries.ts';
 import { FormError } from '../../components/form-error.tsx';
-import { meQuery, workspacesQuery } from '../../api/queries.ts';
+import { JoinWorkspaceDialog } from '../../components/join-workspace-dialog.tsx';
 import { WorkspaceSwitcher } from '../../components/workspace-switcher.tsx';
 import { writeLastWorkspace } from '../../lib/last-workspace.ts';
+import { BOOKMARK_CODES, BOOKMARK_ERRORS, messageFor } from '../../lib/errors.ts';
 import { isAdminRole } from '../../lib/roles.ts';
 import { useSignOut } from '../../lib/use-sign-out.ts';
 
@@ -23,6 +27,14 @@ function WorkspaceLayout() {
   const { data: me } = useQuery(meQuery);
   const { data: workspaces = [] } = useQuery(workspacesQuery);
 
+  const { data: bookmarks = [] } = useQuery(bookmarksQuery);
+  const queryClient = useQueryClient();
+  const [joining, setJoining] = useState(false);
+  const removeBookmark = useMutation({
+    mutationFn: api.deleteBookmark,
+    onSettled: () => queryClient.invalidateQueries({ queryKey: bookmarksQuery.queryKey }),
+  });
+
   const { signOut, failed: signOutFailed } = useSignOut();
 
   return (
@@ -32,7 +44,11 @@ function WorkspaceLayout() {
           workspaces={workspaces}
           currentId={workspaceId}
           isInstallOwner={me?.isInstallOwner ?? false}
+          bookmarks={bookmarks}
+          onJoin={() => setJoining(true)}
+          onRemoveBookmark={(id) => removeBookmark.mutate(id)}
         />
+        <JoinWorkspaceDialog open={joining} onClose={() => setJoining(false)} />
         <nav aria-label="Workspace" className="flex gap-4 text-sm">
           <Link
             to="/w/$workspaceId/projects"
@@ -76,6 +92,13 @@ function WorkspaceLayout() {
       </header>
       <div className="px-4 pt-3">
         <FormError message={signOutFailed ? 'Something went wrong. Try again.' : null} />
+        <FormError
+          message={
+            removeBookmark.isError
+              ? messageFor(removeBookmark.error, BOOKMARK_ERRORS, BOOKMARK_CODES)
+              : null
+          }
+        />
       </div>
       <main className="mx-auto max-w-3xl p-6">
         <Outlet />

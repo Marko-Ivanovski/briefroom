@@ -63,6 +63,19 @@ export const JOIN_REQUEST_ERRORS: Record<number, string> = {
   409: 'That request was already handled.',
 };
 
+export const BOOKMARK_ERRORS: Record<number, string> = {
+  400: 'Check the invite link and try again.',
+  404: 'That bookmark no longer exists.',
+  429: 'Too many attempts. Wait a minute and try again.',
+  502: 'The other install did not answer. Check the link and try again.',
+};
+
+export const BOOKMARK_CODES: Record<string, string> = {
+  invalid_invite_url: 'That is not a Briefroom invite link.',
+  invite_invalid: 'This invite link no longer works.',
+  host_unreachable: 'The other install did not answer. Check the link and try again.',
+};
+
 export const MEMBER_ERRORS: Record<number, string> = {
   403: "You don't have permission to remove that person.",
   404: 'That person is no longer in this workspace.',

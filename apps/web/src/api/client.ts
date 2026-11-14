@@ -1,4 +1,6 @@
 import {
+  BookmarkCreated,
+  BookmarkSummary,
   ChecklistItem,
   InviteCreated,
   InviteSummary,
@@ -95,6 +97,11 @@ export const api = {
   workspaces: () => request(WorkspaceSummary.array(), 'GET', '/api/v1/workspaces'),
   createWorkspace: (name: string) =>
     request(WorkspaceSummary, 'POST', '/api/v1/workspaces', { name }),
+  bookmarks: () => request(BookmarkSummary.array(), 'GET', '/api/v1/bookmarks'),
+  createBookmark: (inviteUrl: string) =>
+    request(BookmarkCreated, 'POST', '/api/v1/bookmarks', { inviteUrl }),
+  deleteBookmark: (id: string) =>
+    request(null, 'DELETE', `/api/v1/bookmarks/${encodeURIComponent(id)}`),
   members: (workspaceId: string) =>
     request(
       MemberSummary.array(),

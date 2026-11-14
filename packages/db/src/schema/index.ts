@@ -6,3 +6,4 @@ export * from './password-resets.ts';
 export * from './projects.ts';
 export * from './project-members.ts';
 export * from './access-checklist.ts';
+export * from './bookmarks.ts';
