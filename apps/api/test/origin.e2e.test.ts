@@ -68,6 +68,19 @@ describe('origin check on mutation routes', () => {
     expect(await stillMember('m1')).toBe(true);
   });
 
+  it('refuses a hostile Origin on a percent-encoded /api path (R60)', async () => {
+    const res = await http()
+      .post(`/%61pi/v1/workspaces/${workspaceId}/leave`)
+      .set({ cookie: cookies.m1!, Origin: 'http://evil.example' });
+    expect(res.status).toBe(403);
+    expect(await stillMember('m1')).toBe(true);
+  });
+
+  it('refuses a hostile Origin on any path, not just /api (R60)', async () => {
+    const res = await http().post('/anything').set('Origin', 'http://evil.example');
+    expect(res.status).toBe(403);
+  });
+
   it('refuses an Origin of "null"', async () => {
     expect((await leave('m1').set('Origin', 'null')).status).toBe(403);
   });

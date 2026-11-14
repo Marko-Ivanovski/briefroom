@@ -17,8 +17,8 @@ export function trustedOrigins(env: Env): string[] {
 export function originCheckMiddleware(allowed: readonly string[]) {
   const trusted = new Set(allowed);
   return (req: IncomingMessage, res: ServerResponse, next: () => void): void => {
-    const path = (req.url ?? '').split('?')[0]!;
-    if (SAFE_METHODS.has(req.method ?? 'GET') || !path.startsWith('/api/')) return next();
+    // No path test on purpose: a percent-encoded path can route to /api while looking like another one.
+    if (SAFE_METHODS.has(req.method ?? 'GET')) return next();
 
     const origin = req.headers.origin;
     const site = req.headers['sec-fetch-site'];
