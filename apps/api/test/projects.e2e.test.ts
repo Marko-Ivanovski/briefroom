@@ -303,6 +303,22 @@ describe('projects', () => {
       }
     });
 
+    it('returns null fast from findByRemote for a huge input', async () => {
+      const service = t.app.get(ProjectsService);
+      const scope: Scope = {
+        userId: ids.admin!,
+        workspaceId: ws,
+        role: 'admin',
+        visibleProjectIds: 'all',
+        permissions: new Set(),
+        actor: { userId: ids.admin!, via: 'mcp' },
+      };
+      const start = performance.now();
+      expect(await service.findByRemote(scope, 'x'.repeat(100_000))).toBeNull();
+      expect(await service.findByRemote(scope, `h:a${'/'.repeat(100_000)}x`)).toBeNull();
+      expect(performance.now() - start).toBeLessThan(100);
+    });
+
     it('finds a project by remote only when it is visible', async () => {
       const service = t.app.get(ProjectsService);
       const scope = (userId: string, visible: Scope['visibleProjectIds']): Scope => ({
