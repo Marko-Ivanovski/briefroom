@@ -1,11 +1,11 @@
 import { expect, test } from '@playwright/test';
 import { MEMBER, OWNER } from './accounts.ts';
-import { createInviteLink, signIn, signUpThroughInvite } from './join.ts';
+import { ANONYMOUS, createInviteLink, openWorkspace, signIn, signUpThroughInvite } from './join.ts';
 
 test.use({ baseURL: process.env.E2E_BASE_URL });
 
 test('owner manages project access, member sees only their project', async ({ page, browser }) => {
-  await signIn(page, OWNER);
+  await openWorkspace(page);
   const inviteUrl = await createInviteLink(page);
   const joined = await signUpThroughInvite(browser, process.env.E2E_BASE_URL, inviteUrl, MEMBER);
   await expect(joined.page).toHaveURL(/\/w\/[^/]+$/);
@@ -53,7 +53,10 @@ test('owner manages project access, member sees only their project', async ({ pa
   await expect(checklist.getByText(`Done by ${OWNER.name}`)).toBeVisible();
   await expect(checklist.getByRole('checkbox', { name: 'Board' })).not.toBeChecked();
 
-  const memberContext = await browser.newContext({ baseURL: process.env.E2E_BASE_URL });
+  const memberContext = await browser.newContext({
+    baseURL: process.env.E2E_BASE_URL,
+    storageState: ANONYMOUS,
+  });
   const memberPage = await memberContext.newPage();
   await signIn(memberPage, MEMBER);
   await memberPage.getByRole('link', { name: 'Projects' }).click();

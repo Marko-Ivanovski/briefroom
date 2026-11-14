@@ -1,6 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { OWNER } from './accounts.ts';
-import { createInviteLink, signIn, signUpThroughInvite } from './join.ts';
+import { ANONYMOUS, createInviteLink, openWorkspace, signUpThroughInvite } from './join.ts';
 
 test.use({ baseURL: process.env.E2E_BASE_URL });
 
@@ -21,7 +20,7 @@ test('owner invites someone to a project, then revokes the link', async ({
   context,
 }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
-  await signIn(page, OWNER);
+  await openWorkspace(page);
   await page.getByRole('link', { name: 'Projects' }).click();
   await page.getByRole('link', { name: 'New project' }).click();
   await page.getByLabel('Name', { exact: true }).fill('Gamma');
@@ -47,7 +46,10 @@ test('owner invites someone to a project, then revokes the link', async ({
   await revokeButtons.first().click();
   await expect(revokeButtons).toHaveCount(before - 1);
 
-  const visitor = await browser.newContext({ baseURL: process.env.E2E_BASE_URL });
+  const visitor = await browser.newContext({
+    baseURL: process.env.E2E_BASE_URL,
+    storageState: ANONYMOUS,
+  });
   const visitorPage = await visitor.newPage();
   await visitorPage.goto(url);
   await expect(visitorPage.getByText('This invite link no longer works')).toBeVisible();
@@ -58,7 +60,7 @@ test('an approval link waits for the owner, who sees the unverified email', asyn
   page,
   browser,
 }) => {
-  await signIn(page, OWNER);
+  await openWorkspace(page);
   const url = await createInviteLink(page, { requiresApproval: true });
 
   const applicant = await signUpThroughInvite(browser, process.env.E2E_BASE_URL, url, APPLICANT);
@@ -75,9 +77,12 @@ test('an approval link waits for the owner, who sees the unverified email', asyn
   await applicant.page.goto('/');
   await expect(applicant.page).toHaveURL(/\/w\/[^/]+$/);
   await applicant.close();
+});
 
-  // Same install as host and as the user's own: a loopback base is reachable on purpose. A third
-  // sign-in inside a minute would hit the sign-in rate limit, so this reuses the owner's session.
+// This install is both "own" and host: a loopback base is reachable on purpose.
+test('bookmarks a workspace from an invite link, then removes it by keyboard', async ({ page }) => {
+  await openWorkspace(page);
+  const url = await createInviteLink(page);
   const joinUrl = `${new URL(url).origin}${new URL(url).pathname}`;
   await page.getByRole('banner').getByRole('button').first().click();
   await page.getByRole('menuitem', { name: 'Join a workspace' }).click();

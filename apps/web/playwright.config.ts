@@ -16,16 +16,22 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
     },
     {
-      name: 'projects',
-      testMatch: 'projects.spec.ts',
+      name: 'setup',
+      testMatch: 'auth.setup.ts',
       dependencies: ['first-run'],
       use: { ...devices['Desktop Chrome'] },
     },
     {
+      name: 'projects',
+      testMatch: 'projects.spec.ts',
+      dependencies: ['setup'],
+      use: { ...devices['Desktop Chrome'], storageState: 'e2e/.auth/owner.json' },
+    },
+    {
       name: 'invites',
       testMatch: 'invites.spec.ts',
-      dependencies: ['first-run'],
-      use: { ...devices['Desktop Chrome'] },
+      dependencies: ['setup'],
+      use: { ...devices['Desktop Chrome'], storageState: 'e2e/.auth/owner.json' },
     },
   ],
 });

@@ -14,6 +14,17 @@ export async function signIn(page: Page, account: Account): Promise<void> {
   await expect(page).toHaveURL(/\/w\/[^/]+$/);
 }
 
+export const OWNER_STATE = 'e2e/.auth/owner.json';
+
+// Contexts made with browser.newContext() inherit the owner's session unless told otherwise.
+export const ANONYMOUS = { cookies: [], origins: [] };
+
+// The owner signs in once in auth.setup.ts, so specs that use OWNER_STATE start already signed in.
+export async function openWorkspace(page: Page): Promise<void> {
+  await page.goto('/');
+  await expect(page).toHaveURL(/\/w\/[^/]+$/);
+}
+
 // The link is shown once, right after creation, so this returns it for the caller to use.
 export async function createInviteLink(
   page: Page,
@@ -38,7 +49,7 @@ export async function signUpThroughInvite(
   url: string,
   account: Account,
 ): Promise<{ page: Page; close: () => Promise<void> }> {
-  const context = await browser.newContext({ baseURL });
+  const context = await browser.newContext({ baseURL, storageState: ANONYMOUS });
   const page = await context.newPage();
   await page.goto(url);
   await page.getByLabel('Name').fill(account.name);
