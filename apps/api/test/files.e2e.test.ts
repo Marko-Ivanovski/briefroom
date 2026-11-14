@@ -10,7 +10,8 @@ import { FILE_STORE, type FileRecord, type FileStore } from '@briefroom/module-k
 import { eq } from 'drizzle-orm';
 import sharp from 'sharp';
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { Logger } from '@nestjs/common';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { FilesService } from '../src/files/files.service.ts';
 import { Semaphore } from '../src/files/semaphore.ts';
 import { WorkspaceModulesService } from '../src/module-registry/workspace-modules.service.ts';
@@ -88,6 +89,44 @@ describe('file store', () => {
       body.pipe(req);
     });
   };
+  /** Starts an upload that sends a few bytes of a 1 MB body and then goes quiet. */
+  const stalledUpload = async (who: string) => {
+    const server = t.app.getHttpServer();
+    if (!server.listening) await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
+    const { port } = server.address() as { port: number };
+    let settle!: (r: { status: number; body: Record<string, unknown> }) => void;
+    const response = new Promise<{ status: number; body: Record<string, unknown> }>((done) => {
+      settle = done;
+    });
+    const req = nodeHttp.request(
+      {
+        port,
+        host: '127.0.0.1',
+        method: 'POST',
+        path: `${base()}/m/testkit/files`,
+        headers: {
+          cookie: cookies[who]!,
+          'content-type': 'application/octet-stream',
+          'content-length': String(MB),
+        },
+      },
+      (res) => {
+        const parts: Buffer[] = [];
+        res.on('data', (c: Buffer) => parts.push(c));
+        res.on('end', () =>
+          settle({
+            status: res.statusCode ?? 0,
+            body: JSON.parse(Buffer.concat(parts).toString() || '{}'),
+          }),
+        );
+      },
+    );
+    req.on('error', () => undefined);
+    req.write(Buffer.alloc(1024, 1));
+    await new Promise((done) => setTimeout(done, 300));
+    return { req, response };
+  };
+  const dirCount = async () => (await readdir(join(dataDir, 'files', ws)).catch(() => [])).length;
   const get = (who: string, id: string, size?: string, w = ws) =>
     http()
       .get(`${base(w)}/files/${id}${size ? `?size=${size}` : ''}`)
@@ -241,6 +280,84 @@ describe('file store', () => {
     const chunks = Array.from({ length: 21 }, () => Buffer.alloc(MB, 1));
     const res = await rawUpload('writer', Readable.from(chunks), '', false);
     expect(res.status).toBe(413);
+  });
+
+  describe('slow clients (R128)', () => {
+    it('does not let a stalled upload hold an image slot', async () => {
+      const service = t.app.get(FilesService);
+      const { jobs, readLimits } = service;
+      service.jobs = new Semaphore(1, 0);
+      service.readLimits = { idleMs: 5000, totalMs: 10_000 };
+      const stalled = await stalledUpload('writer');
+      try {
+        const res = await upload('writer', small);
+        expect(res.status).toBe(201);
+      } finally {
+        stalled.req.destroy();
+        service.jobs = jobs;
+        service.readLimits = readLimits;
+      }
+    });
+
+    it('answers 408 upload_timeout when a client sends nothing for too long', async () => {
+      const service = t.app.get(FilesService);
+      const { readLimits } = service;
+      service.readLimits = { idleMs: 300, totalMs: 10_000 };
+      try {
+        const stalled = await stalledUpload('writer');
+        const res = await stalled.response;
+        expect(res.status).toBe(408);
+        expect(res.body).toMatchObject({ code: 'upload_timeout' });
+      } finally {
+        service.readLimits = readLimits;
+      }
+    });
+
+    it('releases the reader permit after a timeout', async () => {
+      const service = t.app.get(FilesService);
+      const { readers, readLimits } = service;
+      service.readers = new Semaphore(1, 0);
+      service.readLimits = { idleMs: 200, totalMs: 10_000 };
+      try {
+        expect((await (await stalledUpload('writer')).response).status).toBe(408);
+        expect((await upload('writer', small)).status).toBe(201);
+      } finally {
+        service.readers = readers;
+        service.readLimits = readLimits;
+      }
+    });
+
+    it('answers 503 busy when every reader is taken and the queue is full', async () => {
+      const service = t.app.get(FilesService);
+      const { readers } = service;
+      service.readers = new Semaphore(0, 0);
+      try {
+        const res = await upload('writer', small);
+        expect(res.status).toBe(503);
+        expect(res.headers['retry-after']).toBe('5');
+      } finally {
+        service.readers = readers;
+      }
+    });
+
+    it('survives a client that drops mid-body: no 500, nothing on disk, permit released', async () => {
+      const service = t.app.get(FilesService);
+      const { readers } = service;
+      service.readers = new Semaphore(1, 0);
+      const errors = vi.spyOn(Logger.prototype, 'error');
+      const before = await dirCount();
+      try {
+        const stalled = await stalledUpload('writer');
+        stalled.req.destroy();
+        await new Promise((done) => setTimeout(done, 300));
+        expect(errors).not.toHaveBeenCalled();
+        expect(await dirCount()).toBe(before);
+        expect((await upload('writer', small)).status).toBe(201);
+      } finally {
+        errors.mockRestore();
+        service.readers = readers;
+      }
+    });
   });
 
   it('answers 503 busy with Retry-After when the image queue is full', async () => {

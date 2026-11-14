@@ -1,12 +1,4 @@
-import { ServiceUnavailableException } from '@nestjs/common';
-
-export const BUSY_RETRY_AFTER_SECONDS = 5;
-
-export class BusyException extends ServiceUnavailableException {
-  constructor() {
-    super({ code: 'busy', message: 'The server is busy, try again shortly' });
-  }
-}
+import { BusyException } from '../errors/busy.ts';
 
 /** Runs at most `limit` jobs at once and queues up to `maxQueue` more. Past that it refuses at once. */
 export class Semaphore {

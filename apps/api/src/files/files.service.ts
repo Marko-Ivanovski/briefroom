@@ -5,7 +5,9 @@ import { join } from 'node:path';
 import type { ReadStream } from 'node:fs';
 import { files, projects, scoped, scopedInsert, scopedProjects, type Db } from '@briefroom/db';
 import {
+  DEFAULT_UPLOAD_LIMITS,
   MAX_UPLOAD_BYTES,
+  type UploadLimits,
   type FileRecord,
   type FileStore,
   type FileStoreInput,
@@ -47,8 +49,11 @@ const moduleOff = (moduleId: string) =>
 @Injectable()
 export class FilesService implements FileStore {
   private readonly log = new Logger('Files');
-  /** Process-wide: two image jobs at once, eight waiting, then 503. Replaceable by tests. */
+  /** Process-wide and replaceable by tests: four body reads at once, eight waiting, then 503. */
+  readers = new Semaphore(4, 8);
+  /** Two image jobs at once, eight waiting, then 503. Never held while a client is sending. */
   jobs = new Semaphore(2, 8);
+  readLimits: UploadLimits = DEFAULT_UPLOAD_LIMITS;
 
   constructor(
     @Inject(DB) private readonly db: Db,
@@ -73,14 +78,13 @@ export class FilesService implements FileStore {
         .where(and(scopedProjects(scope), eq(projects.id, projectId)));
       if (!visible) throw new NotFoundException('Project not found');
     }
-    // The body is read inside the slot, so at most a few uploads sit in memory at once.
-    return this.jobs.run(async () => {
-      const bytes = typeof input.bytes === 'function' ? await input.bytes() : input.bytes;
-      if (bytes.length > MAX_UPLOAD_BYTES) {
-        throw new PayloadTooLargeException('The upload is too big');
-      }
-      return this.save(scope, moduleId, projectId, bytes);
-    });
+    // Two stages. A slow client only ever holds a reader permit, never an image slot.
+    const { bytes: source } = input;
+    const bytes =
+      typeof source === 'function' ? await this.readers.run(() => source(this.readLimits)) : source;
+    if (bytes.length > MAX_UPLOAD_BYTES)
+      throw new PayloadTooLargeException('The upload is too big');
+    return this.jobs.run(() => this.save(scope, moduleId, projectId, bytes));
   }
 
   private async save(

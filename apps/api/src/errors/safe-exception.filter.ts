@@ -1,9 +1,9 @@
 import { STATUS_CODES, type ServerResponse } from 'node:http';
-import { BUSY_RETRY_AFTER_SECONDS, BusyException } from '../files/semaphore.ts';
 import { Catch, HttpStatus, Logger, type ArgumentsHost, type HttpServer } from '@nestjs/common';
 import { BaseExceptionFilter, type AbstractHttpAdapter } from '@nestjs/core';
 import { isAPIError } from 'better-auth/api';
 import { SAFE_AUTH_MESSAGES } from '../auth/auth.ts';
+import { BUSY_RETRY_AFTER_SECONDS, BusyException } from './busy.ts';
 import { describeError } from './safe-error.ts';
 
 /**
