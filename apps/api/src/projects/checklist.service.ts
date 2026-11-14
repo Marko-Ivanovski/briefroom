@@ -233,7 +233,12 @@ export class ChecklistService {
     try {
       await run();
     } catch (err) {
-      if (hasPgCode(err, PG_UNIQUE_VIOLATION)) throw new ConflictException('checklist_conflict');
+      if (hasPgCode(err, PG_UNIQUE_VIOLATION)) {
+        throw new ConflictException({
+          code: 'checklist_conflict',
+          message: 'This checklist item was changed at the same time.',
+        });
+      }
       if (hasPgCode(err, PG_FOREIGN_KEY_VIOLATION)) {
         throw new NotFoundException('Tool link not found');
       }

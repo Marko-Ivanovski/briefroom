@@ -12,6 +12,8 @@ function need(name: string): string {
   return value;
 }
 
+// Required explicitly: loadEnv() would otherwise fall back to the dev database.
+need('DATABASE_URL');
 const env = loadEnv();
 const db = createDb(env.databaseUrl);
 const auth = createAuth(db, env, () => Promise.resolve(false));

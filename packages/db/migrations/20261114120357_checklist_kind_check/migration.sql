@@ -1,0 +1,1 @@
+ALTER TABLE "project_access_checklist" ADD CONSTRAINT "project_access_checklist_kind_valid" CHECK ("kind" in ('add', 'remove'));

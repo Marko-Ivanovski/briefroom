@@ -2,6 +2,8 @@ import { authSchema, projectAccessChecklist } from '@briefroom/db';
 import { eq } from 'drizzle-orm';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { ConflictException } from '@nestjs/common';
+import { ChecklistService } from '../src/projects/checklist.service.ts';
 import { createTestApp, makeInstallOwner, type TestApp } from './helpers.ts';
 
 const PASSWORD = 'correct horse battery';
@@ -133,6 +135,20 @@ describe('access checklists', () => {
     expect(res.status).toBe(200);
     expect(res.body).toHaveLength(2);
     expect(res.body.every((i: Item) => !i.done)).toBe(true);
+  });
+
+  it('sends the checklist conflict as a code and a message', async () => {
+    const service = t.app.get(ChecklistService) as unknown as {
+      guard(run: () => Promise<unknown>): Promise<void>;
+    };
+    const failure = await service
+      .guard(() => Promise.reject(Object.assign(new Error('duplicate'), { code: '23505' })))
+      .catch((err: unknown) => err);
+    expect(failure).toBeInstanceOf(ConflictException);
+    expect((failure as ConflictException).getResponse()).toEqual({
+      code: 'checklist_conflict',
+      message: expect.any(String),
+    });
   });
 
   it('refuses member-role callers with 403', async () => {

@@ -1,4 +1,5 @@
-import { boolean, index, pgTable, text, unique, uuid } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+import { boolean, check, index, pgTable, text, unique, uuid } from 'drizzle-orm/pg-core';
 import { auditColumns } from '../audit.ts';
 import { organization } from './auth.ts';
 import { projects, projectToolLinks } from './projects.ts';
@@ -28,5 +29,6 @@ export const projectAccessChecklist = pgTable(
   (t) => [
     unique('project_access_checklist_item_key').on(t.projectId, t.userId, t.toolLinkId, t.kind),
     index('project_access_checklist_workspace_id_idx').on(t.workspaceId),
+    check('project_access_checklist_kind_valid', sql`${t.kind} in ('add', 'remove')`),
   ],
 );

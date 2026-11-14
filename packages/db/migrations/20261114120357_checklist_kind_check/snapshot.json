@@ -1,0 +1,42 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "fb260f03-303f-416e-b0b0-3d661a4050de",
+  "prevIds": [
+    "c11cfe81-4d2c-4285-99b6-9c207135b395"
+  ],
+  "footprints": [
+    {
+      "statementType": "add_check",
+      "statementTarget": [
+        "table",
+        "public",
+        "project_access_checklist"
+      ],
+      "writes": [
+        "s|ck|public.project_access_checklist.project_access_checklist_kind_valid",
+        "n|ck|public.project_access_checklist.project_access_checklist_kind_valid",
+        "e|ck|public.project_access_checklist.project_access_checklist_kind_valid",
+        "n|con|public.project_access_checklist.project_access_checklist_kind_valid"
+      ],
+      "reads": [
+        "n|tbl|public.project_access_checklist",
+        "n|sch|public",
+        "n|col|public.project_access_checklist.kind"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_access_checklist",
+        "name": "project_access_checklist_kind_valid",
+        "value": "\"kind\" in ('add', 'remove')",
+        "entityType": "checks"
+      }
+    }
+  ]
+}
