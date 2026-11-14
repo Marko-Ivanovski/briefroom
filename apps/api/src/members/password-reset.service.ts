@@ -122,7 +122,10 @@ export class PasswordResetService {
       throw new GoneException('This reset link is no longer valid');
     }
 
+    // Sessions are revoked before and after the write, so a failed revoke can never leave an old
+    // (possibly hostile) session alive beside a changed password.
     try {
+      await ctx.internalAdapter.deleteUserSessions(claimed.userId);
       if (!(await ctx.internalAdapter.findCredentialAccount(claimed.userId))) {
         throw new PasswordWriteFailed();
       }
@@ -135,11 +138,28 @@ export class PasswordResetService {
       throw err instanceof PasswordWriteFailed ? err : new PasswordWriteFailed();
     }
 
-    await this.db
-      .update(passwordResetLinks)
-      .set({ usedAt: sql`now()`, ...updatedStamp({ userId: 'reset-link', via: 'web' }) })
-      .where(and(eq(passwordResetLinks.userId, claimed.userId), isNull(passwordResetLinks.usedAt)));
-    await ctx.internalAdapter.deleteUserSessions(claimed.userId);
+    let failed = false;
+    try {
+      await ctx.internalAdapter.deleteUserSessions(claimed.userId);
+    } catch {
+      failed = true;
+    }
+    try {
+      await this.db
+        .update(passwordResetLinks)
+        .set({ usedAt: sql`now()`, ...updatedStamp({ userId: 'reset-link', via: 'web' }) })
+        .where(
+          and(eq(passwordResetLinks.userId, claimed.userId), isNull(passwordResetLinks.usedAt)),
+        );
+    } catch {
+      failed = true;
+    }
+    if (failed) {
+      this.log.error(
+        `password reset for user ${claimed.userId} set the password but cleanup failed`,
+      );
+      throw new PasswordWriteFailed();
+    }
     this.log.log(`password reset for user ${claimed.userId}`);
   }
 

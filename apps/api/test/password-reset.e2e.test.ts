@@ -1,8 +1,9 @@
 import { ResetLinkResponse } from '@briefroom/contracts';
-import { authSchema, passwordResetLinks } from '@briefroom/db';
+import { authSchema, passwordResetLinks, type Db } from '@briefroom/db';
 import { and, eq } from 'drizzle-orm';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { DB } from '../src/database/database.module.ts';
 import { PasswordResetLinks } from '../src/members/password-reset-links.service.ts';
 import { runResetPassword } from '../src/admin-cli.ts';
 import { createTestApp, makeInstallOwner, type TestApp } from './helpers.ts';
@@ -305,16 +306,61 @@ describe('password reset links', () => {
   });
 
   describe('redeem failure handling', () => {
-    it('keeps the link used when deleting sessions fails after the password was set', async () => {
-      await join('sessfail', 'member');
-      const url = await issue('admin', 'sessfail');
+    const linkRow = async (userKey: string) =>
+      (
+        await t.db.db
+          .select()
+          .from(passwordResetLinks)
+          .where(eq(passwordResetLinks.userId, ids[userKey]!))
+      )[0]!;
+
+    it('leaves the password and link untouched when the first session revoke fails', async () => {
+      await join('rev1', 'member');
+      const url = await issue('admin', 'rev1');
       const ctx = await t.auth.$context;
       vi.spyOn(ctx.internalAdapter, 'deleteUserSessions').mockRejectedValueOnce(new Error('boom'));
-      const first = await redeem(url);
-      expect(first.status).toBe(500);
-      expect(JSON.stringify(first.body)).not.toContain('boom');
+      const res = await redeem(url);
+      expect(res.status).toBe(500);
+      expect(JSON.stringify(res.body)).not.toContain('boom');
+      await expect(signIn('rev1@example.com', PASSWORD)).resolves.toBeTruthy();
+      expect((await linkRow('rev1')).usedAt).toBeNull();
+      vi.restoreAllMocks();
+      expect((await redeem(url)).status).toBe(204);
+    });
+
+    it('keeps the link used when the second session revoke fails after the password was set', async () => {
+      await join('rev2', 'member');
+      const url = await issue('admin', 'rev2');
+      const ctx = await t.auth.$context;
+      const spy = vi.spyOn(ctx.internalAdapter, 'deleteUserSessions');
+      spy.mockImplementationOnce(() => Promise.resolve(undefined as never));
+      spy.mockRejectedValueOnce(new Error('boom'));
+      const res = await redeem(url);
+      expect(res.status).toBe(500);
+      expect(JSON.stringify(res.body)).not.toContain('boom');
+      expect(spy).toHaveBeenCalledTimes(2);
+      await expect(signIn('rev2@example.com', NEW_PASSWORD)).resolves.toBeTruthy();
       expect((await redeem(url, PASSWORD)).status).toBe(410);
       vi.restoreAllMocks();
+    });
+
+    it('still revokes sessions when expiring the other links fails', async () => {
+      await join('rev3', 'member');
+      const url = await issue('admin', 'rev3');
+      const before = await signIn('rev3@example.com', PASSWORD);
+      const probe = () => http().get('/api/v1/workspaces').set({ cookie: before });
+      expect((await probe()).status).toBe(200);
+      const db = t.app.get<Db>(DB);
+      const original = db.update.bind(db);
+      let calls = 0;
+      vi.spyOn(db, 'update').mockImplementation(((table: never) => {
+        if (++calls === 2) throw new Error('boom');
+        return original(table);
+      }) as typeof db.update);
+      const res = await redeem(url);
+      vi.restoreAllMocks();
+      expect(res.status).toBe(500);
+      expect((await probe()).status).toBe(401);
     });
 
     it('fails with 500 and un-claims the link when the user has no credential account', async () => {
