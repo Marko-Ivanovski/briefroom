@@ -32,11 +32,19 @@ describe('stripCredentials', () => {
     ['https://user:tok@github.com/o/r.git', 'https://github.com/o/r.git'],
     ['https://tok@github.com/o/r', 'https://github.com/o/r'],
     ['https://user@host/o/r', 'https://host/o/r'],
-    ['git+ssh://git@host/o/r', 'git+ssh://git@host/o/r'],
+    ['https://user:p%40ss@github.com/o/r', 'https://github.com/o/r'],
+    ['https://a@b@github.com/o/r', 'https://github.com/o/r'],
     ['ssh://git@github.com/o/r.git', 'ssh://git@github.com/o/r.git'],
     ['ssh://u:p@host/o/r', 'ssh://host/o/r'],
+    ['git+ssh://git@host/o/r', 'git+ssh://git@host/o/r'],
     ['git@github.com:o/r.git', 'git@github.com:o/r.git'],
-    ['user:tok@github.com:o/r.git', 'github.com:o/r.git'],
     ['  https://github.com/o/r  ', 'https://github.com/o/r'],
   ])('turns %s into %s', (input, out) => expect(stripCredentials(input)).toBe(out));
+
+  it.each([
+    ['https://tok@github.com:o/r'],
+    ['git@git@host:o/r'],
+    ['user:tok@host:o/r'],
+    ['http://@/o/r'],
+  ])('refuses %s', (input) => expect(() => stripCredentials(input)).toThrow(InvalidRemoteError));
 });
