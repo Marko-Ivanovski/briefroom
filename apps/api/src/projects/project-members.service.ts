@@ -1,8 +1,10 @@
 import type { ProjectMemberSummary } from '@briefroom/contracts';
 import {
   authSchema,
+  projectAccessChecklist,
   projectMembers,
   projects,
+  projectToolLinks,
   scoped,
   scopedInsert,
   scopedProjects,
@@ -94,20 +96,38 @@ export class ProjectMembersService {
     }
   }
 
-  /** The single place a project membership is deleted, so revocation hooks can attach here. */
+  /**
+   * The single place a project membership is deleted, so revocation hooks attach here. The
+   * `remove` checklist is created in the same transaction, so nobody keeps repo access unnoticed.
+   */
   async remove(scope: Scope, projectId: string, userId: string): Promise<void> {
     if (!z.uuid().safeParse(projectId).success) throw new NotFoundException('Project not found');
-    const deleted = await this.db
-      .delete(projectMembers)
-      .where(
-        and(
-          scoped(scope, projectMembers),
-          eq(projectMembers.projectId, projectId),
-          eq(projectMembers.userId, userId),
-        ),
-      )
-      .returning({ userId: projectMembers.userId });
-    if (deleted.length === 0) throw new NotFoundException('Not on this project');
+    await this.db.transaction(async (tx) => {
+      const deleted = await tx
+        .delete(projectMembers)
+        .where(
+          and(
+            scoped(scope, projectMembers),
+            eq(projectMembers.projectId, projectId),
+            eq(projectMembers.userId, userId),
+          ),
+        )
+        .returning({ userId: projectMembers.userId });
+      if (deleted.length === 0) throw new NotFoundException('Not on this project');
+      const links = await tx
+        .select({ id: projectToolLinks.id })
+        .from(projectToolLinks)
+        .where(and(scoped(scope, projectToolLinks), eq(projectToolLinks.projectId, projectId)));
+      if (links.length === 0) return;
+      await tx
+        .insert(projectAccessChecklist)
+        .values(
+          links.map((l) =>
+            scopedInsert(scope, { projectId, userId, toolLinkId: l.id, kind: 'remove' as const }),
+          ),
+        )
+        .onConflictDoNothing();
+    });
   }
 
   leave(scope: Scope, projectId: string): Promise<void> {

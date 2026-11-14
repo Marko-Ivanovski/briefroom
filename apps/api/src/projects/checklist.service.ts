@@ -1,7 +1,8 @@
-import type { ChecklistItem, ChecklistKind } from '@briefroom/contracts';
+import type { ChecklistItem, ChecklistKind, PendingRemoval } from '@briefroom/contracts';
 import {
   authSchema,
   projectAccessChecklist,
+  projectMembers,
   projects,
   projectToolLinks,
   scoped,
@@ -11,7 +12,7 @@ import {
   type Db,
 } from '@briefroom/db';
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { and, asc, eq } from 'drizzle-orm';
+import { and, desc, eq, notExists, sql, asc } from 'drizzle-orm';
 import { z } from 'zod';
 import { canViewProject, type Scope } from '../access/scope.ts';
 import { DB } from '../database/database.module.ts';
@@ -92,6 +93,47 @@ export class ChecklistService {
     return item;
   }
 
+  /** People removed from the project who still have `remove` items to tick, newest first. */
+  async pendingRemovals(scope: Scope, projectId: string): Promise<PendingRemoval[]> {
+    await this.requireProject(scope, projectId);
+    const row = projectAccessChecklist;
+    const undone = sql<number>`count(*) filter (where ${row.done} = false)::int`;
+    const removedAt = sql<Date>`max(${row.createdAt})`;
+    const rows = await this.db
+      .select({
+        userId: row.userId,
+        name: authSchema.user.name,
+        email: authSchema.user.email,
+        removedAt,
+        undone,
+      })
+      .from(row)
+      .leftJoin(authSchema.user, eq(authSchema.user.id, row.userId))
+      .where(
+        and(
+          scoped(scope, row),
+          eq(row.projectId, projectId),
+          eq(row.kind, 'remove'),
+          // Someone added back to the project is not a pending removal, whatever is left undone.
+          notExists(
+            this.db
+              .select({ one: sql`1` })
+              .from(projectMembers)
+              .where(
+                and(
+                  eq(projectMembers.projectId, row.projectId),
+                  eq(projectMembers.userId, row.userId),
+                ),
+              ),
+          ),
+        ),
+      )
+      .groupBy(row.userId, authSchema.user.name, authSchema.user.email)
+      .having(sql`count(*) filter (where ${row.done} = false) > 0`)
+      .orderBy(desc(removedAt), asc(row.userId));
+    return rows.map((r) => ({ ...r, removedAt: new Date(r.removedAt).toISOString() }));
+  }
+
   private async items(
     scope: Scope,
     projectId: string,
@@ -150,7 +192,7 @@ export class ChecklistService {
    * A checklist exists for a current workspace member, or for anyone who already has rows on
    * this project, so the `remove` list stays reachable after they leave the project or workspace.
    */
-  private async requireEligible(scope: Scope, projectId: string, userId: string): Promise<void> {
+  private async requireProject(scope: Scope, projectId: string): Promise<void> {
     if (!z.uuid().safeParse(projectId).success || !canViewProject(scope, projectId)) {
       throw new NotFoundException('Project not found');
     }
@@ -159,7 +201,10 @@ export class ChecklistService {
       .from(projects)
       .where(and(scopedProjects(scope), eq(projects.id, projectId)));
     if (!project) throw new NotFoundException('Project not found');
+  }
 
+  private async requireEligible(scope: Scope, projectId: string, userId: string): Promise<void> {
+    await this.requireProject(scope, projectId);
     const [member] = await this.db
       .select({ userId: authSchema.member.userId })
       .from(authSchema.member)

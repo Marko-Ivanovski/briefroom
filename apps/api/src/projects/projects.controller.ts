@@ -2,6 +2,7 @@ import {
   ProjectInput,
   ProjectPatch,
   WorkspaceSettings,
+  type PendingRemoval,
   type ProjectDetail,
   type ProjectSummary,
 } from '@briefroom/contracts';
@@ -20,6 +21,7 @@ import type { z } from 'zod';
 import { RequireRole } from '../access/require-role.decorator.ts';
 import type { Scope } from '../access/scope.ts';
 import { CurrentScope } from '../access/workspace-scope.guard.ts';
+import { ChecklistService } from './checklist.service.ts';
 import { ProjectsService } from './projects.service.ts';
 import { SettingsService } from './settings.service.ts';
 
@@ -38,6 +40,7 @@ export class ProjectsController {
   constructor(
     private readonly projects: ProjectsService,
     private readonly settings: SettingsService,
+    private readonly checklists: ChecklistService,
   ) {}
 
   @Get('projects')
@@ -71,6 +74,15 @@ export class ProjectsController {
   @HttpCode(204)
   remove(@CurrentScope() scope: Scope, @Param('projectId') projectId: string): Promise<void> {
     return this.projects.remove(scope, projectId);
+  }
+
+  @RequireRole('admin')
+  @Get('projects/:projectId/pending-removals')
+  pendingRemovals(
+    @CurrentScope() scope: Scope,
+    @Param('projectId') projectId: string,
+  ): Promise<PendingRemoval[]> {
+    return this.checklists.pendingRemovals(scope, projectId);
   }
 
   @Get('settings')

@@ -93,5 +93,14 @@ export const SetChecklistItemInput = z.object({
 });
 export type SetChecklistItemInput = z.infer<typeof SetChecklistItemInput>;
 
+export const PendingRemoval = z.object({
+  userId: z.string(),
+  name: z.string().nullable(),
+  email: z.string().nullable(),
+  removedAt: z.string(),
+  undone: z.number().int().positive(),
+});
+export type PendingRemoval = z.infer<typeof PendingRemoval>;
+
 export const WorkspaceSettings = z.object({ membersCanCreateProjects: z.boolean() });
 export type WorkspaceSettings = z.infer<typeof WorkspaceSettings>;

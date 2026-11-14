@@ -1,4 +1,4 @@
-import { projectAccessChecklist } from '@briefroom/db';
+import { authSchema, projectAccessChecklist } from '@briefroom/db';
 import { eq } from 'drizzle-orm';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -40,7 +40,7 @@ describe('access checklists', () => {
 
   beforeAll(async () => {
     t = await createTestApp();
-    for (const key of ['owner', 'admin', 'member', 'stranger']) {
+    for (const key of ['owner', 'admin', 'member', 'stranger', 'ghost']) {
       const email = `${key}@example.com`;
       const { user } = await t.auth.api.createUser({
         body: { email, password: PASSWORD, name: key },
@@ -61,7 +61,7 @@ describe('access checklists', () => {
         body: { name: 'Acme', slug: 'acme', userId: ids.owner! },
       })
     ).id;
-    for (const key of ['admin', 'member']) {
+    for (const key of ['admin', 'member', 'ghost']) {
       await t.auth.api.addMember({
         body: { userId: ids[key]!, role: key === 'admin' ? 'admin' : 'member', organizationId: ws },
       });
@@ -332,5 +332,134 @@ describe('access checklists', () => {
       .set(as('owner'));
     expect(inWs2.status).toBe(200);
     expect(await countRows()).toBe(before + 1);
+  });
+
+  describe('pending removals (R77)', () => {
+    interface Pending {
+      userId: string;
+      name: string | null;
+      email: string | null;
+      removedAt: string;
+      undone: number;
+    }
+    const LINKS = [
+      { label: 'Repo', url: 'https://github.com/acme/pr' },
+      { label: 'Board', url: 'https://acme.atlassian.net/jira/pr' },
+    ];
+    const members = (p: string) => `${base()}/projects/${p}/members`;
+    const pending = (who: string, p: string) =>
+      http().get(`${base()}/projects/${p}/pending-removals`).set(as(who));
+    const newProject = async (toolLinks: object[] = LINKS): Promise<string> => {
+      const res = await http()
+        .post(`${base()}/projects`)
+        .set(as('admin'))
+        .send({ name: 'PR', toolLinks });
+      return res.body.id;
+    };
+    const join = (p: string, who: string) =>
+      http().post(members(p)).set(as('admin')).send({ userId: ids[who] });
+    const removeRows = async (p: string) =>
+      (await t.db.db.select().from(projectAccessChecklist)).filter(
+        (r) => r.projectId === p && r.kind === 'remove',
+      );
+
+    it('lists a removed member with the number of undone items', async () => {
+      const p = await newProject();
+      await join(p, 'member');
+      expect(
+        (
+          await http()
+            .delete(`${members(p)}/${ids.member}`)
+            .set(as('admin'))
+        ).status,
+      ).toBe(204);
+      const res = await pending('admin', p);
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual([
+        {
+          userId: ids.member,
+          name: 'member',
+          email: 'member@example.com',
+          removedAt: expect.any(String),
+          undone: 2,
+        },
+      ]);
+      const rows = await removeRows(p);
+      expect(rows).toHaveLength(2);
+      expect(rows.every((r) => r.createdBy === ids.admin && !r.done)).toBe(true);
+    });
+
+    it('lists a member who leaves on their own', async () => {
+      const p = await newProject();
+      await join(p, 'member');
+      expect(
+        (
+          await http()
+            .post(`${members(p)}/leave`)
+            .set(as('member'))
+        ).status,
+      ).toBe(204);
+      const res = await pending('admin', p);
+      expect(res.body).toHaveLength(1);
+      expect(res.body[0]).toMatchObject({ userId: ids.member, undone: 2 });
+      expect((await removeRows(p)).every((r) => r.createdBy === ids.member)).toBe(true);
+    });
+
+    it('counts down as items are ticked and drops the user at zero', async () => {
+      const p = await newProject();
+      await join(p, 'member');
+      await http()
+        .delete(`${members(p)}/${ids.member}`)
+        .set(as('admin'));
+      const [first, second] = await links(p);
+      await tick('admin', ids.member!, { toolLinkId: first!.id, kind: 'remove', done: true }, p);
+      expect((await pending('admin', p)).body[0].undone).toBe(1);
+      await tick('admin', ids.member!, { toolLinkId: second!.id, kind: 'remove', done: true }, p);
+      expect((await pending('admin', p)).body).toEqual([]);
+    });
+
+    it('lists newest removals first and shows no name for a deleted account', async () => {
+      const p = await newProject();
+      await join(p, 'member');
+      await join(p, 'ghost');
+      await http()
+        .delete(`${members(p)}/${ids.member}`)
+        .set(as('admin'));
+      await http()
+        .delete(`${members(p)}/${ids.ghost}`)
+        .set(as('admin'));
+      await t.db.db.delete(authSchema.user).where(eq(authSchema.user.id, ids.ghost!));
+      const res = await pending('owner', p);
+      expect(res.body.map((r: Pending) => r.userId)).toEqual([ids.ghost, ids.member]);
+      expect(res.body[0]).toMatchObject({ name: null, email: null, undone: 2 });
+    });
+
+    it('does not list someone who is on the project again', async () => {
+      const p = await newProject();
+      await join(p, 'member');
+      await http()
+        .delete(`${members(p)}/${ids.member}`)
+        .set(as('admin'));
+      expect((await pending('admin', p)).body).toHaveLength(1);
+      await join(p, 'member');
+      expect((await pending('admin', p)).body).toEqual([]);
+    });
+
+    it('creates nothing when the project has no tool links', async () => {
+      const p = await newProject([]);
+      await join(p, 'member');
+      await http()
+        .delete(`${members(p)}/${ids.member}`)
+        .set(as('admin'));
+      expect(await removeRows(p)).toHaveLength(0);
+      expect((await pending('admin', p)).body).toEqual([]);
+    });
+
+    it('is admin only and answers 404 for an unknown or malformed project', async () => {
+      const p = await newProject();
+      expect((await pending('member', p)).status).toBe(403);
+      expect((await pending('admin', 'not-a-uuid')).status).toBe(404);
+      expect((await pending('admin', '00000000-0000-4000-8000-000000000000')).status).toBe(404);
+    });
   });
 });
