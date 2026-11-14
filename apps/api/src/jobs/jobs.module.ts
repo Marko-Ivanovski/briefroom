@@ -1,4 +1,4 @@
-import { JOBS } from '@briefroom/module-kit';
+import { CORE_JOBS } from '@briefroom/module-kit';
 import { Global, Module, type DynamicModule } from '@nestjs/common';
 import { JOBS_MODE, JobsService, type JobsMode } from './jobs.service.ts';
 
@@ -11,9 +11,9 @@ export class JobsModule {
       providers: [
         { provide: JOBS_MODE, useValue: mode },
         JobsService,
-        { provide: JOBS, useExisting: JobsService },
+        { provide: CORE_JOBS, useExisting: JobsService },
       ],
-      exports: [JOBS, JobsService],
+      exports: [CORE_JOBS, JobsService],
     };
   }
 }

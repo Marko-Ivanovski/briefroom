@@ -21,7 +21,11 @@ export interface JobQueue {
   ): Promise<string>;
 }
 
+/** What a module injects. Bound to the module's own id by `provideModuleServices` (R138). */
 export const JOBS = Symbol('JOBS');
+
+/** The core's unbound queue. Only `provideModuleServices` and the core use it. */
+export const CORE_JOBS = Symbol('CORE_JOBS');
 
 export interface JobContext<T extends object = object> {
   payload: { workspaceId: string } & T;
