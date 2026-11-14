@@ -6,6 +6,7 @@ export default defineConfig({
     pool: 'forks',
     maxWorkers: 4,
     globals: true,
+    globalSetup: './test/global-setup.ts',
     root: './',
     testTimeout: 20_000,
     hookTimeout: 30_000,

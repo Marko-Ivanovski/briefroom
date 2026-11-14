@@ -65,3 +65,27 @@ export async function createTestDb(): Promise<TestDb> {
     },
   };
 }
+
+const STALE_AFTER_HOURS = 1;
+
+/** Drops test databases left behind by crashed workers. Only exact `briefroom_test_<12 hex>` names. */
+export async function sweepStaleTestDbs(): Promise<number> {
+  const adminUrl = process.env.DATABASE_URL ?? DEV_DATABASE_URL;
+  const client = new pg.Client({ connectionString: adminUrl });
+  await client.connect();
+  try {
+    const { rows } = await client.query<{ datname: string }>(
+      `SELECT datname FROM pg_database
+       WHERE datname ~ '^briefroom_test_[0-9a-f]{12}$'
+         AND (pg_stat_file('base/' || oid || '/PG_VERSION', true)).modification
+             < now() - make_interval(hours => $1)`,
+      [STALE_AFTER_HOURS],
+    );
+    for (const { datname } of rows) {
+      await client.query(`DROP DATABASE IF EXISTS "${datname}" WITH (FORCE)`);
+    }
+    return rows.length;
+  } finally {
+    await client.end();
+  }
+}

@@ -2,8 +2,9 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 // On Windows, Node 24 intermittently kills a test worker with exit 3221226505 (0xC0000409) around
-// Postgres socket teardown. Vitest then drops that file's results. This reruns only the files
-// whose worker died. A file with a failing test is never retried.
+// Postgres socket teardown. Vitest then drops that file's results. On Windows only, this reruns
+// the files whose worker died. Elsewhere a crashed worker fails the run. A file with a failing
+// test is never retried.
 const MAX_RERUNS = 2;
 const vitest = fileURLToPath(new URL('../node_modules/vitest/vitest.mjs', import.meta.url));
 const crashPattern =
@@ -30,11 +31,11 @@ function runVitest(args) {
 }
 
 function crashedFiles(output) {
-  const files = new Set();
+  const crashes = new Map();
   for (const match of output.matchAll(crashPattern)) {
-    for (const file of match[2].split(',')) files.add(file.trim());
+    for (const file of match[2].split(',')) crashes.set(file.trim(), match[1]);
   }
-  return [...files];
+  return crashes;
 }
 
 function hasFailedTests(output) {
@@ -44,13 +45,21 @@ function hasFailedTests(output) {
 let args = process.argv.slice(2);
 let result = await runVitest(args);
 
-for (let rerun = 1; result.code !== 0 && rerun <= MAX_RERUNS; rerun++) {
-  const files = crashedFiles(result.output);
-  if (files.length === 0 || hasFailedTests(result.output)) break;
-  process.stderr.write(
-    `\n[run-vitest] worker crashed in ${files.length} file(s), rerun ${rerun}/${MAX_RERUNS}: ${files.join(', ')}\n\n`,
-  );
-  args = files;
+for (
+  let rerun = 1;
+  process.platform === 'win32' && result.code !== 0 && rerun <= MAX_RERUNS;
+  rerun++
+) {
+  const crashes = crashedFiles(result.output);
+  if (crashes.size === 0 || hasFailedTests(result.output)) break;
+  for (const [file, exitCode] of crashes) {
+    process.stderr.write(
+      `
+[run-vitest] worker crashed with exit code ${exitCode} in ${file}, rerun ${rerun}/${MAX_RERUNS}
+`,
+    );
+  }
+  args = [...crashes.keys()];
   result = await runVitest(args);
 }
 
