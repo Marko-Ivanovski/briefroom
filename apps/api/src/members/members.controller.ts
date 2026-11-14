@@ -57,12 +57,8 @@ export class MembersController {
   @RequireRole('admin')
   @Delete('members/:userId')
   @HttpCode(204)
-  remove(
-    @CurrentScope() scope: Scope,
-    @Req() req: HeaderCarrier,
-    @Param('userId') userId: string,
-  ): Promise<void> {
-    return this.members.remove(scope, fromNodeHeaders(req.headers), userId);
+  remove(@CurrentScope() scope: Scope, @Param('userId') userId: string): Promise<void> {
+    return this.members.remove(scope, userId);
   }
 
   @RequireRole('admin')
@@ -76,7 +72,7 @@ export class MembersController {
 
   @Post('leave')
   @HttpCode(204)
-  leave(@CurrentScope() scope: Scope, @Req() req: HeaderCarrier): Promise<void> {
-    return this.members.leave(scope, fromNodeHeaders(req.headers));
+  leave(@CurrentScope() scope: Scope): Promise<void> {
+    return this.members.leave(scope);
   }
 }

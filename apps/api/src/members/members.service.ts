@@ -6,18 +6,22 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { and, asc, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 import type { Scope } from '../access/scope.ts';
 import { AUTH } from '../auth/auth.module.ts';
 import type { Auth } from '../auth/auth.ts';
+import { describeError } from '../errors/safe-error.ts';
 import { DB } from '../database/database.module.ts';
 import { ProjectMembersService } from '../projects/project-members.service.ts';
 import { RevocationService } from './revocation.service.ts';
 
 @Injectable()
 export class MembersService {
+  private readonly log = new Logger(MembersService.name);
+
   constructor(
     @Inject(DB) private readonly db: Db,
     @Inject(AUTH) private readonly auth: Auth,
@@ -75,59 +79,58 @@ export class MembersService {
     return updated;
   }
 
-  async leave(scope: Scope, headers: Headers): Promise<void> {
-    if (scope.role === 'owner') throw new ConflictException('The owner cannot leave the workspace');
-    await this.revoke(scope, scope.userId, () =>
-      this.auth.api
-        .leaveOrganization({ headers, body: { organizationId: scope.workspaceId } })
-        .then(() => undefined),
-    );
+  leave(scope: Scope): Promise<void> {
+    return this.revoke(scope, scope.userId, 'leave');
   }
 
-  async remove(scope: Scope, headers: Headers, targetUserId: string): Promise<void> {
-    const [target] = await this.db
-      .select({ id: authSchema.member.id, role: authSchema.member.role })
-      .from(authSchema.member)
-      .where(
-        and(
-          eq(authSchema.member.organizationId, scope.workspaceId),
-          eq(authSchema.member.userId, targetUserId),
-        ),
-      );
-    if (!target) throw new NotFoundException('Member not found');
-    if (target.role === 'owner') {
-      throw new ConflictException({ code: 'cannot_remove_owner', message: 'cannot_remove_owner' });
-    }
-    if (targetUserId === scope.userId) {
-      throw new BadRequestException({ code: 'use_leave', message: 'use_leave' });
-    }
-    // Same reason as demotion: an admin who could remove another admin could remove the
-    // accountability above them.
-    if (target.role === 'admin' && scope.role !== 'owner') {
-      throw new ForbiddenException('Only the owner can remove an admin');
-    }
-    await this.revoke(scope, targetUserId, () =>
-      this.auth.api
-        .removeMember({
-          headers,
-          body: { memberIdOrEmail: target.id, organizationId: scope.workspaceId },
-        })
-        .then(() => undefined),
-    );
+  remove(scope: Scope, targetUserId: string): Promise<void> {
+    return this.revoke(scope, targetUserId, 'remove');
   }
 
   /**
-   * Shared by removal and leaving. Project memberships, their `remove` checklists and the reset
-   * links go in one transaction that stays open while Better Auth deletes the member row, so a
-   * failure there rolls the project cleanup back and nobody is left half-removed. Past records are
-   * untouched: `created_by` and `updated_by` are never rewritten.
+   * Shared by removal and leaving. Better Auth's server API is deliberately not used here: it takes
+   * a second pooled connection, which could exhaust the pool and cannot join our transaction. Our
+   * own rules are the primary layer (R42), so everything runs in one transaction on one connection
+   * and either all of it applies or none. Past records are untouched: `created_by` and
+   * `updated_by` are never rewritten.
    */
-  private async revoke(
-    scope: Scope,
-    userId: string,
-    deleteMember: () => Promise<void>,
-  ): Promise<void> {
-    await this.projectMembers.removeFromWorkspace(scope, userId, async (tx) => {
+  private async revoke(scope: Scope, userId: string, mode: 'remove' | 'leave'): Promise<void> {
+    const projectIds = await this.db.transaction(async (tx) => {
+      const [target] = await tx
+        .select({ id: authSchema.member.id, role: authSchema.member.role })
+        .from(authSchema.member)
+        .where(
+          and(
+            eq(authSchema.member.organizationId, scope.workspaceId),
+            eq(authSchema.member.userId, userId),
+          ),
+        )
+        .for('update');
+      if (!target) throw new NotFoundException('Member not found');
+
+      // The role is re-read under the lock, so a concurrent promotion cannot slip past these rules.
+      if (mode === 'leave') {
+        if (target.role === 'owner') {
+          throw new ConflictException('The owner cannot leave the workspace');
+        }
+      } else {
+        if (target.role === 'owner') {
+          throw new ConflictException({
+            code: 'cannot_remove_owner',
+            message: 'cannot_remove_owner',
+          });
+        }
+        if (userId === scope.userId) {
+          throw new BadRequestException({ code: 'use_leave', message: 'use_leave' });
+        }
+        // Same reason as demotion: an admin who could remove another admin could remove the
+        // accountability above them.
+        if (target.role === 'admin' && scope.role !== 'owner') {
+          throw new ForbiddenException('Only the owner can remove an admin');
+        }
+      }
+
+      const removed = await this.projectMembers.removeAllInTx(tx, scope, userId);
       await tx
         .update(passwordResetLinks)
         .set({ usedAt: sql`now()`, ...updatedStamp(scope.actor) })
@@ -138,17 +141,45 @@ export class MembersService {
             isNull(passwordResetLinks.usedAt),
           ),
         );
-      await deleteMember();
+      await tx.delete(authSchema.member).where(eq(authSchema.member.id, target.id));
+      if (mode === 'leave') {
+        await tx
+          .update(authSchema.session)
+          .set({ activeOrganizationId: null })
+          .where(
+            and(
+              eq(authSchema.session.userId, userId),
+              eq(authSchema.session.activeOrganizationId, scope.workspaceId),
+            ),
+          );
+      }
+      return removed;
     });
-    await this.revocation.memberRemoved(scope.workspaceId, userId);
 
-    const [remaining] = await this.db
-      .select({ id: authSchema.member.id })
-      .from(authSchema.member)
-      .where(eq(authSchema.member.userId, userId))
-      .limit(1);
-    if (!remaining) {
-      await (await this.auth.$context).internalAdapter.deleteUserSessions(userId);
+    const handlers = Promise.all([
+      this.revocation.memberRemoved(scope.workspaceId, userId),
+      this.projectMembers.notifyRemoved(scope, projectIds, userId),
+    ]);
+    await this.endSessionsIfNoWorkspaceLeft(userId);
+    await handlers;
+  }
+
+  // The member row is already gone, so access has ended through the guard. A failure here only
+  // leaves sessions that can no longer reach any workspace, so it is logged and not surfaced.
+  private async endSessionsIfNoWorkspaceLeft(userId: string): Promise<void> {
+    try {
+      const [remaining] = await this.db
+        .select({ id: authSchema.member.id })
+        .from(authSchema.member)
+        .where(eq(authSchema.member.userId, userId))
+        .limit(1);
+      if (!remaining) {
+        await (await this.auth.$context).internalAdapter.deleteUserSessions(userId);
+      }
+    } catch (err) {
+      this.log.error(
+        `Could not delete sessions of user ${userId} after removal: ${describeError(err)}`,
+      );
     }
   }
 

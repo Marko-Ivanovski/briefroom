@@ -81,6 +81,24 @@ export class ProjectMembersService {
 
     try {
       const row = await this.db.transaction(async (tx) => {
+        // Removal locks the member row FOR UPDATE before it reads project memberships, so this
+        // shared lock makes a concurrent add wait, then see that the person is gone.
+        const [stillMember] = await tx
+          .select({ id: authSchema.member.id })
+          .from(authSchema.member)
+          .where(
+            and(
+              eq(authSchema.member.organizationId, scope.workspaceId),
+              eq(authSchema.member.userId, userId),
+            ),
+          )
+          .for('share');
+        if (!stillMember) {
+          throw new BadRequestException({
+            code: 'not_a_workspace_member',
+            message: 'not_a_workspace_member',
+          });
+        }
         await this.lockProject(tx, scope, projectId);
         const [added] = await tx
           .insert(projectMembers)
@@ -126,37 +144,31 @@ export class ProjectMembersService {
   }
 
   /**
-   * Removes the person from every project they are on in this workspace, in one transaction that
-   * also runs `inTx`. If `inTx` throws, every project membership and checklist row is rolled back.
+   * Removes the person from every project they are on in this workspace inside the caller's
+   * transaction, which must already hold the person's `member` row FOR UPDATE. Call
+   * `notifyRemoved` after that transaction commits.
    */
-  async removeFromWorkspace(
-    scope: Scope,
-    userId: string,
-    inTx: (tx: Tx) => Promise<void>,
-  ): Promise<string[]> {
-    const removed = await this.guardLinks(() =>
-      this.db.transaction(async (tx) => {
-        const rows = await tx
-          .select({ projectId: projectMembers.projectId })
-          .from(projectMembers)
-          .where(and(scoped(scope, projectMembers), eq(projectMembers.userId, userId)))
-          .orderBy(asc(projectMembers.projectId));
-        const ids: string[] = [];
-        for (const { projectId } of rows) {
-          await this.lockProject(tx, scope, projectId);
-          if (await this.deleteMembership(tx, scope, projectId, userId)) {
-            await this.resetChecklist(tx, scope, projectId, userId, 'remove');
-            ids.push(projectId);
-          }
-        }
-        await inTx(tx);
-        return ids;
-      }),
-    );
-    for (const projectId of removed) {
-      await this.revocation.projectMemberRemoved(scope.workspaceId, projectId, userId);
+  async removeAllInTx(tx: Tx, scope: Scope, userId: string): Promise<string[]> {
+    const rows = await tx
+      .select({ projectId: projectMembers.projectId })
+      .from(projectMembers)
+      .where(and(scoped(scope, projectMembers), eq(projectMembers.userId, userId)))
+      .orderBy(asc(projectMembers.projectId));
+    const ids: string[] = [];
+    for (const { projectId } of rows) {
+      await this.lockProject(tx, scope, projectId);
+      if (await this.deleteMembership(tx, scope, projectId, userId)) {
+        await this.resetChecklist(tx, scope, projectId, userId, 'remove');
+        ids.push(projectId);
+      }
     }
-    return removed;
+    return ids;
+  }
+
+  notifyRemoved(scope: Scope, projectIds: string[], userId: string): Promise<unknown> {
+    return Promise.all(
+      projectIds.map((id) => this.revocation.projectMemberRemoved(scope.workspaceId, id, userId)),
+    );
   }
 
   private async deleteMembership(

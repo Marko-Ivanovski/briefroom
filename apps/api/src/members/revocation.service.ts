@@ -8,6 +8,8 @@ export type ProjectMemberRemovedHandler = (
   userId: string,
 ) => Promise<void>;
 
+const HANDLER_TIMEOUT_MS = 5000;
+
 /**
  * Registry for things that must stop at once when access ends: API tokens (Task 7.1) and live
  * streams (Task 6.4) register handlers here. One failing handler never blocks the others.
@@ -41,11 +43,24 @@ export class RevocationService {
   }
 
   private async run(event: string, calls: (() => Promise<void>)[]): Promise<void> {
-    const results = await Promise.allSettled(calls.map(async (call) => call()));
-    for (const r of results) {
-      if (r.status === 'rejected') {
-        this.log.error(`${event} handler failed: ${describeError(r.reason)}`);
+    await Promise.all(calls.map((call, i) => this.runOne(event, i, call)));
+  }
+
+  // A slow handler must not hold up a request, so each one gets a deadline. Logs carry names only.
+  private async runOne(event: string, index: number, call: () => Promise<void>): Promise<void> {
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<'timeout'>((resolve) => {
+      timer = setTimeout(() => resolve('timeout'), HANDLER_TIMEOUT_MS);
+    });
+    try {
+      const outcome = await Promise.race([(async () => call())(), timeout]);
+      if (outcome === 'timeout') {
+        this.log.error(`${event} handler ${index} timed out after ${HANDLER_TIMEOUT_MS} ms`);
       }
+    } catch (err) {
+      this.log.error(`${event} handler ${index} failed: ${describeError(err)}`);
+    } finally {
+      clearTimeout(timer);
     }
   }
 }
