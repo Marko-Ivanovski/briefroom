@@ -5,6 +5,8 @@ export class InvalidRemoteError extends Error {
   }
 }
 
+// A bare username is a login over ssh, but over http(s) it is often a token.
+const SSH_SCHEME = /^(?:ssh|git\+ssh|ssh\+git):\/\//i;
 const SCHEMES: ReadonlySet<string> = new Set(['http:', 'https:', 'ssh:', 'git:']);
 // user@host:owner/repo, the form git prints for ssh remotes. The (?!\/\/) keeps real URLs out.
 const SCP_LIKE = /^(?:([^@/\s]+)@)?([^:/\s]+):(?!\/\/)(.+)$/;
@@ -37,7 +39,7 @@ export function normalizeRemote(remote: string): string {
 
 /**
  * The form that is stored and returned. A password in a remote URL must never reach the
- * database. A user name without a password (`git@host`, `ssh://git@host`) is only a login and stays.
+ * database. An scp-style or ssh user name without a password (`git@host`) is only a login and stays. Over http(s) any userinfo goes, since a token is often the username.
  */
 export function stripCredentials(remote: string): string {
   const input = remote.trim();
@@ -45,6 +47,7 @@ export function stripCredentials(remote: string): string {
   if (scp) return scp[1]?.includes(':') ? `${scp[2]}:${scp[3]}` : input;
   return input.replace(
     /^([a-z][a-z0-9+.-]*:\/\/)([^/]*)@/i,
-    (all, scheme: string, userinfo: string) => (userinfo.includes(':') ? scheme : all),
+    (all, scheme: string, userinfo: string) =>
+      SSH_SCHEME.test(scheme) && !userinfo.includes(':') ? all : scheme,
   );
 }

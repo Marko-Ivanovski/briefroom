@@ -30,7 +30,9 @@ describe('normalizeRemote', () => {
 describe('stripCredentials', () => {
   it.each([
     ['https://user:tok@github.com/o/r.git', 'https://github.com/o/r.git'],
-    ['https://user@github.com/o/r', 'https://user@github.com/o/r'],
+    ['https://tok@github.com/o/r', 'https://github.com/o/r'],
+    ['https://user@host/o/r', 'https://host/o/r'],
+    ['git+ssh://git@host/o/r', 'git+ssh://git@host/o/r'],
     ['ssh://git@github.com/o/r.git', 'ssh://git@github.com/o/r.git'],
     ['ssh://u:p@host/o/r', 'ssh://host/o/r'],
     ['git@github.com:o/r.git', 'git@github.com:o/r.git'],
