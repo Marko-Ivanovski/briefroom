@@ -169,6 +169,11 @@ export class StreamRegistry {
     }
   }
 
+  /** Ends every stream of one workspace, so its clients reconnect and refetch. */
+  closeWorkspace(workspaceId: string): void {
+    for (const s of this.streamsOf(workspaceId)) s.close();
+  }
+
   closeAll(): void {
     for (const set of [...this.byWorkspace.values()]) for (const s of [...set]) s.close();
   }

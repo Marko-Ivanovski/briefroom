@@ -1,6 +1,6 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { Global, Module } from '@nestjs/common';
+import { Global, Logger, Module } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { memberPermissions, scopedInsert } from '@briefroom/db';
 import { systemScope, type Scope } from '@briefroom/module-kit';
@@ -345,6 +345,27 @@ describe('workspace event stream', () => {
     spy.mockRestore();
     owner.abort();
     admin.abort();
+  });
+
+  it('closes the workspace streams when the module-off lookup fails, so clients refetch', async () => {
+    const modules = t.app.get(WorkspaceModulesService);
+    const owner = await connect('owner');
+    const admin = await connect('admin');
+    const logged = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const spy = vi.spyOn(modules, 'isEnabled').mockRejectedValueOnce(new Error('database is down'));
+    try {
+      await t.app.get(EventsService).publish(ctl(), { type: 'testkit.lookup_fails' });
+      await owner.ended;
+      await admin.ended;
+      expect(owner.has('testkit.lookup_fails')).toBe(false);
+      expect(logged).toHaveBeenCalledWith(expect.stringContaining('Module lookup failed'));
+    } finally {
+      spy.mockRestore();
+      logged.mockRestore();
+    }
+    const again = await connect('owner');
+    await flush([again]);
+    again.abort();
   });
 
   it('refuses an event over 6 KB at publish, and an unknown or core type from a module', async () => {

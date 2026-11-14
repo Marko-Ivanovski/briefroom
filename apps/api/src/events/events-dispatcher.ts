@@ -37,7 +37,20 @@ export class EventsDispatcher {
 
     // Module-off is checked once per event, not once per subscriber (R122).
     const moduleId = event.type.slice(0, event.type.indexOf('.'));
-    if (moduleId !== 'core' && !(await this.modules.isEnabled(event.workspaceId, moduleId))) return;
+    if (moduleId !== 'core') {
+      let enabled: boolean;
+      try {
+        enabled = await this.modules.isEnabled(event.workspaceId, moduleId);
+      } catch (err) {
+        // The event is lost, so the clients must reconnect and refetch, as when the listener drops.
+        this.log.error(
+          `Module lookup failed, closing the streams of workspace ${event.workspaceId}: ${describeError(err)}`,
+        );
+        this.streams.closeWorkspace(event.workspaceId);
+        return;
+      }
+      if (!enabled) return;
+    }
 
     const frame = `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`;
     // Read again after the await, so a stream that closed meanwhile is skipped.
