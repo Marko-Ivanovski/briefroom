@@ -38,10 +38,6 @@ const ROLE_LABELS: Record<InviteRole, string> = { member: 'Member', admin: 'Admi
 const SELECT_CLASS =
   'border-input focus-visible:border-ring focus-visible:ring-ring/50 h-9 min-w-40 rounded-md border bg-transparent px-3 text-sm shadow-xs outline-none focus-visible:ring-[3px]';
 
-// Only the hash is stored server-side, so a full link exists in the browser only after creation.
-const linkFor = (serverUrl: string): string =>
-  `${window.location.origin}/join/${serverUrl.split('/').pop() ?? ''}`;
-
 function inviteStatus(invite: InviteSummary): string {
   const expires = new Date(invite.expiresAt).toLocaleDateString();
   return `Active, expires ${expires}`;
@@ -74,7 +70,7 @@ function InvitesPage() {
         projectIds,
       }),
     onSuccess: async (invite) => {
-      const url = linkFor(invite.url);
+      const url = invite.url;
       setCreated({ id: invite.id, url });
       setLinks((prev) => ({ ...prev, [invite.id]: url }));
       setCopiedId(null);

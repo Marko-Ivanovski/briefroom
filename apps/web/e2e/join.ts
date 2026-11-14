@@ -36,9 +36,14 @@ export async function createInviteLink(
     await page.getByRole('checkbox', { name: project }).check();
   }
   if (options.requiresApproval) await page.getByLabel('Requires approval').check();
+  const response = page.waitForResponse(
+    (r) => r.url().endsWith('/invites') && r.request().method() === 'POST',
+  );
   await page.getByRole('button', { name: 'Create invite link' }).click();
+  const apiUrl = ((await (await response).json()) as { url: string }).url;
   const created = page.getByRole('region', { name: 'New invite link' });
   const url = await created.getByRole('textbox', { name: 'Invite link' }).inputValue();
+  expect(url).toBe(apiUrl);
   expect(url).toMatch(/\/join\/.+/);
   return url;
 }
