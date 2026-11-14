@@ -7,10 +7,11 @@
     "dev": "vite",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
-    "test:e2e": "vite build && playwright test"
+    "test:e2e": "vite build --mode e2e && playwright test"
   },
   "dependencies": {
     "@briefroom/contracts": "workspace:*",
+    "@briefroom/module-kit": "workspace:*",
     "@briefroom/ui": "workspace:*",
     "@tanstack/react-query": "5.107.1",
     "@tanstack/react-router": "1.170.46",
@@ -22,6 +23,7 @@
   },
   "devDependencies": {
     "@briefroom/db": "workspace:*",
+    "@briefroom/module-testkit": "workspace:*",
     "@playwright/test": "1.65.0",
     "@tailwindcss/vite": "4.3.5",
     "@tanstack/router-plugin": "1.169.0",

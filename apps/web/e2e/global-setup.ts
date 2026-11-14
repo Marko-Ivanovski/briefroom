@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { createTestDb } from '@briefroom/db/testing';
+import { TESTKIT_SQL_PATH } from '@briefroom/module-testkit/sql';
 
 const API_DIR = fileURLToPath(new URL('../../api', import.meta.url));
 const WEB_DIST = fileURLToPath(new URL('../dist', import.meta.url));
@@ -72,7 +73,8 @@ async function waitForHealth(baseUrl: string): Promise<void> {
 }
 
 export default async function globalSetup(): Promise<() => Promise<void>> {
-  const testDb = await createTestDb();
+  // The e2e run always has the testkit on, and its table never enters the migrations.
+  const testDb = await createTestDb({ extraSqlFiles: [TESTKIT_SQL_PATH] });
   let api: ChildProcess | undefined;
   const teardown = async () => {
     if (api) await stop(api);
@@ -87,6 +89,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
       env: {
         ...process.env,
         NODE_ENV: 'test',
+        BRIEFROOM_TESTKIT: '1',
         DATABASE_URL: testDb.url,
         PORT: String(port),
         HOST: '127.0.0.1',

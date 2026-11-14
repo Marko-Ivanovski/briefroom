@@ -19,6 +19,7 @@ import {
   workspacesQuery,
 } from '../../../api/queries.ts';
 import { FormError } from '../../../components/form-error.tsx';
+import { MemberPermissions } from '../../../components/member-permissions.tsx';
 import { MEMBER_CODES, MEMBER_ERRORS, messageFor } from '../../../lib/errors.ts';
 import { isAdminRole } from '../../../lib/roles.ts';
 
@@ -114,6 +115,7 @@ function MembersPage() {
             <TableHead>Name</TableHead>
             <TableHead>Email</TableHead>
             <TableHead>Role</TableHead>
+            {isAdminRole(callerRole) ? <TableHead>Module permissions</TableHead> : null}
             <TableHead>Actions</TableHead>
           </TableRow>
         </TableHeader>
@@ -123,6 +125,11 @@ function MembersPage() {
               <TableCell>{m.name}</TableCell>
               <TableCell>{m.email}</TableCell>
               <TableCell>{ROLE_LABELS[m.role]}</TableCell>
+              {isAdminRole(callerRole) ? (
+                <TableCell>
+                  <MemberPermissions workspaceId={workspaceId} userId={m.userId} name={m.name} />
+                </TableCell>
+              ) : null}
               <TableCell>
                 {canRemove(m) ? (
                   confirming === m.userId ? (
