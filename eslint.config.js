@@ -9,6 +9,7 @@ export default tseslint.config(
       '**/dist/**',
       '**/build/**',
       '**/coverage/**',
+      '**/routeTree.gen.ts',
       '.claude/worktrees/**',
       '.superpowers/**',
     ],
