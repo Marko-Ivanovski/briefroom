@@ -1,7 +1,8 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { Controller, Get, HttpException, HttpStatus, Req, Res } from '@nestjs/common';
+import { Controller, Get, HttpException, HttpStatus, Logger, Req, Res } from '@nestjs/common';
 import type { Scope } from '../access/scope.ts';
 import { CurrentScope } from '../access/workspace-scope.guard.ts';
+import { EventsListener } from './events-listener.ts';
 import { STREAM_EPOCH } from './stream-epoch.middleware.ts';
 import { StreamRegistry } from './stream-registry.ts';
 
@@ -14,9 +15,23 @@ class TooManyStreamsException extends HttpException {
   }
 }
 
+class EventsUnavailableException extends HttpException {
+  constructor() {
+    super(
+      { code: 'events_unavailable', message: 'Live events are unavailable, try again shortly' },
+      HttpStatus.SERVICE_UNAVAILABLE,
+    );
+  }
+}
+
 @Controller('v1/workspaces/:workspaceId/events')
 export class EventsController {
-  constructor(private readonly streams: StreamRegistry) {}
+  private readonly log = new Logger(EventsController.name);
+
+  constructor(
+    private readonly streams: StreamRegistry,
+    private readonly listener: EventsListener,
+  ) {}
 
   // A raw response instead of @Sse: the headers, the byte-based backpressure and the closing from
   // closeFor are the contract here, and the cookie session has already been checked by the global guard.
@@ -26,6 +41,8 @@ export class EventsController {
     @Req() req: IncomingMessage,
     @Res() res: ServerResponse,
   ): void {
+    // Without its LISTEN connection the process would accept a stream that can never hear anything.
+    if (!this.listener.isUp()) throw new EventsUnavailableException();
     const stream = this.streams.open(
       {
         workspaceId: scope.workspaceId,
@@ -35,6 +52,11 @@ export class EventsController {
       res,
     );
     if (!stream) throw new TooManyStreamsException();
+    // The client may have left while the guards ran: no 'close' event will follow for this stream.
+    if (res.destroyed || req.socket.destroyed) {
+      stream.close(true);
+      return;
+    }
 
     // R130: only the socket idle timeout can cut a quiet stream. requestTimeout covers receiving the
     // request, which is done once a GET's headers are in, so the route needs no opt-out from it.
@@ -51,7 +73,11 @@ export class EventsController {
     res.write(': open\n\n');
     // R135: a revocation between the scope read and the open must not leave this stream behind.
     const epoch = (req as unknown as Record<symbol, number | undefined>)[STREAM_EPOCH];
-    if (epoch !== undefined && this.streams.revokedSince(epoch, scope.workspaceId, scope.userId)) {
+    if (epoch === undefined) {
+      // Fail closed: without the epoch a racing revocation cannot be ruled out.
+      this.log.error('A stream request carried no revocation epoch: closing it');
+      stream.close();
+    } else if (this.streams.revokedSince(epoch, scope.workspaceId, scope.userId)) {
       stream.close();
     }
   }

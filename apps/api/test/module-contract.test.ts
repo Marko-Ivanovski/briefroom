@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createTestDb } from '@briefroom/db/testing';
-import { moduleEnabledGuard, type ModuleManifest } from '@briefroom/module-kit';
+import { EVENTS, JOBS, moduleEnabledGuard, type ModuleManifest } from '@briefroom/module-kit';
 import { TESTKIT_SQL_PATH } from '@briefroom/module-testkit/sql';
 import { GUARDS_METADATA, PATH_METADATA } from '@nestjs/common/constants';
 import { getTableColumns, getTableName } from 'drizzle-orm';
@@ -207,6 +207,16 @@ describe('module contract', () => {
         const nestModule = REGISTERED_MODULES.find((m) => m.manifest.id === id)!.nestModule;
         expect(moduleControllers(nestModule).length).toBeGreaterThan(0);
         expect(controllerProblems(nestModule, id)).toEqual([]);
+      });
+
+      it('gets its publisher and queue bound to its own id (R138)', () => {
+        const nestModule = REGISTERED_MODULES.find((m) => m.manifest.id === id)!.nestModule;
+        const providers = (Reflect.getMetadata('providers', nestModule) ?? []) as {
+          provide?: unknown;
+        }[];
+        const provided = providers.map((p) => p.provide);
+        expect(provided).toContain(EVENTS);
+        expect(provided).toContain(JOBS);
       });
 
       it('prefixes its table names with the module id', () => {

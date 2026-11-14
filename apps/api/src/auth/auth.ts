@@ -36,6 +36,7 @@ export function createAuth(
   onSignOut: (userId: string) => Promise<void> = async () => undefined,
 ) {
   const log = new Logger('BetterAuth');
+  const signingOut = new WeakMap<Request, string>();
   return betterAuth({
     secret: env.authSecret,
     baseURL: env.publicUrl,
@@ -71,10 +72,17 @@ export function createAuth(
         if (ctx.request && !ALLOWED_HTTP_PATHS.has(ctx.path)) {
           throw new APIError('FORBIDDEN', { message: ENDPOINT_UNAVAILABLE });
         }
-        if (ctx.path === '/sign-out') {
+        // The session row is gone only after the endpoint ran, so the id waits for the after hook.
+        if (ctx.path === '/sign-out' && ctx.request) {
           const session = await getSessionFromCtx(ctx).catch(() => null);
-          if (session) await onSignOut(session.user.id);
+          if (session) signingOut.set(ctx.request, session.user.id);
         }
+      }),
+      after: createAuthMiddleware(async (ctx) => {
+        if (ctx.path !== '/sign-out' || !ctx.request) return;
+        const userId = signingOut.get(ctx.request);
+        signingOut.delete(ctx.request);
+        if (userId && !isAPIError(ctx.context.returned)) await onSignOut(userId);
       }),
     },
     plugins: [

@@ -1,4 +1,4 @@
-import { EVENTS } from '@briefroom/module-kit';
+import { CORE_EVENTS } from '@briefroom/module-kit';
 import {
   Global,
   Module,
@@ -34,16 +34,16 @@ export type EventsMode = 'app' | 'worker';
 export class EventsModule {
   /** Both processes publish. Only the app holds the LISTEN connection and serves streams. */
   static register(mode: EventsMode): DynamicModule {
-    const publisher = [EventsService, { provide: EVENTS, useExisting: EventsService }];
+    const publisher = [EventsService, { provide: CORE_EVENTS, useExisting: EventsService }];
     if (mode === 'worker') {
-      return { module: EventsModule, providers: publisher, exports: [EVENTS, EventsService] };
+      return { module: EventsModule, providers: publisher, exports: [CORE_EVENTS, EventsService] };
     }
     return {
       module: EventsModule,
       imports: [RevocationModule, EventsRoutesModule],
       controllers: [EventsController],
       providers: [...publisher, StreamRegistry, EventsDispatcher, EventsListener, StreamRevocation],
-      exports: [EVENTS, EventsService, StreamRegistry],
+      exports: [CORE_EVENTS, EventsService, StreamRegistry],
     };
   }
 }

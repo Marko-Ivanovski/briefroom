@@ -1,7 +1,8 @@
-import type { Db, Tx } from '@briefroom/db';
+import { projects, scopedProjects, type Db, type Tx } from '@briefroom/db';
 import type { EventInput, EventPublisher, Scope } from '@briefroom/module-kit';
 import { Inject, Injectable } from '@nestjs/common';
-import { sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
+import { z } from 'zod';
 import { canViewProject } from '../access/scope.ts';
 import { DB } from '../database/database.module.ts';
 import { ModuleRegistryService } from '../module-registry/module-registry.service.ts';
@@ -43,9 +44,7 @@ export class EventsService implements EventPublisher {
     if (prefix === 'core')
       throw new Error(`"${event.type}" is a core event: modules cannot publish it`);
     if (!this.registry.get(prefix)) throw new Error(`"${prefix}" is not a registered module`);
-    if (event.projectId !== undefined && !canViewProject(scope, event.projectId)) {
-      throw new Error('The event names a project the publishing scope cannot see');
-    }
+    if (event.projectId !== undefined) await this.requireProject(scope, event.projectId, tx);
     await this.send(
       {
         workspaceId: scope.workspaceId,
@@ -55,6 +54,19 @@ export class EventsService implements EventPublisher {
       },
       tx,
     );
+  }
+
+  // Even an all-projects scope must name a project of its own workspace, or an event could be
+  // aimed at another workspace's project id.
+  private async requireProject(scope: Scope, projectId: string, tx?: Tx): Promise<void> {
+    const [row] =
+      z.uuid().safeParse(projectId).success && canViewProject(scope, projectId)
+        ? await (tx ?? this.db)
+            .select({ id: projects.id })
+            .from(projects)
+            .where(and(scopedProjects(scope), eq(projects.id, projectId)))
+        : [];
+    if (!row) throw new Error('The event names a project this workspace scope cannot see');
   }
 
   /** The core's own path: only `core.*` types. */

@@ -20,4 +20,8 @@ export interface EventPublisher {
   publish(scope: Scope, event: EventInput, tx?: Tx): Promise<void>;
 }
 
+/** What a module injects. Bound to the module's own id by `provideModuleServices` (R138). */
 export const EVENTS = Symbol('EVENTS');
+
+/** The core's unbound publisher. Only `provideModuleServices` and the core use it. */
+export const CORE_EVENTS = Symbol('CORE_EVENTS');

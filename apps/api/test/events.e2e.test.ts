@@ -9,6 +9,10 @@ import { DatabaseModule } from '../src/database/database.module.ts';
 import { EnvModule } from '../src/config/env.module.ts';
 import { EventsModule } from '../src/events/events.module.ts';
 import { EventsService, MAX_EVENT_BYTES } from '../src/events/events.service.ts';
+import { EVENTS, JOBS, type EventPublisher, type JobQueue } from '@briefroom/module-kit';
+import { TestkitModule } from '@briefroom/module-testkit/server';
+import { RevocationService } from '../src/members/revocation.service.ts';
+import { EventsListener } from '../src/events/events-listener.ts';
 import { AccessService } from '../src/access/access.service.ts';
 import { MAX_STREAM_LIFETIME_MS, StreamRegistry } from '../src/events/stream-registry.ts';
 import { ModuleRegistryService } from '../src/module-registry/module-registry.service.ts';
@@ -164,6 +168,9 @@ describe('workspace event stream', () => {
       'racer',
       'resetter',
       'signer',
+      'signer2',
+      'aborter',
+      'creator',
     ])
       await addUser(key);
     await makeInstallOwner(t, ids.owner!);
@@ -173,7 +180,17 @@ describe('workspace event stream', () => {
       })
     ).id;
     await t.auth.api.addMember({ body: { userId: ids.admin!, role: 'admin', organizationId: ws } });
-    for (const key of ['onP', 'offP', 'joiner', 'racer', 'resetter', 'signer']) {
+    for (const key of [
+      'onP',
+      'offP',
+      'joiner',
+      'racer',
+      'resetter',
+      'signer',
+      'signer2',
+      'aborter',
+      'creator',
+    ]) {
       await t.auth.api.addMember({
         body: { userId: ids[key]!, role: 'member', organizationId: ws },
       });
@@ -536,5 +553,137 @@ describe('workspace event stream', () => {
       registry.maxLifetimeMs = MAX_STREAM_LIFETIME_MS;
     }
     expect(MAX_STREAM_LIFETIME_MS).toBe(30 * 60_000);
+  });
+
+  it('binds the testkit publisher and queue to the testkit prefix (R138)', async () => {
+    const testkit = t.app.select(TestkitModule);
+    const events = testkit.get<EventPublisher>(EVENTS, { strict: true });
+    const jobs = testkit.get<JobQueue>(JOBS, { strict: true });
+    await expect(events.publish(ctl(), { type: 'other.x' })).rejects.toThrow(/testkit/);
+    await expect(events.publish(ctl(), { type: 'core.x' })).rejects.toThrow(/testkit/);
+    await expect(jobs.enqueue(ctl(), 'other.x', {})).rejects.toThrow(/testkit/);
+    await expect(jobs.enqueue(ctl(), 'core.files-gc', {})).rejects.toThrow(/testkit/);
+    await expect(events.publish(ctl(), { type: 'testkit.fine' })).resolves.toBeUndefined();
+  });
+
+  it('leaves no stream behind for a client that aborted during the guard, and frees its slot', async () => {
+    const access = t.app.get(AccessService);
+    const registry = t.app.get(StreamRegistry);
+    const real = access.scopeFor.bind(access);
+    let slow = true;
+    const spy = vi.spyOn(access, 'scopeFor').mockImplementation(async (...args) => {
+      const scope = await real(...args);
+      if (args[0] === ids.aborter && slow) await new Promise((r) => setTimeout(r, 300));
+      return scope;
+    });
+    try {
+      for (let i = 0; i < 5; i++) {
+        const controller = new AbortController();
+        const pending = fetch(`${base}/api/v1/workspaces/${ws}/events`, {
+          headers: { cookie: cookies.aborter! },
+          signal: controller.signal,
+        }).catch(() => undefined);
+        await new Promise((r) => setTimeout(r, 60));
+        controller.abort();
+        await pending;
+      }
+      await new Promise((r) => setTimeout(r, 500));
+      expect(registry.count(ws, ids.aborter!)).toBe(0);
+      slow = false;
+      const sixth = await connect('aborter');
+      expect(sixth.status).toBe(200);
+      sixth.abort();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('closes streams when a plain member creates a project, so the reconnect sees its events', async () => {
+    const setting = await fetch(api('/settings'), {
+      method: 'PATCH',
+      ...json('owner', { membersCanCreateProjects: true }),
+    });
+    expect(setting.status).toBe(200);
+    const before = await connect('creator');
+    const made = await fetch(api('/projects'), {
+      method: 'POST',
+      ...json('creator', { name: 'Mine' }),
+    });
+    expect(made.status).toBe(201);
+    const { id } = (await made.json()) as { id: string };
+    await before.ended;
+    const after = await connect('creator');
+    await t.app.get(EventsService).publish(ctl(), { type: 'testkit.mine', projectId: id });
+    await after.next((f) => f.event === 'testkit.mine');
+    after.abort();
+  });
+
+  it('refuses a stream with 503 events_unavailable while the listener is down', async () => {
+    const listener = t.app.get(EventsListener);
+    const pool = t.db.db.$client;
+    await vi.waitFor(() => expect(listener.isUp()).toBe(true));
+    await pool.query(
+      `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name = 'briefroom-events' AND datname = current_database()`,
+    );
+    let refused: Sse | undefined;
+    await vi.waitFor(
+      async () => {
+        const s = await connect('owner');
+        if (s.status === 200) s.abort();
+        expect(s.status).toBe(503);
+        refused = s;
+      },
+      { timeout: 3000, interval: 20 },
+    );
+    expect(refused!.body).toMatchObject({ code: 'events_unavailable' });
+    await vi.waitFor(() => expect(listener.isUp()).toBe(true), { timeout: 8000 });
+  });
+
+  it('refuses to publish a project of another workspace, even from an all-projects scope', async () => {
+    const other = (
+      await t.auth.api.createOrganization({
+        body: { name: 'Elsewhere', slug: 'elsewhere', userId: ids.owner! },
+      })
+    ).id;
+    const res = await fetch(`${base}/api/v1/workspaces/${other}/projects`, {
+      method: 'POST',
+      ...json('owner', { name: 'Foreign' }),
+    });
+    const { id } = (await res.json()) as { id: string };
+    const events = t.app.get(EventsService);
+    await expect(events.publish(ctl(), { type: 'testkit.x', projectId: id })).rejects.toThrow(
+      /project/,
+    );
+    await expect(
+      events.publish(ctl(), { type: 'testkit.x', projectId: 'not-a-uuid' }),
+    ).rejects.toThrow(/project/);
+  });
+
+  it('revokes streams on sign-out only after the session is gone (R137)', async () => {
+    const revocation = t.app.get(RevocationService);
+    const real = revocation.sessionsRevoked.bind(revocation);
+    let sessionWhenRevoked: unknown = 'unset';
+    const spy = vi.spyOn(revocation, 'sessionsRevoked').mockImplementation(async (userId) => {
+      if (userId === ids.signer2) {
+        sessionWhenRevoked = await t.auth.api.getSession({
+          headers: new Headers({ cookie: cookies.signer2! }),
+        });
+      }
+      return real(userId);
+    });
+    try {
+      const s = await connect('signer2');
+      const out = await fetch(`${base}/api/auth/sign-out`, {
+        method: 'POST',
+        headers: { ...json('signer2').headers, origin: 'http://localhost:4300' },
+        body: '{}',
+      });
+      expect(out.status).toBe(200);
+      await s.ended;
+      expect(sessionWhenRevoked).toBeNull();
+      expect((await connect('signer2')).status).toBe(401);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

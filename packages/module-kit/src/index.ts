@@ -7,4 +7,5 @@ export * from './files.ts';
 export * from './upload.ts';
 export * from './jobs.ts';
 export * from './events.ts';
+export * from './module-services.ts';
 export * from './module-enabled.guard.ts';

@@ -9,12 +9,14 @@ import {
 type Fake = { -readonly [K in keyof StreamTarget]: StreamTarget[K] } & {
   written: string[];
   ended: boolean;
+  destroyed: boolean;
 };
 
 function fakeResponse(): Fake {
   const res = {
     written: [] as string[],
     ended: false,
+    destroyed: false,
     writableLength: 0,
     write(chunk: string) {
       res.written.push(chunk);
@@ -24,7 +26,7 @@ function fakeResponse(): Fake {
       res.ended = true;
     },
     destroy() {
-      res.ended = true;
+      res.destroyed = true;
     },
   };
   return res;
@@ -70,7 +72,7 @@ describe('StreamRegistry', () => {
     fine.writableLength = MAX_PENDING_BYTES;
     a.send('data\n\n');
     b.send('data\n\n');
-    expect(slow.ended).toBe(true);
+    expect(slow.destroyed).toBe(true);
     expect(registry.count('w', 'u')).toBe(0);
     expect(fine.ended).toBe(false);
     expect(registry.count('w', 'v')).toBe(1);
@@ -92,5 +94,44 @@ describe('StreamRegistry', () => {
     expect(some.canSee('p1')).toBe(true);
     expect(some.canSee('p9')).toBe(false);
     expect(some.canSee(undefined)).toBe(true);
+  });
+
+  it('ends a closed stream, then destroys its socket after a second', () => {
+    const registry = new StreamRegistry();
+    const res = fakeResponse();
+    registry.open(snapshot('all'), res)!;
+    registry.closeFor('w', 'u');
+    expect(res.ended).toBe(true);
+    expect(res.destroyed).toBe(false);
+    vi.advanceTimersByTime(999);
+    expect(res.destroyed).toBe(false);
+    vi.advanceTimersByTime(1);
+    expect(res.destroyed).toBe(true);
+  });
+
+  it('destroys the socket at once on backpressure, where ending would wait for a reader', () => {
+    const registry = new StreamRegistry();
+    const res = fakeResponse();
+    const stream = registry.open(snapshot('all'), res)!;
+    res.writableLength = MAX_PENDING_BYTES + 1;
+    stream.send('x');
+    expect(res.destroyed).toBe(true);
+  });
+
+  it('closes a stream whose response was destroyed when it is next written to', () => {
+    const registry = new StreamRegistry();
+    const res = fakeResponse();
+    const stream = registry.open(snapshot('all'), res)!;
+    res.destroyed = true;
+    stream.send('x');
+    expect(res.written).toEqual([]);
+    expect(registry.count('w', 'u')).toBe(0);
+  });
+
+  it('keys revocations with a plain colon separator', () => {
+    const registry = new StreamRegistry();
+    registry.closeFor('w', 'u');
+    const revoked = (registry as unknown as { revoked: Map<string, unknown> }).revoked;
+    expect([...revoked.keys()]).toEqual(['w:u']);
   });
 });

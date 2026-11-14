@@ -47,6 +47,11 @@ export class EventsListener implements OnApplicationBootstrap, BeforeApplication
     await client?.end().catch(() => undefined);
   }
 
+  /** False until the first LISTEN succeeds and again from the moment the connection drops. */
+  isUp(): boolean {
+    return this.client !== undefined;
+  }
+
   private async connect(): Promise<void> {
     if (this.stopped) return;
     const client = new pg.Client({
