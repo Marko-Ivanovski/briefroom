@@ -131,7 +131,14 @@ describe('switching modules and module permissions', () => {
     const view = await http().get(`${base()}/members/${ids.member}/permissions`).set(as('admin'));
     expect(view.status).toBe(200);
     expect(view.body).toEqual([
-      { moduleId: 'testkit', key: 'write-notes', granted: true, implied: false },
+      {
+        moduleId: 'testkit',
+        key: 'write-notes',
+        label: 'Write notes',
+        description: 'Create notes in the testkit.',
+        granted: true,
+        implied: false,
+      },
     ]);
 
     expect((await grant('admin', 'member', false)).status).toBe(200);
@@ -156,7 +163,13 @@ describe('switching modules and module permissions', () => {
     for (const target of ['owner', 'admin']) {
       const res = await http().get(`${base()}/members/${ids[target]}/permissions`).set(as('admin'));
       expect(res.body).toEqual([
-        { moduleId: 'testkit', key: 'write-notes', granted: true, implied: true },
+        expect.objectContaining({
+          moduleId: 'testkit',
+          key: 'write-notes',
+          label: 'Write notes',
+          granted: true,
+          implied: true,
+        }),
       ]);
     }
   });

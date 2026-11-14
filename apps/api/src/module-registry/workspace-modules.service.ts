@@ -6,6 +6,7 @@ import { and, eq } from 'drizzle-orm';
 import type { Scope } from '../access/scope.ts';
 import { DB } from '../database/database.module.ts';
 import { ModuleRegistryService } from './module-registry.service.ts';
+import { mergeSubmittedSettings, readSettings } from './module-settings.ts';
 
 @Injectable()
 export class WorkspaceModulesService implements ModuleState {
@@ -50,20 +51,21 @@ export class WorkspaceModulesService implements ModuleState {
     return { id: m.id, name: m.name, description: m.description, enabled, settings };
   }
 
-  /** The stored settings run through the manifest schema, so defaults fill in missing fields. */
-  async settings<T = Record<string, unknown>>(workspaceId: string, moduleId: string): Promise<T> {
-    const schema = this.registry.get(moduleId)?.manifest.settings;
-    if (!schema) return {} as T;
+  private async storedSettings(workspaceId: string, moduleId: string): Promise<unknown> {
     const [row] = await this.db
       .select({ settings: workspaceModules.settings })
       .from(workspaceModules)
       .where(
         and(eq(workspaceModules.workspaceId, workspaceId), eq(workspaceModules.moduleId, moduleId)),
       );
-    const parsed = schema.safeParse(row?.settings ?? {});
-    if (parsed.success) return parsed.data as T;
-    // A stored value that no longer fits an updated schema falls back to the defaults.
-    return schema.parse({}) as T;
+    return row?.settings;
+  }
+
+  /** Read field by field (R114), so defaults fill in and one bad stored field costs only itself. */
+  async settings<T = Record<string, unknown>>(workspaceId: string, moduleId: string): Promise<T> {
+    const schema = this.registry.get(moduleId)?.manifest.settings;
+    if (!schema) return {} as T;
+    return readSettings(schema, await this.storedSettings(workspaceId, moduleId)) as T;
   }
 
   async update(
@@ -78,11 +80,11 @@ export class WorkspaceModulesService implements ModuleState {
     let settings: Record<string, unknown> | undefined;
     if (input.settings !== undefined) {
       if (!manifest.settings) throw new BadRequestException('This module has no settings');
+      const stored = await this.storedSettings(scope.workspaceId, moduleId);
+      const merged = mergeSubmittedSettings(manifest.settings, stored, input.settings);
       // Zod's own message can quote the rejected value, so the response says only that it failed.
-      const parsed = manifest.settings.safeParse(input.settings);
-      if (!parsed.success)
-        throw new BadRequestException('The settings are not valid for this module');
-      settings = parsed.data;
+      if (!merged.ok) throw new BadRequestException('The settings are not valid for this module');
+      settings = merged.value;
     }
 
     const change = {

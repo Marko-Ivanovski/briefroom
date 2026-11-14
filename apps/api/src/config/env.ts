@@ -26,6 +26,13 @@ function schemaFor(production: boolean) {
     PORT: Port.default(4300),
     HOST: z.string().min(1).default('127.0.0.1'),
     BRIEFROOM_WEB_DIR: z.string().min(1).default(DEFAULT_WEB_DIR),
+    BRIEFROOM_TESTKIT: z
+      .string()
+      .optional()
+      .refine(
+        (v) => !production || v !== '1',
+        'is for tests only and must not be set in production',
+      ),
   });
 }
 

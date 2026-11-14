@@ -52,17 +52,23 @@ export class MemberPermissionsService {
     if (!target) throw new NotFoundException('Member not found');
     const implied = target.role === 'owner' || target.role === 'admin';
     const granted = implied ? new Set<string>() : await this.grantedKeys(scope.workspaceId, userId);
-    return this.allKeys().map((full) => {
-      const [moduleId, key] = full.split(':') as [string, string];
-      return { moduleId, key, granted: implied || granted.has(full), implied };
-    });
+    return this.registry.list().flatMap(({ manifest }) =>
+      manifest.permissions.map((p) => ({
+        moduleId: manifest.id,
+        key: p.key,
+        label: p.label,
+        description: p.description,
+        granted: implied || granted.has(`${manifest.id}:${p.key}`),
+        implied,
+      })),
+    );
   }
 
   async set(scope: Scope, userId: string, input: SetPermissionRequest): Promise<MemberPermission> {
-    const known = this.registry
+    const permission = this.registry
       .get(input.moduleId)
-      ?.manifest.permissions.some((p) => p.key === input.key);
-    if (!known) throw new BadRequestException('Unknown module or permission');
+      ?.manifest.permissions.find((p) => p.key === input.key);
+    if (!permission) throw new BadRequestException('Unknown module or permission');
 
     await this.db.transaction(async (tx) => {
       // The share lock on the member row queues this write behind a removal in flight, which
@@ -108,6 +114,13 @@ export class MemberPermissionsService {
           );
       }
     });
-    return { moduleId: input.moduleId, key: input.key, granted: input.granted, implied: false };
+    return {
+      moduleId: input.moduleId,
+      key: input.key,
+      label: permission.label,
+      description: permission.description,
+      granted: input.granted,
+      implied: false,
+    };
   }
 }

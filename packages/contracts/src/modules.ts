@@ -30,6 +30,8 @@ export type UpdateModuleRequest = z.infer<typeof UpdateModuleRequest>;
 export const MemberPermission = z.object({
   moduleId: z.string(),
   key: z.string(),
+  label: z.string(),
+  description: z.string(),
   granted: z.boolean(),
   implied: z.boolean(),
 });
