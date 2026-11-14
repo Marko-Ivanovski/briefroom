@@ -2,10 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { canViewProject, roleAtLeast, type Role, type Scope } from './scope.ts';
 
 describe('canViewProject', () => {
-  const base = { ...({} as Scope) };
   const scope = (visibleProjectIds: Scope['visibleProjectIds']): Scope => ({
-    ...base,
+    userId: 'u1',
+    workspaceId: 'w1',
+    role: 'member',
     visibleProjectIds,
+    permissions: new Set(),
+    actor: { userId: 'u1', via: 'web' },
   });
 
   it('allows everything for all, only listed ids otherwise', () => {

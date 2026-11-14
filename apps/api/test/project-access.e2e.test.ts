@@ -154,6 +154,17 @@ describe('project membership and visibility', () => {
     expect(rows).toHaveLength(0);
   });
 
+  it('answers 404 for a project of another workspace even for a caller in both', async () => {
+    const url = `${base(ws2)}/projects/${projectId}/members`;
+    expect((await http().get(url).set(as('owner'))).status).toBe(404);
+    expect((await http().post(url).set(as('owner')).send({ userId: ids.owner })).status).toBe(404);
+    const rows = await t.db.db
+      .select()
+      .from(projectMembers)
+      .where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, ids.owner!)));
+    expect(rows).toHaveLength(0);
+  });
+
   it('treats a malformed or foreign project id as 404', async () => {
     expect((await http().get(members('nope')).set(as('admin'))).status).toBe(404);
     expect((await add('admin', ids.member!, 'nope')).status).toBe(404);
