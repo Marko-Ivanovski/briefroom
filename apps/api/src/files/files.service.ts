@@ -34,6 +34,9 @@ import { BusyException } from '../errors/busy.ts';
 import { ByteBudget } from './byte-budget.ts';
 import { Semaphore } from './semaphore.ts';
 
+/** A queued body read that has waited this long is refused with 503, so wait plus read fits requestTimeout. */
+export const READER_WAIT_MS = 20_000;
+
 export type FileSize = 'thumb' | 'reduced' | 'original';
 
 export interface FileStream {
@@ -53,7 +56,7 @@ const moduleOff = (moduleId: string) =>
 export class FilesService implements CoreFileStore {
   private readonly log = new Logger('Files');
   /** Process-wide and replaceable by tests: four body reads at once, eight waiting, then 503. */
-  readers = new Semaphore(4, 8);
+  readers = new Semaphore(4, 8, READER_WAIT_MS);
   /** Two image jobs at once, eight waiting, then 503. Never held while a client is sending. */
   jobs = new Semaphore(2, 8);
   readLimits: UploadLimits = DEFAULT_UPLOAD_LIMITS;

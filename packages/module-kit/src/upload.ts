@@ -24,7 +24,7 @@ export interface UploadLimits {
   totalMs: number;
 }
 
-export const DEFAULT_UPLOAD_LIMITS: UploadLimits = { idleMs: 15_000, totalMs: 60_000 };
+export const DEFAULT_UPLOAD_LIMITS: UploadLimits = { idleMs: 15_000, totalMs: 120_000 };
 
 /**
  * Reads the body on first call. Call it only after the handler's own checks pass. `declaredBytes`

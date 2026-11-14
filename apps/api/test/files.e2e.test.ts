@@ -13,7 +13,8 @@ import sharp from 'sharp';
 import request from 'supertest';
 import { Logger } from '@nestjs/common';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { FilesService } from '../src/files/files.service.ts';
+import { DEFAULT_UPLOAD_LIMITS } from '@briefroom/module-kit';
+import { FilesService, READER_WAIT_MS } from '../src/files/files.service.ts';
 import { ByteBudget } from '../src/files/byte-budget.ts';
 import { Semaphore } from '../src/files/semaphore.ts';
 import { WorkspaceModulesService } from '../src/module-registry/workspace-modules.service.ts';
@@ -345,8 +346,35 @@ describe('file store', () => {
 
     it('configures the server timeouts (R130)', () => {
       const server = t.app.getHttpServer();
-      expect(server.requestTimeout).toBe(120_000);
+      expect(server.requestTimeout).toBe(180_000);
       expect(server.headersTimeout).toBe(30_000);
+    });
+
+    it('keeps queue wait plus body read under the server requestTimeout (R143)', () => {
+      const server = t.app.getHttpServer();
+      expect(DEFAULT_UPLOAD_LIMITS).toEqual({ idleMs: 15_000, totalMs: 120_000 });
+      expect(READER_WAIT_MS).toBe(20_000);
+      expect(READER_WAIT_MS + DEFAULT_UPLOAD_LIMITS.totalMs).toBeLessThan(server.requestTimeout);
+    });
+
+    it('answers 503 busy with Retry-After when a reader waits too long in the queue (R143)', async () => {
+      const service = t.app.get(FilesService);
+      const { readers } = service;
+      service.readers = new Semaphore(1, 8, 150);
+      try {
+        const stalled = await stalledUpload('writer');
+        const started = Date.now();
+        const res = await upload('writer', small);
+        expect(res.status).toBe(503);
+        expect(res.body).toMatchObject({ code: 'busy' });
+        expect(res.headers['retry-after']).toBe('5');
+        expect(Date.now() - started).toBeGreaterThanOrEqual(100);
+        stalled.req.destroy();
+        await stalled.closed;
+        await vi.waitFor(async () => expect((await upload('writer', small)).status).toBe(201));
+      } finally {
+        service.readers = readers;
+      }
     });
 
     it('refuses with 503 before reading when the byte budget is spent, and recovers (R129)', async () => {
