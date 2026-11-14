@@ -108,6 +108,26 @@ export class MembersService {
         .for('update');
       if (!target) throw new NotFoundException('Member not found');
 
+      // The caller's role is re-read under a shared lock, so an admin demoted mid-request cannot
+      // still remove someone. A leaver is their own caller and is already locked above.
+      let callerRole = scope.role;
+      if (mode === 'remove') {
+        const [caller] = await tx
+          .select({ role: authSchema.member.role })
+          .from(authSchema.member)
+          .where(
+            and(
+              eq(authSchema.member.organizationId, scope.workspaceId),
+              eq(authSchema.member.userId, scope.userId),
+            ),
+          )
+          .for('share');
+        if (caller?.role !== 'owner' && caller?.role !== 'admin') {
+          throw new ForbiddenException('Insufficient role');
+        }
+        callerRole = caller.role;
+      }
+
       // The role is re-read under the lock, so a concurrent promotion cannot slip past these rules.
       if (mode === 'leave') {
         if (target.role === 'owner') {
@@ -125,7 +145,7 @@ export class MembersService {
         }
         // Same reason as demotion: an admin who could remove another admin could remove the
         // accountability above them.
-        if (target.role === 'admin' && scope.role !== 'owner') {
+        if (target.role === 'admin' && callerRole !== 'owner') {
           throw new ForbiddenException('Only the owner can remove an admin');
         }
       }
@@ -142,17 +162,15 @@ export class MembersService {
           ),
         );
       await tx.delete(authSchema.member).where(eq(authSchema.member.id, target.id));
-      if (mode === 'leave') {
-        await tx
-          .update(authSchema.session)
-          .set({ activeOrganizationId: null })
-          .where(
-            and(
-              eq(authSchema.session.userId, userId),
-              eq(authSchema.session.activeOrganizationId, scope.workspaceId),
-            ),
-          );
-      }
+      await tx
+        .update(authSchema.session)
+        .set({ activeOrganizationId: null })
+        .where(
+          and(
+            eq(authSchema.session.userId, userId),
+            eq(authSchema.session.activeOrganizationId, scope.workspaceId),
+          ),
+        );
       return removed;
     });
 

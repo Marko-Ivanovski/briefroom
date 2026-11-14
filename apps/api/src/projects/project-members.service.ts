@@ -148,21 +148,32 @@ export class ProjectMembersService {
    * transaction, which must already hold the person's `member` row FOR UPDATE. Call
    * `notifyRemoved` after that transaction commits.
    */
-  async removeAllInTx(tx: Tx, scope: Scope, userId: string): Promise<string[]> {
-    const rows = await tx
-      .select({ projectId: projectMembers.projectId })
-      .from(projectMembers)
-      .where(and(scoped(scope, projectMembers), eq(projectMembers.userId, userId)))
-      .orderBy(asc(projectMembers.projectId));
-    const ids: string[] = [];
-    for (const { projectId } of rows) {
-      await this.lockProject(tx, scope, projectId);
-      if (await this.deleteMembership(tx, scope, projectId, userId)) {
-        await this.resetChecklist(tx, scope, projectId, userId, 'remove');
-        ids.push(projectId);
+  async removeAllInTx(tx: Tx, callerScope: Scope, userId: string): Promise<string[]> {
+    // The guard's visible project list may be stale, so the person's projects are read here, under
+    // the member lock, across the whole workspace.
+    const scope: Scope = { ...callerScope, visibleProjectIds: 'all' };
+    return this.guardLinks(async () => {
+      const rows = await tx
+        .select({ projectId: projectMembers.projectId })
+        .from(projectMembers)
+        .where(and(scoped(scope, projectMembers), eq(projectMembers.userId, userId)))
+        .orderBy(asc(projectMembers.projectId));
+      const ids: string[] = [];
+      for (const { projectId } of rows) {
+        try {
+          await this.lockProject(tx, scope, projectId);
+        } catch (err) {
+          // Deleted concurrently: its membership row went with it.
+          if (err instanceof NotFoundException) continue;
+          throw err;
+        }
+        if (await this.deleteMembership(tx, scope, projectId, userId)) {
+          await this.resetChecklist(tx, scope, projectId, userId, 'remove');
+          ids.push(projectId);
+        }
       }
-    }
-    return ids;
+      return ids;
+    });
   }
 
   notifyRemoved(scope: Scope, projectIds: string[], userId: string): Promise<unknown> {

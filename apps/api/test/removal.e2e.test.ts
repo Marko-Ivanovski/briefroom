@@ -375,6 +375,83 @@ describe('member removal and immediate revocation', () => {
     expect((await del('admin', ids.promoted!)).status).toBe(403);
   });
 
+  it('clears the removed person active workspace on their sessions (DELETE)', async () => {
+    await addUser('actrem', [
+      { ws, role: 'member' },
+      { ws: ws2, role: 'member' },
+    ]);
+    await t.db.db
+      .update(authSchema.session)
+      .set({ activeOrganizationId: ws })
+      .where(eq(authSchema.session.userId, ids.actrem!));
+    expect((await del('admin', ids.actrem!)).status).toBe(204);
+    const sessions = await t.db.db
+      .select()
+      .from(authSchema.session)
+      .where(eq(authSchema.session.userId, ids.actrem!));
+    expect(sessions.length).toBeGreaterThan(0);
+    expect(sessions.every((s) => s.activeOrganizationId === null)).toBe(true);
+  });
+
+  it('skips a project deleted concurrently and still removes the person', async () => {
+    await addUser('pdel', [{ ws, role: 'member' }]);
+    await putOnProjects('pdel');
+    const doomed = (
+      await http().post(`${base()}/projects`).set(as('owner')).send({ name: 'Doomed' })
+    ).body.id as string;
+    expect(
+      (
+        await http()
+          .post(`${base()}/projects/${doomed}/members`)
+          .set(as('owner'))
+          .send({ userId: ids.pdel })
+      ).status,
+    ).toBe(201);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let locked!: () => void;
+    const lockedP = new Promise<void>((r) => (locked = r));
+    const holder = t.db.db.transaction(async (tx) => {
+      await tx.delete(projects).where(eq(projects.id, doomed));
+      locked();
+      await gate;
+    });
+    await lockedP;
+    const removing = del('admin', ids.pdel!).then((r) => r);
+    await new Promise((r) => setTimeout(r, 300));
+    release();
+    await holder;
+    expect((await removing).status).toBe(204);
+    expect(await isMember('pdel')).toBe(false);
+    expect(await onProjects('pdel')).toHaveLength(0);
+  });
+
+  it('refuses a caller who was demoted while the request was in flight', async () => {
+    await addUser('demoted', [{ ws, role: 'admin' }]);
+    await addUser('victim', [{ ws, role: 'member' }]);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let locked!: () => void;
+    const lockedP = new Promise<void>((r) => (locked = r));
+    const holder = t.db.db.transaction(async (tx) => {
+      await tx
+        .update(authSchema.member)
+        .set({ role: 'member' })
+        .where(
+          and(eq(authSchema.member.userId, ids.demoted!), eq(authSchema.member.organizationId, ws)),
+        );
+      locked();
+      await gate;
+    });
+    await lockedP;
+    const removing = del('demoted', ids.victim!).then((r) => r);
+    await new Promise((r) => setTimeout(r, 300));
+    release();
+    await holder;
+    expect((await removing).status).toBe(403);
+    expect(await isMember('victim')).toBe(true);
+  });
+
   it('gives the pool a connection timeout so exhaustion fails instead of hanging', () => {
     expect(t.db.db.$client.options.connectionTimeoutMillis).toBe(10_000);
   });
