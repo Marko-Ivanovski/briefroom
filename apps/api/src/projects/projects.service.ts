@@ -10,6 +10,7 @@ import {
   projects,
   projectToolLinks,
   scoped,
+  scopedProjects,
   scopedInsert,
   scopedUpdate,
   type Db,
@@ -22,11 +23,11 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, asc, eq, inArray, sql, type SQL } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { roleAtLeast, type Scope } from '../access/scope.ts';
 import { DB } from '../database/database.module.ts';
-import { InvalidRemoteError, normalizeRemote } from './remote.ts';
+import { InvalidRemoteError, normalizeRemote, stripCredentials } from './remote.ts';
 import { SettingsService } from './settings.service.ts';
 
 export type Project = typeof projects.$inferSelect;
@@ -51,23 +52,13 @@ interface RemoteRow {
 function toRemotes(remotes: readonly string[]): RemoteRow[] {
   try {
     return remotes.map((original) => ({
-      original: original.trim(),
+      original: stripCredentials(original),
       normalized: normalizeRemote(original),
     }));
   } catch (err) {
     if (err instanceof InvalidRemoteError) throw new BadRequestException(err.message);
     throw err;
   }
-}
-
-/** The project table has no project_id column, so scoped() alone checks only the workspace. */
-function visibleProjects(scope: Scope): SQL {
-  const inWorkspace = scoped(scope, projects);
-  if (scope.visibleProjectIds === 'all') return inWorkspace;
-  return and(
-    inWorkspace,
-    scope.visibleProjectIds.length > 0 ? inArray(projects.id, scope.visibleProjectIds) : sql`false`,
-  )!;
 }
 
 function toSummary(p: Project): ProjectSummary {
@@ -95,7 +86,7 @@ export class ProjectsService {
     const rows = await this.db
       .select()
       .from(projects)
-      .where(visibleProjects(scope))
+      .where(scopedProjects(scope))
       .orderBy(asc(projects.name), asc(projects.id));
     return rows.map(toSummary);
   }
@@ -106,6 +97,13 @@ export class ProjectsService {
 
   /** Null when no project holds the remote or the caller cannot see it. */
   async findByRemote(scope: Scope, remote: string): Promise<Project | null> {
+    let normalized: string;
+    try {
+      normalized = normalizeRemote(remote);
+    } catch (err) {
+      if (err instanceof InvalidRemoteError) return null;
+      throw err;
+    }
     const [row] = await this.db
       .select({ project: projects })
       .from(projectRemotes)
@@ -113,8 +111,8 @@ export class ProjectsService {
       .where(
         and(
           scoped(scope, projectRemotes),
-          eq(projectRemotes.normalized, normalizeRemote(remote)),
-          visibleProjects(scope),
+          eq(projectRemotes.normalized, normalized),
+          scopedProjects(scope),
         ),
       );
     return row?.project ?? null;
@@ -139,7 +137,8 @@ export class ProjectsService {
         await tx
           .insert(projectMembers)
           .values(scopedInsert(scope, { projectId: project!.id, userId: scope.userId }));
-        return this.detail(tx, scope, project!);
+        // The caller just created this project, so it is theirs to read even before access catches up.
+        return this.detail(tx, { ...scope, visibleProjectIds: 'all' }, project!);
       }),
     );
   }
@@ -154,7 +153,7 @@ export class ProjectsService {
         const [project] = await tx
           .update(projects)
           .set(scopedUpdate(scope, fields))
-          .where(and(visibleProjects(scope), eq(projects.id, projectId)))
+          .where(and(scopedProjects(scope), eq(projects.id, projectId)))
           .returning();
         if (remotes) {
           await tx.delete(projectRemotes).where(eq(projectRemotes.projectId, projectId));
@@ -163,7 +162,8 @@ export class ProjectsService {
           await tx.delete(projectToolLinks).where(eq(projectToolLinks.projectId, projectId));
         }
         await this.insertLists(tx, scope, projectId, remotes ?? [], toolLinks ?? []);
-        return this.detail(tx, scope, project!);
+        if (!project) throw new NotFoundException('Project not found');
+        return this.detail(tx, scope, project);
       }),
     );
   }
@@ -171,7 +171,7 @@ export class ProjectsService {
   async remove(scope: Scope, projectId: string): Promise<void> {
     const deleted = await this.db
       .delete(projects)
-      .where(and(visibleProjects(scope), eq(projects.id, projectId)))
+      .where(and(scopedProjects(scope), eq(projects.id, projectId)))
       .returning({ id: projects.id });
     if (deleted.length === 0) throw new NotFoundException('Project not found');
   }
@@ -181,7 +181,7 @@ export class ProjectsService {
       return await run();
     } catch (err) {
       if (isUniqueViolation(err)) {
-        throw new ConflictException('A repo remote is already used by another project');
+        throw new ConflictException('This repo remote is already registered in this workspace.');
       }
       throw err;
     }
@@ -192,7 +192,7 @@ export class ProjectsService {
     const [project] = await db
       .select()
       .from(projects)
-      .where(and(visibleProjects(scope), eq(projects.id, projectId)));
+      .where(and(scopedProjects(scope), eq(projects.id, projectId)));
     if (!project) throw new NotFoundException('Project not found');
     return project;
   }

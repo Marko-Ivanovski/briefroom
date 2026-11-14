@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { InvalidRemoteError, normalizeRemote } from './remote.ts';
+import { InvalidRemoteError, normalizeRemote, stripCredentials } from './remote.ts';
 
 describe('normalizeRemote', () => {
   it.each([
@@ -25,4 +25,15 @@ describe('normalizeRemote', () => {
     ['https://github.com/onlyowner'],
     ['ftp://h/o/r'],
   ])('rejects %j', (u) => expect(() => normalizeRemote(u)).toThrow(InvalidRemoteError));
+});
+
+describe('stripCredentials', () => {
+  it.each([
+    ['https://user:tok@github.com/o/r.git', 'https://github.com/o/r.git'],
+    ['https://tok@github.com/o/r', 'https://github.com/o/r'],
+    ['ssh://git@github.com/o/r.git', 'ssh://github.com/o/r.git'],
+    ['git@github.com:o/r.git', 'git@github.com:o/r.git'],
+    ['user:tok@github.com:o/r.git', 'github.com:o/r.git'],
+    ['  https://github.com/o/r  ', 'https://github.com/o/r'],
+  ])('turns %s into %s', (input, out) => expect(stripCredentials(input)).toBe(out));
 });

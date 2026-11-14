@@ -11,8 +11,9 @@ export const ToolLinkInput = z.object({
 export type ToolLinkInput = z.infer<typeof ToolLinkInput>;
 
 const name = z.string().trim().min(1).max(80);
-const client = z.string().trim().max(80);
-const summary = z.string().trim().max(500);
+const emptyToNull = (v: string): string | null => (v === '' ? null : v);
+const client = z.string().trim().max(80).transform(emptyToNull);
+const summary = z.string().trim().max(500).transform(emptyToNull);
 const ticketKey = z.string().regex(/^[A-Z][A-Z0-9]{1,9}$/);
 const repoRemotes = z.array(z.string().max(500)).max(10);
 const toolLinks = z.array(ToolLinkInput).max(20);

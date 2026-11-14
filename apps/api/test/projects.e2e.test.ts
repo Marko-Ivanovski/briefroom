@@ -133,8 +133,14 @@ describe('projects', () => {
     it('refuses a member until the setting is on, then adds them to the project', async () => {
       expect((await create('member', { name: 'Mine' })).status).toBe(403);
       expect((await setting(true)).status).toBe(200);
-      const res = await create('member', { name: 'Mine' });
+      const res = await create('member', {
+        name: 'Mine',
+        repoRemotes: ['https://github.com/mine/repo'],
+        toolLinks: [{ label: 'Docs', url: 'https://docs.example' }],
+      });
       expect(res.status).toBe(201);
+      expect(res.body.repoRemotes).toHaveLength(1);
+      expect(res.body.toolLinks).toEqual([expect.objectContaining({ label: 'Docs' })]);
       const rows = await t.db.db
         .select()
         .from(projectMembers)
@@ -196,6 +202,8 @@ describe('projects', () => {
         repoRemotes: ['https://github.com/dup/repo'],
       });
       expect(second.status).toBe(409);
+      expect(second.body.message).toBe('This repo remote is already registered in this workspace.');
+      expect(JSON.stringify(second.body)).not.toContain('Dup A');
       expect(await projectCount()).toBe(before);
     });
 
@@ -214,6 +222,51 @@ describe('projects', () => {
         ws2,
       );
       expect(res.status).toBe(201);
+    });
+
+    it('strips credentials from the stored and returned original remote', async () => {
+      const res = await create('admin', {
+        name: 'Creds',
+        repoRemotes: ['https://user:tok@github.com/cr/eds.git', 'git@github.com:cr/other.git'],
+      });
+      expect(res.status).toBe(201);
+      const originals = res.body.repoRemotes.map((r: { original: string }) => r.original).sort();
+      expect(originals).toEqual(['git@github.com:cr/other.git', 'https://github.com/cr/eds.git']);
+      const rows = await t.db.db
+        .select()
+        .from(projectRemotes)
+        .where(eq(projectRemotes.projectId, res.body.id));
+      expect(JSON.stringify(rows)).not.toContain('tok');
+    });
+
+    it('treats empty client and summary as null', async () => {
+      const res = await create('admin', { name: 'Blank', client: '', summary: '  ' });
+      expect(res.body).toMatchObject({ client: null, summary: null });
+      const patched = await http()
+        .patch(`${base()}/projects/${res.body.id}`)
+        .set(as('admin'))
+        .send({ client: 'X', summary: 'Y' });
+      expect(patched.body).toMatchObject({ client: 'X', summary: 'Y' });
+      const cleared = await http()
+        .patch(`${base()}/projects/${res.body.id}`)
+        .set(as('admin'))
+        .send({ client: '', summary: '' });
+      expect(cleared.body).toMatchObject({ client: null, summary: null });
+    });
+
+    it('returns null from findByRemote for an invalid remote', async () => {
+      const service = t.app.get(ProjectsService);
+      const scope: Scope = {
+        userId: ids.admin!,
+        workspaceId: ws,
+        role: 'admin',
+        visibleProjectIds: 'all',
+        permissions: new Set(),
+        actor: { userId: ids.admin!, via: 'mcp' },
+      };
+      for (const bad of ['', 'not a url', 'https://github.com']) {
+        expect(await service.findByRemote(scope, bad)).toBeNull();
+      }
     });
 
     it('finds a project by remote only when it is visible', async () => {
