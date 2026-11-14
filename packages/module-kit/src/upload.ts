@@ -79,6 +79,8 @@ export function readUpload(
       // connection, and on Windows the reset can discard the answer before the client reads it.
       res.once('finish', () => {
         req.resume();
+        // FIN first, so the answer is delivered in order before the socket is torn down.
+        req.socket.end();
         setTimeout(() => req.destroy(), CLOSE_GRACE_MS).unref();
       });
     };
