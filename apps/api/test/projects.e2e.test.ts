@@ -202,6 +202,7 @@ describe('projects', () => {
         repoRemotes: ['https://github.com/dup/repo'],
       });
       expect(second.status).toBe(409);
+      expect(second.body.code).toBe('remote_already_registered');
       expect(second.body.message).toBe('This repo remote is already registered in this workspace.');
       expect(JSON.stringify(second.body)).not.toContain('Dup A');
       expect(await projectCount()).toBe(before);
@@ -336,6 +337,28 @@ describe('projects', () => {
         .from(projectRemotes)
         .where(eq(projectRemotes.normalized, 'github.com/p/one'));
       expect(old).toEqual([]);
+    });
+
+    it('keeps ids of unchanged links and remotes, and adds new ones', async () => {
+      const first = await patch('admin', {
+        repoRemotes: ['git@github.com:acme/keep.git'],
+        toolLinks: [{ label: 'One', url: 'https://one.example' }],
+      });
+      const keptLink = first.body.toolLinks[0];
+      const res = await patch('admin', {
+        repoRemotes: ['git@github.com:acme/keep.git', 'git@github.com:acme/new.git'],
+        toolLinks: [
+          { label: 'One', url: 'https://one.example' },
+          { label: 'Two', url: 'https://two.example' },
+        ],
+      });
+      expect(res.status).toBe(200);
+      expect(res.body.toolLinks).toHaveLength(2);
+      expect(res.body.toolLinks[0]).toEqual(keptLink);
+      expect(res.body.repoRemotes.map((r: { original: string }) => r.original)).toEqual([
+        'git@github.com:acme/keep.git',
+        'git@github.com:acme/new.git',
+      ]);
     });
 
     it('keeps the old lists when the new ones conflict (409) or are invalid (400)', async () => {

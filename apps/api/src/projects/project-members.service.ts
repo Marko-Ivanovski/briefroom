@@ -64,7 +64,11 @@ export class ProjectMembersService {
           eq(authSchema.member.userId, userId),
         ),
       );
-    if (!target) throw new BadRequestException('not_a_workspace_member');
+    if (!target)
+      throw new BadRequestException({
+        code: 'not_a_workspace_member',
+        message: 'not_a_workspace_member',
+      });
 
     try {
       const [row] = await this.db
@@ -72,7 +76,8 @@ export class ProjectMembersService {
         .values(scopedInsert(scope, { projectId, userId }))
         .onConflictDoNothing()
         .returning({ addedAt: projectMembers.createdAt });
-      if (!row) throw new ConflictException('already_on_project');
+      if (!row)
+        throw new ConflictException({ code: 'already_on_project', message: 'already_on_project' });
       return {
         userId: target.id,
         name: target.name,
@@ -80,7 +85,8 @@ export class ProjectMembersService {
         addedAt: row.addedAt.toISOString(),
       };
     } catch (err) {
-      if (hasPgCode(err, PG_UNIQUE_VIOLATION)) throw new ConflictException('already_on_project');
+      if (hasPgCode(err, PG_UNIQUE_VIOLATION))
+        throw new ConflictException({ code: 'already_on_project', message: 'already_on_project' });
       if (hasPgCode(err, PG_FOREIGN_KEY_VIOLATION)) {
         throw new NotFoundException('Project not found');
       }

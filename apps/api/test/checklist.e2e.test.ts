@@ -192,6 +192,61 @@ describe('access checklists', () => {
     expect(res.body[0].done).toBe(false);
   });
 
+  describe('editing a project keeps unchanged tool links (R76)', () => {
+    const REPO = { label: 'Repo', url: 'https://github.com/acme/p' };
+    const BOARD = { label: 'Board', url: 'https://acme.atlassian.net/jira/p' };
+    const patchLinks = (body: object) =>
+      http().patch(`${base()}/projects/${projectId}`).set(as('admin')).send(body);
+    const rowsFor = (toolLinkId: string) =>
+      t.db.db
+        .select()
+        .from(projectAccessChecklist)
+        .where(eq(projectAccessChecklist.toolLinkId, toolLinkId));
+
+    const linkNamed = async (label: string) => {
+      const link = (await links()).find((l) => l.label === label);
+      if (!link) throw new Error(`No tool link ${label}`);
+      return link;
+    };
+
+    beforeAll(async () => {
+      expect((await patchLinks({ toolLinks: [REPO, BOARD] })).status).toBe(200);
+      const repo = await linkNamed('Repo');
+      await tick('admin', ids.member!, { toolLinkId: repo.id, kind: 'add', done: true });
+    });
+
+    it('keeps progress when the name changes and the same links are sent', async () => {
+      const before = await links();
+      const res = await patchLinks({ name: 'Renamed', toolLinks: [REPO, BOARD] });
+      expect(res.status).toBe(200);
+      expect(res.body.name).toBe('Renamed');
+      expect(res.body.toolLinks).toEqual(before);
+      const items: Item[] = (await get('admin', ids.member!, 'add')).body;
+      expect(items.find((i) => i.label === 'Repo')?.done).toBe(true);
+    });
+
+    it('drops only the checklist rows of a removed link', async () => {
+      const repo = await linkNamed('Repo');
+      const board = await linkNamed('Board');
+      expect((await rowsFor(board.id)).length).toBeGreaterThan(0);
+      const res = await patchLinks({ toolLinks: [REPO] });
+      expect(res.body.toolLinks).toEqual([repo]);
+      expect(await rowsFor(board.id)).toHaveLength(0);
+      expect((await rowsFor(repo.id)).length).toBeGreaterThan(0);
+      const items: Item[] = (await get('admin', ids.member!, 'add')).body;
+      expect(items.find((i) => i.label === 'Repo')?.done).toBe(true);
+    });
+
+    it('resets an item whose url changed', async () => {
+      const repo = await linkNamed('Repo');
+      const res = await patchLinks({ toolLinks: [{ ...REPO, url: 'https://github.com/acme/q' }] });
+      expect(res.body.toolLinks[0].id).not.toBe(repo.id);
+      expect(await rowsFor(repo.id)).toHaveLength(0);
+      const items: Item[] = (await get('admin', ids.member!, 'add')).body;
+      expect(items.find((i) => i.label === 'Repo')?.done).toBe(false);
+    });
+  });
+
   it('never crosses workspaces for a caller who is in both', async () => {
     const ws2 = (
       await t.auth.api.createOrganization({

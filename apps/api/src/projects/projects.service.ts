@@ -23,7 +23,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import { roleAtLeast, type Scope } from '../access/scope.ts';
 import { DB } from '../database/database.module.ts';
@@ -157,13 +157,8 @@ export class ProjectsService {
           .returning();
         // Before any list write: a project deleted since require() must give 404, not an FK error.
         if (!project) throw new NotFoundException('Project not found');
-        if (remotes) {
-          await tx.delete(projectRemotes).where(eq(projectRemotes.projectId, projectId));
-        }
-        if (toolLinks) {
-          await tx.delete(projectToolLinks).where(eq(projectToolLinks.projectId, projectId));
-        }
-        await this.insertLists(tx, scope, projectId, remotes ?? [], toolLinks ?? []);
+        if (remotes) await this.syncRemotes(tx, scope, projectId, remotes);
+        if (toolLinks) await this.syncToolLinks(tx, scope, projectId, toolLinks);
         return this.detail(tx, scope, project);
       }),
     );
@@ -182,7 +177,10 @@ export class ProjectsService {
       return await run();
     } catch (err) {
       if (isUniqueViolation(err)) {
-        throw new ConflictException('This repo remote is already registered in this workspace.');
+        throw new ConflictException({
+          code: 'remote_already_registered',
+          message: 'This repo remote is already registered in this workspace.',
+        });
       }
       throw err;
     }
@@ -196,6 +194,83 @@ export class ProjectsService {
       .where(and(scopedProjects(scope), eq(projects.id, projectId)));
     if (!project) throw new NotFoundException('Project not found');
     return project;
+  }
+
+  // Rows that did not change keep their id: access checklist rows cascade from tool links, so
+  // replacing every link on an edit would wipe the checklist progress.
+  private async syncToolLinks(
+    tx: Tx,
+    scope: Scope,
+    projectId: string,
+    links: ProjectInput['toolLinks'],
+  ): Promise<void> {
+    const existing = await tx
+      .select({ id: projectToolLinks.id, label: projectToolLinks.label, url: projectToolLinks.url })
+      .from(projectToolLinks)
+      .where(and(scoped(scope, projectToolLinks), eq(projectToolLinks.projectId, projectId)));
+    const unmatched = [...existing];
+    const added: ProjectInput['toolLinks'] = [];
+    for (const link of links) {
+      const at = unmatched.findIndex((e) => e.label === link.label && e.url === link.url);
+      if (at >= 0) unmatched.splice(at, 1);
+      else added.push(link);
+    }
+    if (unmatched.length > 0) {
+      await tx.delete(projectToolLinks).where(
+        and(
+          scoped(scope, projectToolLinks),
+          inArray(
+            projectToolLinks.id,
+            unmatched.map((e) => e.id),
+          ),
+        ),
+      );
+    }
+    await this.insertLists(tx, scope, projectId, [], added);
+  }
+
+  private async syncRemotes(
+    tx: Tx,
+    scope: Scope,
+    projectId: string,
+    remotes: readonly RemoteRow[],
+  ): Promise<void> {
+    const existing = await tx
+      .select({
+        id: projectRemotes.id,
+        original: projectRemotes.original,
+        normalized: projectRemotes.normalized,
+      })
+      .from(projectRemotes)
+      .where(and(scoped(scope, projectRemotes), eq(projectRemotes.projectId, projectId)));
+    const unmatched = [...existing];
+    const added: RemoteRow[] = [];
+    for (const remote of remotes) {
+      const at = unmatched.findIndex((e) => e.normalized === remote.normalized);
+      if (at < 0) {
+        added.push(remote);
+        continue;
+      }
+      const [row] = unmatched.splice(at, 1);
+      if (row && row.original !== remote.original) {
+        await tx
+          .update(projectRemotes)
+          .set(scopedUpdate(scope, { original: remote.original }))
+          .where(and(scoped(scope, projectRemotes), eq(projectRemotes.id, row.id)));
+      }
+    }
+    if (unmatched.length > 0) {
+      await tx.delete(projectRemotes).where(
+        and(
+          scoped(scope, projectRemotes),
+          inArray(
+            projectRemotes.id,
+            unmatched.map((e) => e.id),
+          ),
+        ),
+      );
+    }
+    await this.insertLists(tx, scope, projectId, added, []);
   }
 
   private async insertLists(
