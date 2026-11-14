@@ -12,6 +12,9 @@ export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 /** Bytes kept consuming after a refusal, so the client can finish sending and read the 413. */
 const DRAIN_BYTES = 2 * 1024 * 1024;
 
+/** How long a refused connection stays readable so the client can receive the answer. */
+const CLOSE_GRACE_MS = 200;
+
 const TOO_LARGE = `The upload is over ${MAX_UPLOAD_BYTES / 1024 / 1024} MB`;
 
 export interface UploadLimits {
@@ -72,7 +75,12 @@ export function readUpload(
     const closeAfterResponse = () => {
       if (!res) return;
       res.setHeader('Connection', 'close');
-      res.once('finish', () => req.destroy());
+      // Destroying the socket at once, with the client still sending, makes the OS reset the
+      // connection, and on Windows the reset can discard the answer before the client reads it.
+      res.once('finish', () => {
+        req.resume();
+        setTimeout(() => req.destroy(), CLOSE_GRACE_MS).unref();
+      });
     };
     const refuse = (error: Error) => {
       closeAfterResponse();
