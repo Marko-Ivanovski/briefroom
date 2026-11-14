@@ -104,20 +104,26 @@ function MembersPage() {
                     <div
                       role="group"
                       aria-label={`Confirm removing ${m.name}`}
-                      className="flex gap-2"
+                      className="grid gap-2"
                     >
-                      <Button
-                        variant="destructive"
-                        size="sm"
-                        aria-label={`Confirm remove ${m.name}`}
-                        disabled={remove.isPending}
-                        onClick={() => remove.mutate(m.userId)}
-                      >
-                        Confirm remove
-                      </Button>
-                      <Button variant="ghost" size="sm" onClick={() => setConfirming(null)}>
-                        Cancel
-                      </Button>
+                      <p className="text-muted-foreground text-xs">
+                        Invite links {m.name} created will be revoked, and joining again will need
+                        approval.
+                      </p>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          aria-label={`Confirm remove ${m.name}`}
+                          disabled={remove.isPending}
+                          onClick={() => remove.mutate(m.userId)}
+                        >
+                          Confirm remove
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => setConfirming(null)}>
+                          Cancel
+                        </Button>
+                      </div>
                     </div>
                   ) : (
                     <Button

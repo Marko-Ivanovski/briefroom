@@ -7,7 +7,6 @@ import {
   scoped,
   scopedInsert,
   scopedProjects,
-  scopedUpdate,
   type Db,
 } from '@briefroom/db';
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
@@ -16,6 +15,7 @@ import { z } from 'zod';
 import type { Scope } from '../access/scope.ts';
 import { ENV, type Env } from '../config/env.ts';
 import { DB } from '../database/database.module.ts';
+import { revokeLinks } from './revoke-links.ts';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const NOT_FOUND = { code: 'not_found', message: 'Invite link not found' };
@@ -67,7 +67,7 @@ export class InvitesService {
 
   async revoke(scope: Scope, id: string): Promise<void> {
     if (!uuid.safeParse(id).success) throw new NotFoundException(NOT_FOUND);
-    const revoked = await this.markRevoked(this.db, scope, id);
+    const revoked = await this.db.transaction((tx) => this.markRevoked(tx, scope, id));
     if (!revoked) throw new NotFoundException(NOT_FOUND);
   }
 
@@ -140,13 +140,9 @@ export class InvitesService {
     };
   }
 
-  /** Sets revoked_at only on a link in this workspace that is not revoked yet. */
+  /** Revokes one link in this workspace that is not revoked yet, and declines its pending requests. */
   private async markRevoked(db: Pick<Db, 'update'>, scope: Scope, id: string) {
-    const [row] = await db
-      .update(inviteLinks)
-      .set(scopedUpdate(scope, { revokedAt: new Date() }))
-      .where(and(scoped(scope, inviteLinks), eq(inviteLinks.id, id), isNull(inviteLinks.revokedAt)))
-      .returning();
+    const [row] = await revokeLinks(db, scope, eq(inviteLinks.id, id));
     return row;
   }
 }

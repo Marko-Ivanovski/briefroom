@@ -1,5 +1,13 @@
 import { Role, type MemberSummary } from '@briefroom/contracts';
-import { authSchema, passwordResetLinks, updatedStamp, type Db } from '@briefroom/db';
+import {
+  authSchema,
+  inviteLinks,
+  passwordResetLinks,
+  scopedInsert,
+  updatedStamp,
+  workspaceRemovals,
+  type Db,
+} from '@briefroom/db';
 import {
   BadRequestException,
   ConflictException,
@@ -16,6 +24,7 @@ import type { Auth } from '../auth/auth.ts';
 import { describeError } from '../errors/safe-error.ts';
 import { DB } from '../database/database.module.ts';
 import { ProjectMembersService } from '../projects/project-members.service.ts';
+import { revokeLinks } from '../invites/revoke-links.ts';
 import { RevocationService } from './revocation.service.ts';
 
 @Injectable()
@@ -161,6 +170,15 @@ export class MembersService {
             isNull(passwordResetLinks.usedAt),
           ),
         );
+      // R101: whoever leaves or is removed loses the links they made and needs approval to rejoin.
+      await revokeLinks(tx, scope, eq(inviteLinks.createdBy, userId));
+      await tx
+        .insert(workspaceRemovals)
+        .values(scopedInsert(scope, { userId }))
+        .onConflictDoUpdate({
+          target: [workspaceRemovals.workspaceId, workspaceRemovals.userId],
+          set: updatedStamp(scope.actor),
+        });
       await tx.delete(authSchema.member).where(eq(authSchema.member.id, target.id));
       await tx
         .update(authSchema.session)

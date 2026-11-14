@@ -10,6 +10,7 @@ import {
   scopedInsert,
   scopedProjects,
   scopedUpdate,
+  workspaceRemovals,
   type Db,
   type InviteRole,
   type JoinRequestStatus,
@@ -148,6 +149,7 @@ export class JoinService {
   }
 
   async approve(scope: Scope, id: string): Promise<JoinResult> {
+    await this.assertLinkNotRevoked(scope, id);
     // Claiming first makes a double approve safe: only one caller gets the pending row.
     const request = await this.settle(scope, id, 'approved');
     if (await this.isMember(scope.workspaceId, request.userId)) throw alreadyMember();
@@ -159,7 +161,37 @@ export class JoinService {
       if (codeOf(failure) !== 'already_member') await this.reopen(scope, id);
       throw failure;
     }
+    await this.db
+      .delete(workspaceRemovals)
+      .where(
+        and(
+          eq(workspaceRemovals.workspaceId, scope.workspaceId),
+          eq(workspaceRemovals.userId, request.userId),
+        ),
+      );
     return { status: 'joined', workspaceId: scope.workspaceId };
+  }
+
+  // Revoking a link declines its requests already, so this only catches a request that slipped by.
+  private async assertLinkNotRevoked(scope: Scope, id: string): Promise<void> {
+    if (!uuid.safeParse(id).success) throw requestNotFound();
+    const [row] = await this.db
+      .select({ revokedAt: inviteLinks.revokedAt })
+      .from(joinRequests)
+      .innerJoin(inviteLinks, eq(inviteLinks.id, joinRequests.inviteId))
+      .where(
+        and(
+          scoped(scope, joinRequests),
+          eq(joinRequests.id, id),
+          eq(joinRequests.status, 'pending'),
+        ),
+      );
+    if (!row?.revokedAt) return;
+    await this.settle(scope, id, 'declined');
+    throw new ConflictException({
+      code: 'invite_revoked',
+      message: 'The invite link for this request was revoked.',
+    });
   }
 
   async decline(scope: Scope, id: string): Promise<void> {
@@ -214,7 +246,11 @@ export class JoinService {
     const scope = this.joinerScope(reserved.workspaceId, userId, reserved.role);
     try {
       // R87 again at join time, in case the stored flag was ever cleared on an admin link.
-      if (reserved.requiresApproval || reserved.role === 'admin') {
+      if (
+        reserved.requiresApproval ||
+        reserved.role === 'admin' ||
+        (await this.wasRemoved(reserved.workspaceId, userId))
+      ) {
         await this.db.insert(joinRequests).values(
           scopedInsert(scope, {
             inviteId: reserved.id,
@@ -381,6 +417,17 @@ export class JoinService {
           eq(authSchema.member.organizationId, workspaceId),
           eq(authSchema.member.userId, userId),
         ),
+      );
+    return Boolean(row);
+  }
+
+  // R101: someone who was removed from or left a workspace needs approval to join it again.
+  private async wasRemoved(workspaceId: string, userId: string): Promise<boolean> {
+    const [row] = await this.db
+      .select({ id: workspaceRemovals.id })
+      .from(workspaceRemovals)
+      .where(
+        and(eq(workspaceRemovals.workspaceId, workspaceId), eq(workspaceRemovals.userId, userId)),
       );
     return Boolean(row);
   }

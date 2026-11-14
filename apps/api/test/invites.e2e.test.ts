@@ -1,4 +1,4 @@
-import { inviteLinks, projects } from '@briefroom/db';
+import { inviteLinks, joinRequests, projects } from '@briefroom/db';
 import { eq } from 'drizzle-orm';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -260,5 +260,66 @@ describe('invite links', () => {
       expect(res.status).toBe(200);
       expect(res.body).toEqual({ valid: false });
     }
+  });
+
+  describe('pending requests on a revoked link (R103)', () => {
+    const pendingFor = async (key: string) => {
+      const email = `${key}@example.com`;
+      const { user } = await t.auth.api.createUser({
+        body: { email, password: PASSWORD, name: key },
+      });
+      const res = await t.auth.api.signInEmail({
+        body: { email, password: PASSWORD },
+        asResponse: true,
+      });
+      const cookie = res.headers
+        .getSetCookie()
+        .map((c) => c.split(';')[0])
+        .join('; ');
+      return { userId: user.id, cookie };
+    };
+    const requestOf = async (userId: string) =>
+      (await t.db.db.select().from(joinRequests).where(eq(joinRequests.userId, userId)))[0]!;
+
+    it('declines the pending requests of a revoked or regenerated link', async () => {
+      const a = await create('admin', { requiresApproval: true });
+      const b = await create('admin', { requiresApproval: true });
+      const ua = await pendingFor('applicant-a');
+      const ub = await pendingFor('applicant-b');
+      for (const [token, u] of [
+        [tokenOf(a.body.url), ua],
+        [tokenOf(b.body.url), ub],
+      ] as const) {
+        const res = await http().post(`/api/v1/join/${token}/accept`).set({ cookie: u.cookie });
+        expect(res.body).toEqual({ status: 'pending' });
+      }
+
+      await http().delete(`${base}/${ws}/invites/${a.body.id}`).set(as('admin'));
+      await http().post(`${base}/${ws}/invites/${b.body.id}/regenerate`).set(as('admin'));
+
+      for (const u of [ua, ub]) {
+        const r = await requestOf(u.userId);
+        expect(r.status).toBe('declined');
+        expect(r.updatedBy).toBe(ids.admin);
+      }
+    });
+
+    it('refuses to approve a request whose link is revoked with 409 invite_revoked', async () => {
+      const link = await create('admin', { requiresApproval: true });
+      const u = await pendingFor('applicant-c');
+      await http()
+        .post(`/api/v1/join/${tokenOf(link.body.url)}/accept`)
+        .set({ cookie: u.cookie });
+      // Revoked behind the service's back, as if a path ever missed the decline.
+      await t.db.db
+        .update(inviteLinks)
+        .set({ revokedAt: new Date() })
+        .where(eq(inviteLinks.id, link.body.id));
+      const r = await requestOf(u.userId);
+      const res = await http().post(`${base}/${ws}/join-requests/${r.id}/approve`).set(as('admin'));
+      expect(res.status).toBe(409);
+      expect(res.body.code).toBe('invite_revoked');
+      expect((await requestOf(u.userId)).status).toBe('declined');
+    });
   });
 });

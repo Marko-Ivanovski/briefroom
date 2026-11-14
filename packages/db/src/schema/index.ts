@@ -7,3 +7,4 @@ export * from './projects.ts';
 export * from './project-members.ts';
 export * from './access-checklist.ts';
 export * from './bookmarks.ts';
+export * from './workspace-removals.ts';
