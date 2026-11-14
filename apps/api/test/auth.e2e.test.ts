@@ -112,6 +112,22 @@ describe('auth', () => {
       },
     );
 
+    it.each([
+      ['POST', '/organization/update'],
+      ['POST', '/organization/delete'],
+      ['GET', '/admin/list-users'],
+      ['POST', '/admin/create-user'],
+      ['POST', '/api-key/create'],
+    ])('denies %s /api/auth%s with 403 for a signed-in user', async (method, path) => {
+      const email = `deny-${path.replace(/\W/g, '')}@example.com`;
+      await createUser(email);
+      const cookie = await signIn(email, `10.0.2.${path.length}`);
+      const req =
+        method === 'GET' ? http().get(`/api/auth${path}`) : http().post(`/api/auth${path}`);
+      const res = await req.set('cookie', cookie).set('origin', ORIGIN).send({});
+      expect(res.status).toBe(403);
+    });
+
     it('still allows server-side organization calls', async () => {
       const userId = await createUser('server-side@example.com');
       const org = await t.auth.api.createOrganization({

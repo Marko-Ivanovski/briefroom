@@ -8,15 +8,15 @@ import type { Env } from '../config/env.ts';
 
 export const API_KEY_PREFIX = 'brf_';
 
-// Better Auth's own endpoints that would bypass our access rules. Our controllers call the
-// server API instead, which carries no HTTP request, so only requests from outside are refused.
-const BLOCKED_HTTP_PATHS: ReadonlySet<string> = new Set([
-  '/organization/create',
-  '/organization/invite-member',
-  '/organization/accept-invitation',
-  '/organization/remove-member',
-  '/organization/update-member-role',
-  '/organization/leave',
+// Default-deny: Better Auth's own HTTP routes (organization, admin, api-key, ...) would bypass our
+// access rules, so over HTTP only what the browser needs is open. Our controllers use the
+// server API, which carries no HTTP request and is never refused here.
+const ALLOWED_HTTP_PATHS: ReadonlySet<string> = new Set([
+  '/sign-in/email',
+  '/sign-out',
+  '/get-session',
+  '/ok',
+  '/error',
 ]);
 
 export function createAuth(db: Db, env: Env) {
@@ -33,7 +33,7 @@ export function createAuth(db: Db, env: Env) {
     },
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
-        if (ctx.request && BLOCKED_HTTP_PATHS.has(ctx.path)) {
+        if (ctx.request && !ALLOWED_HTTP_PATHS.has(ctx.path)) {
           throw new APIError('FORBIDDEN', { message: 'This endpoint is not available' });
         }
       }),
