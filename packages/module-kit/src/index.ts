@@ -5,4 +5,5 @@ export * from './scope.ts';
 export * from './history.ts';
 export * from './files.ts';
 export * from './upload.ts';
+export * from './jobs.ts';
 export * from './module-enabled.guard.ts';

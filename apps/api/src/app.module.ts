@@ -11,6 +11,7 @@ import { FilesModule } from './files/files.module.ts';
 import { HistoryModule } from './history/history.module.ts';
 import { InstallModule } from './install/install.module.ts';
 import { InvitesModule } from './invites/invites.module.ts';
+import { JobsModule } from './jobs/jobs.module.ts';
 import { ModuleRegistryModule } from './module-registry/module-registry.module.ts';
 import { REGISTERED_MODULES } from './module-registry/registered-modules.ts';
 import { ProjectsModule } from './projects/projects.module.ts';
@@ -35,6 +36,7 @@ export class AppModule {
         ModuleRegistryModule,
         HistoryModule,
         FilesModule,
+        JobsModule.register('app'),
         AuthModule,
         ...(accessAtRoot ? [AccessModule] : []),
         WorkspacesModule,
