@@ -150,8 +150,12 @@ describe('change history', () => {
     const res = await http()
       .get(`/api/v1/workspaces/${other}/history/testkit_notes/${note.id}`)
       .set(as('owner'));
-    expect(res.status).toBe(200);
-    expect(res.body).toEqual([]);
+    expect(res.status).toBe(404);
+  });
+
+  it('answers 404 for a uuid that never had any history', async () => {
+    const res = await history('owner', 'testkit_notes', '00000000-0000-4000-8000-000000000000');
+    expect(res.status).toBe(404);
   });
 
   it('stamps history rows with the audit columns and the workspace', async () => {

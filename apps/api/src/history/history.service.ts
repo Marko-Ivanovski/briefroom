@@ -63,14 +63,9 @@ export class HistoryService implements HistoryRecorder {
 
   /**
    * Newest first. Each entry is visible by its own project (R125): null is workspace-level, any
-   * other project must be one the caller sees. No visible entry for a record that has history is a 404.
+   * other project must be one the caller sees. No visible entry is a 404 (R126).
    */
   async entries(scope: Scope, table: string, recordId: string): Promise<HistoryEntry[]> {
-    const ofRecord = and(
-      eq(recordHistory.workspaceId, scope.workspaceId),
-      eq(recordHistory.tableName, table),
-      eq(recordHistory.recordId, recordId),
-    );
     const visibleProjects = this.db
       .select({ id: projects.id })
       .from(projects)
@@ -89,20 +84,16 @@ export class HistoryService implements HistoryRecorder {
       .leftJoin(authSchema.user, eq(authSchema.user.id, recordHistory.actorId))
       .where(
         and(
-          ofRecord,
+          eq(recordHistory.workspaceId, scope.workspaceId),
+          eq(recordHistory.tableName, table),
+          eq(recordHistory.recordId, recordId),
           or(isNull(recordHistory.projectId), inArray(recordHistory.projectId, visibleProjects)),
         ),
       )
       .orderBy(desc(recordHistory.at), desc(recordHistory.createdAt));
 
-    if (rows.length === 0) {
-      const [any] = await this.db
-        .select({ id: recordHistory.id })
-        .from(recordHistory)
-        .where(ofRecord)
-        .limit(1);
-      if (any) throw new NotFoundException('Record not found');
-    }
+    // One answer for "no history" and "none you may see", so a caller cannot probe for hidden records.
+    if (rows.length === 0) throw new NotFoundException('Record not found');
     return rows.map((r) => ({
       id: r.id,
       actorId: r.actorId,
