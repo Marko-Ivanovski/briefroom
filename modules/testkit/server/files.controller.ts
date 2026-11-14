@@ -9,7 +9,17 @@ import {
   type Scope,
   type UploadReader,
 } from '@briefroom/module-kit';
-import { BadRequestException, ForbiddenException, Inject, Post, Query } from '@nestjs/common';
+import {
+  BadRequestException,
+  Delete,
+  ForbiddenException,
+  HttpCode,
+  Inject,
+  NotFoundException,
+  Param,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { z } from 'zod';
 
 @ModuleController('testkit', 'files')
@@ -25,10 +35,14 @@ export class FilesController {
     if (!hasPermission(scope, 'testkit', 'write-notes')) throw new ForbiddenException();
     const project = projectId === undefined ? undefined : z.uuid().safeParse(projectId);
     if (project && !project.success) throw new BadRequestException('projectId must be a uuid');
-    return this.fileStore.store(scope, {
-      moduleId: 'testkit',
-      projectId: project?.data,
-      bytes,
-    });
+    return this.fileStore.store(scope, { projectId: project?.data, bytes });
+  }
+
+  @Delete(':fileId')
+  @HttpCode(204)
+  async remove(@CurrentScope() scope: Scope, @Param('fileId') fileId: string): Promise<void> {
+    if (!hasPermission(scope, 'testkit', 'write-notes')) throw new ForbiddenException();
+    if (!z.uuid().safeParse(fileId).success) throw new NotFoundException('File not found');
+    await this.fileStore.remove(scope, fileId);
   }
 }

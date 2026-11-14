@@ -612,6 +612,75 @@ describe('file store', () => {
     });
   });
 
+  describe('removing files (R142)', () => {
+    const remove = (who: string, id: string) =>
+      http().delete(`${base()}/m/testkit/files/${id}`).set(as(who));
+
+    it('removes the row and the directory, and the file then reads 404', async () => {
+      const record = await stored(small);
+      const dir = join(dataDir, 'files', ws, record.id);
+      expect(existsSync(dir)).toBe(true);
+      expect((await remove('writer', record.id)).status).toBe(204);
+      expect(await t.db.db.select().from(files).where(eq(files.id, record.id))).toHaveLength(0);
+      expect(existsSync(dir)).toBe(false);
+      expect((await get('writer', record.id)).status).toBe(404);
+      expect((await remove('writer', record.id)).status).toBe(404);
+    });
+
+    it('needs the module permission and treats a malformed id as missing', async () => {
+      const record = await stored(small);
+      expect((await remove('reader', record.id)).status).toBe(403);
+      expect((await remove('writer', 'not-a-uuid')).status).toBe(404);
+      expect((await get('writer', record.id)).status).toBe(200);
+    });
+
+    it("cannot remove another module's file: 404, and the file stays", async () => {
+      const [row] = await t.db.db
+        .insert(files)
+        .values(
+          scopedInsert(
+            { workspaceId: ws, actor: { userId: ids.owner!, via: 'web' } },
+            {
+              projectId: null,
+              moduleId: 'design',
+              mime: 'image/png',
+              bytes: 1,
+              sha256: 'x',
+              width: 1,
+              height: 1,
+            },
+          ),
+        )
+        .returning();
+      try {
+        expect((await remove('writer', row!.id)).status).toBe(404);
+        expect(await t.db.db.select().from(files).where(eq(files.id, row!.id))).toHaveLength(1);
+      } finally {
+        await t.db.db.delete(files).where(eq(files.id, row!.id));
+      }
+    });
+
+    it('answers 404 for a file on a project the caller cannot see, and keeps it', async () => {
+      await http()
+        .put(`${base()}/members/${ids.noproject}/permissions`)
+        .set(as('owner'))
+        .send({ moduleId: 'testkit', key: 'write-notes', granted: true })
+        .expect(200);
+      const record = await stored(small, 'writer', `?projectId=${projectId}`);
+      expect((await remove('noproject', record.id)).status).toBe(404);
+      expect((await get('writer', record.id)).status).toBe(200);
+      expect((await remove('onproject', record.id)).status).toBe(403);
+      expect((await remove('writer', record.id)).status).toBe(204);
+    });
+
+    it('still removes the row when the directory is already gone', async () => {
+      const record = await stored(small);
+      await rm(join(dataDir, 'files', ws, record.id), { recursive: true });
+      expect((await remove('writer', record.id)).status).toBe(204);
+      expect(await t.db.db.select().from(files).where(eq(files.id, record.id))).toHaveLength(0);
+    });
+  });
+
   it('writes the audit columns and keeps nothing on disk for a rejected upload', async () => {
     const record = await stored(small);
     const [row] = await t.db.db.select().from(files).where(eq(files.id, record.id));
