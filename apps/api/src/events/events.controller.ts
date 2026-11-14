@@ -65,7 +65,10 @@ export class EventsController {
     req.socket.setKeepAlive(true);
     res.on('close', () => stream.close());
     res.on('error', () => stream.close());
+    // The socket is destroyed after the stream closes, so it must never carry another request.
+    res.shouldKeepAlive = false;
     res.writeHead(200, {
+      Connection: 'close',
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-store',
       'X-Accel-Buffering': 'no',

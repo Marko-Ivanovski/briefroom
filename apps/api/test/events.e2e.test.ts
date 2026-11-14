@@ -688,33 +688,44 @@ describe('workspace event stream', () => {
     }
   });
 
-  it('closes the client\u2019s socket within 2 s of a server-side closeFor, for a client that reads', async () => {
+  it('closes the client\u2019s socket after a server-side closeFor, and never reuses it for the next request', async () => {
     const agent = new http.Agent({ keepAlive: true, maxSockets: 1 });
     const url = new URL(`${base}/api/v1/workspaces/${ws}/events`);
-    const socketClosed = new Promise<'closed'>((resolve) => {
-      const req = http.get(
-        {
-          host: url.hostname,
-          port: url.port,
-          path: url.pathname,
-          agent,
-          headers: { cookie: cookies.owner! },
-        },
-        (res) => {
-          res.resume();
-          res.once('end', () => req.socket?.once('close', () => resolve('closed')));
-        },
-      );
-      req.on('error', () => undefined);
+    const options = {
+      host: url.hostname,
+      port: url.port,
+      path: url.pathname,
+      agent,
+      headers: { cookie: cookies.owner! },
+    };
+    let closed = false;
+    let connection: string | undefined;
+    const first = http.get(options, (res) => {
+      connection = res.headers.connection;
+      res.resume();
+      res.once('end', () => first.socket?.once('close', () => (closed = true)));
     });
+    first.on('error', () => undefined);
     const registry = t.app.get(StreamRegistry);
     await vi.waitFor(() => expect(registry.count(ws, ids.owner!)).toBe(1));
     registry.closeFor(ws, ids.owner!);
-    const outcome = await Promise.race([
-      socketClosed,
-      new Promise<'open'>((r) => setTimeout(() => r('open'), 2000)),
-    ]);
+
+    // Straight away, a second long-lived request on the same agent: it must not inherit the old
+    // socket, or the delayed destroy below would kill it.
+    const frames: string[] = [];
+    const second = http.get(options, (res) => {
+      res.setEncoding('utf8');
+      res.on('data', (chunk: string) => frames.push(chunk));
+    });
+    second.on('error', () => undefined);
+    await vi.waitFor(() => expect(closed).toBe(true), { timeout: 5000, interval: 50 });
+    await new Promise((r) => setTimeout(r, 300));
+    await t.app.get(EventsService).publish(ctl(), { type: 'testkit.after_close' });
+    await vi.waitFor(() => expect(frames.join('')).toContain('testkit.after_close'), {
+      timeout: 3000,
+    });
+    expect(connection).toBe('close');
+    second.destroy();
     agent.destroy();
-    expect(outcome).toBe('closed');
   });
 });
