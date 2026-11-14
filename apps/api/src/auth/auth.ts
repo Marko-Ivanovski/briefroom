@@ -28,7 +28,7 @@ export function createAuth(db: Db, env: Env) {
     database: drizzleAdapter(db, { provider: 'pg', schema: authSchema }),
     emailAndPassword: { enabled: true, disableSignUp: true },
     advanced: {
-      useSecureCookies: env.publicUrl.startsWith('https://'),
+      useSecureCookies: new URL(env.publicUrl).protocol === 'https:',
       ipAddress: { ipAddressHeaders: [CLIENT_IP_HEADER] },
     },
     rateLimit: {

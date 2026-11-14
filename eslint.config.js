@@ -19,4 +19,21 @@ export default tseslint.config(
   {
     languageOptions: { globals: { ...globals.node } },
   },
+  {
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: '@thallesp/nestjs-better-auth',
+              importNames: ['Roles'],
+              message:
+                'Roles reads the admin-plugin user.role, not the workspace role. Use the workspace role guard from apps/api/src/access instead.',
+            },
+          ],
+        },
+      ],
+    },
+  },
 );

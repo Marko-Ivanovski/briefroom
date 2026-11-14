@@ -62,22 +62,30 @@ describe('auth', () => {
     expect(res.body.user.email).toBe('member@example.com');
   });
 
+  it('refuses server-side signUpEmail too because sign-up is disabled', async () => {
+    await expect(
+      t.auth.api.signUpEmail({
+        body: { email: 'direct@example.com', password: PASSWORD, name: 'Direct' },
+      }),
+    ).rejects.toThrow(/sign.?up/i);
+  });
+
   it('keeps health public although the auth guard is global', async () => {
     const res = await http().get('/api/health');
     expect(res.status).toBe(200);
   });
 
   describe('blocked organization endpoints', () => {
-    it('refuses remove-member with 403 for an admin session and leaves the member in place', async () => {
-      const adminId = await createUser('ws-admin@example.com', 'admin');
+    it('refuses remove-member with 403 for a workspace owner session and leaves the member in place', async () => {
+      const ownerId = await createUser('ws-owner@example.com');
       const memberId = await createUser('ws-member@example.com');
       const org = await t.auth.api.createOrganization({
-        body: { name: 'Acme', slug: 'acme', userId: adminId },
+        body: { name: 'Acme', slug: 'acme', userId: ownerId },
       });
       await t.auth.api.addMember({
         body: { userId: memberId, role: 'member', organizationId: org.id },
       });
-      const cookie = await signIn('ws-admin@example.com');
+      const cookie = await signIn('ws-owner@example.com');
 
       const res = await http()
         .post('/api/auth/organization/remove-member')
@@ -156,6 +164,11 @@ describe('auth', () => {
       expect(auth.options.advanced?.useSecureCookies).toBe(true);
       expect(auth.options.baseURL).toBe('https://briefroom.example');
       expect(auth.options.trustedOrigins).toEqual(['https://briefroom.example']);
+    });
+
+    it('reads the https scheme case-insensitively', () => {
+      const env = loadEnv({ ...base, BRIEFROOM_PUBLIC_URL: 'HTTPS://Briefroom.example' });
+      expect(createAuth(t.db.db, env).options.advanced?.useSecureCookies).toBe(true);
     });
 
     it('does not force secure cookies for an http public url', () => {

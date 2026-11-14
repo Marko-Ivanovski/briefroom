@@ -12,6 +12,12 @@ describe('loadEnv BETTER_AUTH_SECRET', () => {
     expect(() => loadEnv({ ...PROD, ...BASE })).toThrow(/BETTER_AUTH_SECRET is required/);
   });
 
+  it('rejects the dev-only secret in production', () => {
+    expect(() => loadEnv({ ...PROD, ...BASE, BETTER_AUTH_SECRET: DEV_AUTH_SECRET })).toThrow(
+      /BETTER_AUTH_SECRET: .*dev-only/,
+    );
+  });
+
   it('must be at least 32 characters in production', () => {
     expect(() => loadEnv({ ...PROD, ...BASE, BETTER_AUTH_SECRET: 'short' })).toThrow(
       /BETTER_AUTH_SECRET: .*32/,

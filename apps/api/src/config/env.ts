@@ -18,7 +18,10 @@ function schemaFor(production: boolean) {
     DATABASE_URL: production ? z.string().min(1) : z.string().min(1).default(DEV_DATABASE_URL),
     BRIEFROOM_PUBLIC_URL: production ? PublicUrl : PublicUrl.default(DEV_PUBLIC_URL),
     BETTER_AUTH_SECRET: production
-      ? z.string().min(32, 'must be at least 32 characters')
+      ? z
+          .string()
+          .min(32, 'must be at least 32 characters')
+          .refine((v) => v !== DEV_AUTH_SECRET, 'must not be the dev-only secret')
       : z.string().min(1).default(DEV_AUTH_SECRET),
     PORT: Port.default(4300),
     HOST: z.string().min(1).default('127.0.0.1'),
