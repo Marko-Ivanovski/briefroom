@@ -12,6 +12,11 @@ import { REGISTERED_MODULES } from '../src/module-registry/registered-modules.ts
 
 const MODULES_DIR = fileURLToPath(new URL('../../../modules', import.meta.url));
 
+const DB_DIR = fileURLToPath(new URL('../../../packages/db', import.meta.url));
+const DRIZZLE_CONFIG = join(DB_DIR, 'drizzle.config.ts');
+const MIGRATIONS_DIR = join(DB_DIR, 'migrations');
+const MODULE_SCHEMA_PATH = /['"]\.\.\/\.\.\/modules\/([\w-]+)\/schema\/index\.ts['"]/g;
+
 const AUDIT = [
   'createdBy',
   'createdAt',
@@ -86,6 +91,47 @@ function projectIdProblems(manifest: ModuleManifest): string[] {
   return [];
 }
 
+interface SnapshotRow {
+  op?: string;
+  row?: { entityType?: string; name?: string };
+  entityType?: string;
+  name?: string;
+}
+
+/** Replays the migration snapshots (one base, then diffs) into the set of tables that exist. */
+function tablesInMigrationHistory(): Set<string> {
+  const tables = new Set<string>();
+  for (const dir of readdirSync(MIGRATIONS_DIR).sort()) {
+    const file = join(MIGRATIONS_DIR, dir, 'snapshot.json');
+    if (!existsSync(file)) continue;
+    const snapshot = JSON.parse(readFileSync(file, 'utf8')) as {
+      ddl?: SnapshotRow[];
+      deltas?: SnapshotRow[];
+    };
+    for (const e of snapshot.ddl ?? []) {
+      if (e.entityType === 'tables' && e.name) tables.add(e.name);
+    }
+    for (const d of snapshot.deltas ?? []) {
+      if (d.row?.entityType !== 'tables' || !d.row.name) continue;
+      if (d.op === 'create') tables.add(d.row.name);
+      if (d.op === 'drop') tables.delete(d.row.name);
+    }
+  }
+  return tables;
+}
+
+/** Tables a module declares that no migration creates. The testkit is exempt (R108). */
+function tablesMissingFromHistory(manifests: ModuleManifest[], history: Set<string>): string[] {
+  return manifests
+    .filter((m) => m.id !== 'testkit')
+    .flatMap((m) => m.tables.map((t) => getTableName(t)))
+    .filter((name) => !history.has(name));
+}
+
+function configuredModuleSchemas(): string[] {
+  return [...readFileSync(DRIZZLE_CONFIG, 'utf8').matchAll(MODULE_SCHEMA_PATH)].map((m) => m[1]!);
+}
+
 describe('module contract', () => {
   it('registers the testkit under BRIEFROOM_TESTKIT=1', () => {
     expect(REGISTERED_MODULES.map((m) => m.manifest.id)).toContain('testkit');
@@ -143,6 +189,35 @@ describe('module contract', () => {
     for (const file of files) {
       expect(foreignModuleImports(readFileSync(file, 'utf8'), file, dir), file).toEqual([]);
     }
+  });
+
+  it('lists every module folder except the testkit in drizzle.config.ts (R113)', () => {
+    const listed = configuredModuleSchemas();
+    expect(listed, 'the testkit never joins the migration history (R108)').not.toContain('testkit');
+    for (const dir of moduleDirs.filter((d) => d !== 'testkit')) {
+      expect(listed, `modules/${dir} is missing from drizzle.config.ts`).toContain(dir);
+    }
+  });
+
+  it('has every registered module table in the migration history (R113)', () => {
+    const history = tablesInMigrationHistory();
+    expect(history.has('workspace_modules')).toBe(true);
+    expect(
+      tablesMissingFromHistory(
+        REGISTERED_MODULES.map((m) => m.manifest),
+        history,
+      ),
+    ).toEqual([]);
+  });
+
+  it('the history check flags a module table no migration creates, and exempts the testkit', () => {
+    const testkit = REGISTERED_MODULES[0]!.manifest;
+    const history = tablesInMigrationHistory();
+    expect(tablesMissingFromHistory([testkit], history)).toEqual([]);
+    const forgotten = pgTable('design_boards', { id: uuid('id').primaryKey() });
+    expect(
+      tablesMissingFromHistory([{ ...testkit, id: 'design', tables: [forgotten] }], history),
+    ).toEqual(['design_boards']);
   });
 
   it('the project_id rule rejects a project-only module with a nullable project_id', () => {
