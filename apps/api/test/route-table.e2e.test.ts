@@ -14,9 +14,19 @@ const OUTSIDE_A_WORKSPACE: ReadonlySet<string> = new Set([
   'GET /api/v1/setup',
   'POST /api/v1/setup',
   'POST /api/v1/reset/:token',
-  // Public lookup for the join page: the caller has no account yet, and the token is the credential.
+  // Not inside a workspace because the caller has no account yet. Its anonymity is pinned separately in ANONYMOUS_ROUTES.
   'GET /api/v1/join/:token',
 ]);
+
+/** Routes that skip the session check. Adding a public endpoint must be a deliberate edit here. */
+const ANONYMOUS_ROUTES: readonly string[] = [
+  'GET /api/health',
+  'GET /api/version',
+  'GET /api/v1/setup',
+  'POST /api/v1/setup',
+  'POST /api/v1/reset/:token',
+  'GET /api/v1/join/:token',
+];
 
 const REQUEST_METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'ALL', 'OPTIONS', 'HEAD'];
 
@@ -29,7 +39,7 @@ const join = (...parts: string[]) =>
     .filter(Boolean)
     .join('/');
 
-function registeredRoutes(t: TestApp): string[] {
+function registeredRoutes(t: TestApp, onlyAnonymous = false): string[] {
   const routes: string[] = [];
   for (const mod of t.app.get(ModulesContainer, { strict: false }).values()) {
     for (const wrapper of mod.controllers.values()) {
@@ -41,6 +51,10 @@ function registeredRoutes(t: TestApp): string[] {
         if (typeof handler !== 'function') continue;
         const method = Reflect.getMetadata(METHOD_METADATA, handler);
         if (method === undefined) continue;
+        // Same lookup as the package's AuthGuard: handler metadata first, then the class.
+        const isPublic =
+          Reflect.getMetadata('PUBLIC', handler) ?? Reflect.getMetadata('PUBLIC', ctor);
+        if (onlyAnonymous && !isPublic) continue;
         for (const b of base) {
           for (const p of asArray(Reflect.getMetadata(PATH_METADATA, handler))) {
             routes.push(`${REQUEST_METHODS[method as number]} ${join('api', b, p)}`);
@@ -81,6 +95,13 @@ describe('route table', () => {
       'Workspace content must live under /v1/workspaces/:workspaceId/ so the scope guard checks membership. ' +
         'Move the route there, or add it to OUTSIDE_A_WORKSPACE with a reason if it is truly install-wide.',
     ).toEqual([]);
+  });
+
+  it('exposes exactly the intended anonymous routes', () => {
+    expect(
+      registeredRoutes(t, true).sort(),
+      'A new public endpoint needs a deliberate edit to ANONYMOUS_ROUTES.',
+    ).toEqual([...ANONYMOUS_ROUTES].sort());
   });
 
   it('knows no stale allowlist entries', () => {

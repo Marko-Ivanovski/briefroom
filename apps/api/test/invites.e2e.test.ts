@@ -96,6 +96,24 @@ describe('invite links', () => {
     expect(Math.abs(expires - (before + 7 * DAY))).toBeLessThan(60_000);
   });
 
+  it('forces approval on admin links, on create and on regenerate', async () => {
+    const res = await create('admin', { role: 'admin', requiresApproval: false });
+    expect(res.status).toBe(201);
+    expect((await row(res.body.id)).requiresApproval).toBe(true);
+    const regen = await http()
+      .post(`${base}/${ws}/invites/${res.body.id}/regenerate`)
+      .set(as('admin'));
+    expect((await row(regen.body.id)).requiresApproval).toBe(true);
+    await t.db.db
+      .update(inviteLinks)
+      .set({ requiresApproval: false })
+      .where(eq(inviteLinks.id, regen.body.id));
+    const again = await http()
+      .post(`${base}/${ws}/invites/${regen.body.id}/regenerate`)
+      .set(as('admin'));
+    expect((await row(again.body.id)).requiresApproval).toBe(true);
+  });
+
   it('refuses a member with 403', async () => {
     expect((await create('member')).status).toBe(403);
     expect((await http().get(`${base}/${ws}/invites`).set(as('member'))).status).toBe(403);

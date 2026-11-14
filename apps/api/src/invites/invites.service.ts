@@ -126,7 +126,8 @@ export class InvitesService {
           role: settings.role,
           expiresAt: new Date(Date.now() + ttlMs),
           maxUses: settings.maxUses,
-          requiresApproval: settings.requiresApproval,
+          // R87: a leaked admin link must never make someone an admin without approval.
+          requiresApproval: settings.role === 'admin' || settings.requiresApproval,
           projectIds: settings.projectIds,
         }),
       )
