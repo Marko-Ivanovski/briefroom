@@ -1,8 +1,12 @@
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
-import type { Pool } from 'pg';
+import pg from 'pg';
 
-export type Db = NodePgDatabase & { $client: Pool };
+export type Db = NodePgDatabase & { $client: pg.Pool };
 
 export function createDb(url: string): Db {
-  return drizzle(url);
+  const pool = new pg.Pool({ connectionString: url });
+  pool.on('error', (err) => {
+    console.error('Postgres pool error (idle client)', err);
+  });
+  return drizzle({ client: pool });
 }

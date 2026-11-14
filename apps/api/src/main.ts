@@ -9,18 +9,16 @@ import { loadEnv } from './config/env.ts';
 async function main(): Promise<void> {
   const env = loadEnv();
 
-  if (process.env.NODE_ENV === 'production') {
-    const db = createDb(env.databaseUrl);
-    try {
-      await runMigrations(db);
-    } finally {
-      await db.$client.end();
-    }
+  const db = createDb(env.databaseUrl);
+  try {
+    await runMigrations(db);
+  } finally {
+    await db.$client.end();
   }
 
   const app = await NestFactory.create(AppModule.register(env), new NodeAdapter());
   configureApp(app);
-  await app.listen(env.port);
+  await app.listen(env.port, env.host);
 }
 
 main().catch((err: unknown) => {

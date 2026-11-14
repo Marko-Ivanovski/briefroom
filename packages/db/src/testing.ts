@@ -1,9 +1,8 @@
 import { randomBytes } from 'node:crypto';
 import pg from 'pg';
+import { DEV_DATABASE_URL } from './dev-url.ts';
 import { createDb, type Db } from './client.ts';
 import { runMigrations } from './migrate.ts';
-
-const DEV_URL = 'postgres://briefroom:briefroom@127.0.0.1:54329/briefroom_dev';
 
 export interface TestDb {
   db: Db;
@@ -23,7 +22,7 @@ async function withAdmin<T>(url: string, fn: (c: pg.Client) => Promise<T>): Prom
 }
 
 export async function createTestDb(): Promise<TestDb> {
-  const adminUrl = process.env.DATABASE_URL ?? DEV_URL;
+  const adminUrl = process.env.DATABASE_URL ?? DEV_DATABASE_URL;
   const name = `briefroom_test_${randomBytes(6).toString('hex')}`;
   const testUrl = new URL(adminUrl);
   testUrl.pathname = `/${name}`;

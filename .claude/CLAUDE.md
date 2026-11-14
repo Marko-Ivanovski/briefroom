@@ -15,6 +15,11 @@ Layout: `apps/*`, `packages/*`, `modules/*`, `plugins/*`.
 - `pnpm dev`, `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm test:e2e`
 - `pnpm db:generate`, `pnpm db:migrate`
 
+## Runtime notes
+
+- The API listens on `HOST` (default `127.0.0.1`). The container will set `HOST=0.0.0.0` (Story 8).
+- Only the `app` process runs migrations, on every boot under an advisory lock. The worker never does.
+
 ## Docs
 
 - Spec: `docs/specs/2026-11-14-foundation-design.md`

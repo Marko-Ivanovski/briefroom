@@ -21,6 +21,8 @@ pnpm db:up
 pnpm dev
 ```
 
+A clean clone runs without a `.env`. Outside production, `DATABASE_URL` defaults to the dev database from `pnpm db:up` and `BRIEFROOM_PUBLIC_URL` defaults to `http://localhost:5173`. In production both are required, and any secret added later is required in every mode. The API listens on `127.0.0.1` unless `HOST` is set.
+
 ## Branches
 
 - `main` holds releases only.

@@ -175,7 +175,7 @@ it('migrations apply to an empty database', async () => {
 ```
 
 - [ ] **Step 2: Run them and see them fail.** Run `pnpm --filter @briefroom/db test`. Expected: FAIL, module not found.
-- [ ] **Step 3: Implement.** Write `client.ts`, `audit.ts`, `migrate.ts` and `testing.ts` against the Interfaces above. `drizzle.config.ts` globs `packages/db/src/schema/**/*.ts` and `modules/*/schema/**/*.ts` into one migration folder, `packages/db/migrations`. `allTables()` collects every exported `PgTable` from the schema index, which re-exports core and module schemas.
+- [ ] **Step 3: Implement.** Write `client.ts`, `audit.ts`, `migrate.ts` and `testing.ts` against the Interfaces above. `drizzle.config.ts` points at `packages/db/src/schema/index.ts`, which re-exports core and module schemas. One list feeds migrations and `allTables()`. Migrations go to `packages/db/migrations`. `allTables()` collects every exported `PgTable` from the schema index, which re-exports core and module schemas.
 - [ ] **Step 4: Run them and see them pass.** Run `pnpm --filter @briefroom/db test`. Expected: PASS.
 - [ ] **Step 5: Commit.** `feat(db): add drizzle client, audit columns and test harness`
 
