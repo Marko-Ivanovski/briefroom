@@ -2,7 +2,7 @@ import { lookup as dnsLookup } from 'node:dns/promises';
 import { BlockList, isIP } from 'node:net';
 import { VersionResponse } from '@briefroom/contracts';
 import { BadGatewayException, BadRequestException } from '@nestjs/common';
-import { Agent } from 'undici';
+import { Agent, fetch } from 'undici';
 import { z } from 'zod';
 
 export interface ParsedInvite {
@@ -129,16 +129,27 @@ function within<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
   });
 }
 
-/** Resolves the host once and refuses it if any address is not a plain host. The caller connects to the vetted address only. */
-async function vetAddress(
+interface VettedAddress {
+  address: string;
+  family: number;
+}
+
+export interface RemoteHostDeps {
+  lookup?: typeof dnsLookup;
+}
+
+/** Resolves the host once and refuses it if any address is not a plain host. The caller connects only to these addresses. */
+async function vetAddresses(
   base: string,
   signal: AbortSignal,
-): Promise<{ address: string; family: number }> {
+  lookup: typeof dnsLookup,
+): Promise<VettedAddress[]> {
   const hostname = new URL(base).hostname.replace(/^\[|\]$/g, '');
-  const resolved = await within(dnsLookup(hostname, { all: true, verbatim: true }), signal);
-  const first = resolved[0];
-  if (!first || resolved.some((r) => isBlockedAddress(r.address))) throw unreachable();
-  return first;
+  const resolved = await within(lookup(hostname, { all: true, verbatim: true }), signal);
+  if (resolved.length === 0 || resolved.some((r) => isBlockedAddress(r.address))) {
+    throw unreachable();
+  }
+  return resolved.map(({ address, family }) => ({ address, family }));
 }
 
 // Only accept and a fixed path go out: no cookies, auth or forwarded headers reach another install.
@@ -150,7 +161,7 @@ async function get(url: string, signal: AbortSignal, dispatcher: Agent): Promise
       signal,
       headers: { accept: 'application/json' },
       dispatcher,
-    } as RequestInit);
+    });
     return { status: res.status, body: await readCapped(res) };
   } catch {
     throw unreachable();
@@ -171,11 +182,14 @@ const ok = (status: number) => status >= 200 && status <= 299;
  * One 5 s budget covers resolving and both requests. The version call goes first so that only a
  * Briefroom install is ever asked about the token.
  */
-export async function fetchRemoteInvite({ base, token }: ParsedInvite): Promise<RemoteInvite> {
+export async function fetchRemoteInvite(
+  { base, token }: ParsedInvite,
+  { lookup = dnsLookup }: RemoteHostDeps = {},
+): Promise<RemoteInvite> {
   const signal = AbortSignal.timeout(TIMEOUT_MS);
-  let pinned: { address: string; family: number };
+  let pinned: VettedAddress[];
   try {
-    pinned = await vetAddress(base, signal);
+    pinned = await vetAddresses(base, signal, lookup);
   } catch {
     throw unreachable();
   }
@@ -183,8 +197,9 @@ export async function fetchRemoteInvite({ base, token }: ParsedInvite): Promise<
   const dispatcher = new Agent({
     connect: {
       lookup: (_host, options, callback) => {
-        if ((options as { all?: boolean }).all) callback(null, [pinned] as never);
-        else callback(null, pinned.address, pinned.family);
+        // Handing back the whole vetted list keeps Node's fallback between addresses.
+        if ((options as { all?: boolean }).all) callback(null, pinned as never);
+        else callback(null, pinned[0]!.address, pinned[0]!.family);
       },
     },
   });

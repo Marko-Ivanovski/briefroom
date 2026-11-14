@@ -261,4 +261,67 @@ describe('fetchRemoteInvite', () => {
     const err = (await failure(fetchRemoteInvite({ base, token: TOKEN }))) as { message: string };
     expect(err.message).not.toMatch(/SECRET|127\.0\.0\.1|tokenABC|500/);
   });
+
+  describe('with an injected lookup', () => {
+    type Lookup = NonNullable<Parameters<typeof fetchRemoteInvite>[1]>['lookup'];
+    const fake = (answer: { address: string; family: number }[]) => {
+      const calls: string[] = [];
+      const lookup = (async (hostname: string) => {
+        calls.push(hostname);
+        return answer;
+      }) as unknown as Lookup;
+      return { calls, lookup };
+    };
+    const portOf = (base: string) => new URL(base).port;
+    const recording = async () => {
+      const hosts: (string | undefined)[] = [];
+      let connections = 0;
+      const base = await listen((req, res) => {
+        hosts.push(req.headers.host);
+        json(res, req.url?.startsWith('/api/version') ? VERSION : VALID);
+      });
+      server!.on('connection', () => connections++);
+      return { base, hosts, connections: () => connections };
+    };
+
+    it('connects to the vetted address, keeps the hostname as Host, and resolves once', async () => {
+      const seen = await recording();
+      const { calls, lookup } = fake([{ address: '127.0.0.1', family: 4 }]);
+      const base = `http://rebind.test:${portOf(seen.base)}`;
+      await fetchRemoteInvite({ base, token: TOKEN }, { lookup });
+      expect(seen.hosts).toEqual([
+        `rebind.test:${portOf(seen.base)}`,
+        `rebind.test:${portOf(seen.base)}`,
+      ]);
+      expect(calls).toEqual(['rebind.test']);
+    });
+
+    it('refuses the whole host when one of several addresses is blocked', async () => {
+      const seen = await recording();
+      const { lookup } = fake([
+        { address: '127.0.0.1', family: 4 },
+        { address: '169.254.169.254', family: 4 },
+      ]);
+      const base = `http://mixed.test:${portOf(seen.base)}`;
+      expect(await failure(fetchRemoteInvite({ base, token: TOKEN }, { lookup }))).toMatchObject({
+        status: 502,
+        code: 'host_unreachable',
+      });
+      expect(seen.connections()).toBe(0);
+    });
+
+    it('falls back to the next vetted address when the first does not answer', async () => {
+      const seen = await recording();
+      // Nothing listens on ::1 at this port (the server is bound to 127.0.0.1 only), so ::1 is refused or unavailable and the IPv4 entry has to carry the request.
+      const { lookup } = fake([
+        { address: '::1', family: 6 },
+        { address: '127.0.0.1', family: 4 },
+      ]);
+      const base = `http://fallback.test:${portOf(seen.base)}`;
+      expect(await fetchRemoteInvite({ base, token: TOKEN }, { lookup })).toMatchObject({
+        installId: 'install-1',
+      });
+      expect(seen.hosts).toHaveLength(2);
+    });
+  });
 });
