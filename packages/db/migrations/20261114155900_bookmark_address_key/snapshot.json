@@ -1,0 +1,68 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "1fdbcdfd-1548-4a2f-b0e4-b26612c17da1",
+  "prevIds": [
+    "0f1a7d84-983a-4068-90ba-deed8607033b"
+  ],
+  "footprints": [
+    {
+      "statementType": "recreate_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "workspace_bookmarks",
+        "workspace_bookmarks_remote_key"
+      ],
+      "writes": [
+        "s|idx|public.workspace_bookmarks_remote_key",
+        "n|idx|public.workspace_bookmarks_remote_key",
+        "e|idx|public.workspace_bookmarks_remote_key",
+        "n|rel|public.workspace_bookmarks_remote_key"
+      ],
+      "reads": [
+        "n|tbl|public.workspace_bookmarks",
+        "n|sch|public",
+        "n|col|public.workspace_bookmarks.user_id",
+        "n|col|public.workspace_bookmarks.remote_base_url",
+        "n|col|public.workspace_bookmarks.remote_workspace_id"
+      ],
+      "sharedWrites": [
+        "e|uniqueness|public.workspace_bookmarks.remote_install_id.remote_workspace_id.user_id"
+      ],
+      "sqlHash": "4cfcc70031d53440"
+    }
+  ],
+  "deltas": [
+    {
+      "op": "alter",
+      "key": "indexes\u0000[\"public\",\"workspace_bookmarks_remote_key\"]",
+      "set": {
+        "columns": [
+          {
+            "value": "user_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "remote_base_url",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "remote_workspace_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ]
+      }
+    }
+  ]
+}

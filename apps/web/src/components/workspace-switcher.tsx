@@ -10,6 +10,7 @@ import {
 import type { BookmarkSummary, WorkspaceSummary } from '@briefroom/contracts';
 import { Link } from '@tanstack/react-router';
 import { ChevronsUpDown } from 'lucide-react';
+import { Fragment } from 'react';
 import { safeHttpUrl } from '../lib/safe-url.ts';
 
 interface WorkspaceSwitcherProps {
@@ -54,25 +55,20 @@ export function WorkspaceSwitcher({
             {bookmarks.map((b) => {
               const href = safeHttpUrl(b.remoteBaseUrl);
               return (
-                <div key={b.id} className="flex items-center">
+                <Fragment key={b.id}>
                   {href ? (
-                    <DropdownMenuItem asChild className="flex-1">
+                    <DropdownMenuItem asChild>
                       <a href={href} target="_blank" rel="noopener noreferrer">
                         {b.label}
                       </a>
                     </DropdownMenuItem>
                   ) : (
-                    <span className="flex-1 px-2 py-1.5 text-sm">{b.label}</span>
+                    <DropdownMenuLabel>{b.label}</DropdownMenuLabel>
                   )}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    aria-label={`Remove bookmark ${b.label}`}
-                    onClick={() => onRemoveBookmark(b.id)}
-                  >
-                    Remove
-                  </Button>
-                </div>
+                  <DropdownMenuItem onSelect={() => onRemoveBookmark(b.id)}>
+                    Remove {b.label}
+                  </DropdownMenuItem>
+                </Fragment>
               );
             })}
           </>

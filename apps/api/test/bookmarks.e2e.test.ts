@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestApp, makeInstallOwner, type TestApp } from './helpers.ts';
 
 const PASSWORD = 'correct horse battery';
+const TOKEN = 'tokenABCDEFGHIJKLMNOP';
 
 describe('workspace bookmarks', () => {
   let mine: TestApp;
@@ -67,7 +68,7 @@ describe('workspace bookmarks', () => {
     expect(ws.status).toBe(201);
     hostWs = ws.body.id;
 
-    for (const who of ['alice', 'bob', 'carol']) {
+    for (const who of ['alice', 'bob', 'carol', 'dave', 'erin']) {
       const u = await signIn(mine, `${who}@example.com`, who);
       cookies[who] = u.cookie;
       ids[who] = u.id;
@@ -163,7 +164,7 @@ describe('workspace bookmarks', () => {
     const port = (s.address() as AddressInfo).port;
     await new Promise((r) => s.close(r));
     const started = Date.now();
-    const res = await post(`http://127.0.0.1:${port}/join/abc`, 'carol');
+    const res = await post(`http://127.0.0.1:${port}/join/${TOKEN}`, 'carol');
     expect(res.status).toBe(502);
     expect(res.body.code).toBe('host_unreachable');
     expect(Date.now() - started).toBeLessThan(6000);
@@ -172,7 +173,7 @@ describe('workspace bookmarks', () => {
   it('gives 502 host_unreachable for a host that accepts but never answers', async () => {
     const base = await listenOn(() => undefined);
     const started = Date.now();
-    const res = await post(`${base}/join/abc`, 'carol');
+    const res = await post(`${base}/join/${TOKEN}`, 'carol');
     expect(res.status).toBe(502);
     expect(res.body.code).toBe('host_unreachable');
     expect(Date.now() - started).toBeLessThan(6500);
@@ -184,7 +185,7 @@ describe('workspace bookmarks', () => {
       res.setHeader('location', 'http://127.0.0.1:1/elsewhere');
       res.end();
     });
-    const res = await post(`${base}/join/abc`, 'carol');
+    const res = await post(`${base}/join/${TOKEN}`, 'carol');
     expect(res.status).toBe(502);
     expect(res.body.code).toBe('host_unreachable');
   });
@@ -214,9 +215,64 @@ describe('workspace bookmarks', () => {
     expect(res.status).toBe(401);
   });
 
-  it('throttles POST to 10 a minute', async () => {
-    let last = 0;
-    for (let i = 0; i < 12; i++) last = (await post('ftp://x/join/a', 'bob')).status;
-    expect(last).toBe(429);
+  it('throttles POST to 10 a minute per user, and another user can still POST', async () => {
+    const statuses: number[] = [];
+    for (let i = 0; i < 12; i++) statuses.push((await post('ftp://x/join/a', 'dave')).status);
+    expect(statuses.slice(0, 10)).toEqual(Array(10).fill(400));
+    expect(statuses[10]).toBe(429);
+    const other = await post(await newInvite(), 'erin');
+    expect(other.status).toBe(201);
+  });
+
+  const fakeHost = (workspaceName: string, installId: string, workspaceId: string) =>
+    listenOn((req, res) => {
+      res.setHeader('content-type', 'application/json');
+      res.end(
+        JSON.stringify(
+          req.url?.startsWith('/api/version')
+            ? { api: '1', app: '0.0.0', installId }
+            : { valid: true, workspaceId, workspaceName, role: 'member', requiresApproval: false },
+        ),
+      );
+    });
+
+  it('a second host claiming the same install and workspace ids gets its own bookmark', async () => {
+    const hostVersion = await request(host.app.getHttpServer()).get('/api/version');
+    const lookalike = await fakeHost('Imposter', hostVersion.body.installId, hostWs);
+    const real = await post(await newInvite(), 'bob');
+    const fake = await post(`${lookalike}/join/${TOKEN}`, 'bob');
+    expect(fake.status).toBe(201);
+    expect(fake.body.id).not.toBe(real.body.id);
+    const rows = await mine.db.db
+      .select()
+      .from(workspaceBookmarks)
+      .where(eq(workspaceBookmarks.userId, ids.bob!));
+    expect(rows.find((r) => r.id === real.body.id)).toMatchObject({
+      remoteBaseUrl: hostBase,
+      label: 'Remote Acme',
+    });
+    expect(rows.find((r) => r.id === fake.body.id)).toMatchObject({
+      remoteBaseUrl: lookalike,
+      label: 'Imposter',
+    });
+  });
+
+  it('labels: whitespace falls back to the hostname, and truncation is by code point', async () => {
+    const blank = await post(`${await fakeHost('   ', 'i1', 'w')}/join/${TOKEN}`, 'bob');
+    expect(blank.body.label).toBe('127.0.0.1');
+    const emoji = String.fromCodePoint(0x1f600).repeat(100);
+    const long = await post(`${await fakeHost(emoji, 'i2', 'w')}/join/${TOKEN}`, 'bob');
+    expect(Array.from(long.body.label as string)).toHaveLength(80);
+    expect(long.body.label).not.toContain('�');
+  });
+
+  it('a host that answers 404 to everything is 502', async () => {
+    const base = await listenOn((_req, res) => {
+      res.statusCode = 404;
+      res.end();
+    });
+    const res = await post(`${base}/join/${TOKEN}`, 'carol');
+    expect(res.status).toBe(502);
+    expect(res.body.code).toBe('host_unreachable');
   });
 });

@@ -75,4 +75,30 @@ test('an approval link waits for the owner, who sees the unverified email', asyn
   await applicant.page.goto('/');
   await expect(applicant.page).toHaveURL(/\/w\/[^/]+$/);
   await applicant.close();
+
+  // Same install as host and as the user's own: a loopback base is reachable on purpose. A third
+  // sign-in inside a minute would hit the sign-in rate limit, so this reuses the owner's session.
+  const joinUrl = `${new URL(url).origin}${new URL(url).pathname}`;
+  await page.getByRole('banner').getByRole('button').first().click();
+  await page.getByRole('menuitem', { name: 'Join a workspace' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Join a workspace' });
+  await dialog.getByLabel('Invite link').fill(url);
+  await dialog.getByRole('button', { name: 'Join', exact: true }).click();
+
+  const next = dialog.getByRole('link', { name: 'Continue to join' });
+  await expect(next).toHaveAttribute('href', joinUrl);
+  await expect(next).toHaveAttribute('target', '_blank');
+  await expect(next).toHaveAttribute('rel', /noopener/);
+  await dialog.getByRole('button', { name: 'Close' }).click();
+
+  await page.getByRole('banner').getByRole('button').first().click();
+  const menu = page.getByRole('menu');
+  await expect(menu.getByText('Bookmarks')).toBeVisible();
+  const remove = menu.getByRole('menuitem', { name: /^Remove / });
+  await expect(remove).toHaveCount(1);
+  await remove.focus();
+  await page.keyboard.press('Enter');
+
+  await page.getByRole('banner').getByRole('button').first().click();
+  await expect(page.getByRole('menu').getByText('Bookmarks')).toHaveCount(0);
 });

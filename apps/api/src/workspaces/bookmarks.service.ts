@@ -10,6 +10,13 @@ const MAX_LABEL = 80;
 const uuid = z.uuid();
 const notFound = () => new NotFoundException({ code: 'not_found', message: 'Bookmark not found' });
 
+function labelFor(workspaceName: string, base: string): string {
+  const name = workspaceName.trim();
+  return Array.from(name || new URL(base).hostname)
+    .slice(0, MAX_LABEL)
+    .join('');
+}
+
 @Injectable()
 export class BookmarksService {
   constructor(@Inject(DB) private readonly db: Db) {}
@@ -17,7 +24,7 @@ export class BookmarksService {
   async create(actor: Actor, inviteUrl: string): Promise<BookmarkCreated> {
     const parsed = parseInviteUrl(inviteUrl);
     const remote = await fetchRemoteInvite(parsed);
-    const label = remote.workspaceName.trim().slice(0, MAX_LABEL);
+    const label = labelFor(remote.workspaceName, parsed.base);
     const [row] = await this.db
       .insert(workspaceBookmarks)
       .values({
@@ -31,10 +38,10 @@ export class BookmarksService {
       .onConflictDoUpdate({
         target: [
           workspaceBookmarks.userId,
-          workspaceBookmarks.remoteInstallId,
+          workspaceBookmarks.remoteBaseUrl,
           workspaceBookmarks.remoteWorkspaceId,
         ],
-        set: { label, remoteBaseUrl: parsed.base, ...updatedStamp(actor) },
+        set: { label, ...updatedStamp(actor) },
       })
       .returning({ id: workspaceBookmarks.id });
     return { id: row!.id, label, joinUrl: joinUrlOf(parsed) };

@@ -17,9 +17,10 @@ export const workspaceBookmarks = pgTable(
   },
   (t) => [
     index('workspace_bookmarks_user_id_idx').on(t.userId),
+    // The address is the identity: install_id is whatever the remote claims, so it is information only.
     uniqueIndex('workspace_bookmarks_remote_key').on(
       t.userId,
-      t.remoteInstallId,
+      t.remoteBaseUrl,
       t.remoteWorkspaceId,
     ),
   ],

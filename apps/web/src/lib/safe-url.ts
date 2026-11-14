@@ -7,8 +7,3 @@ export function safeHttpUrl(value: string): string | null {
     return null;
   }
 }
-
-export function openInNewTab(url: string): void {
-  const safe = safeHttpUrl(url);
-  if (safe) window.open(safe, '_blank', 'noopener,noreferrer');
-}
