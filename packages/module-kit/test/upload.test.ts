@@ -48,6 +48,13 @@ describe('readUpload', () => {
     expect(body.buffer.byteLength).toBeGreaterThanOrEqual(15);
   });
 
+  it('answers 413 when more bytes arrive than the declared Content-Length', async () => {
+    const stream = asRequest(Readable.from([Buffer.from('1234'), Buffer.from('5678')]), {
+      'content-length': '5',
+    });
+    await expect(readUpload(stream)).rejects.toMatchObject({ status: 413 });
+  });
+
   it('reads a chunked body that declares no length', async () => {
     const body = await readUpload(asRequest(Readable.from([Buffer.from('ab'), Buffer.from('cd')])));
     expect(body.toString()).toBe('abcd');

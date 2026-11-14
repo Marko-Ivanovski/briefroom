@@ -351,10 +351,21 @@ describe('file store', () => {
     it('refuses with 503 before reading when the byte budget is spent, and recovers (R129)', async () => {
       const service = t.app.get(FilesService);
       const { budget } = service;
-      service.budget = new ByteBudget(2 * MB + 512 * 1024);
+      const spent = new ByteBudget(2 * MB + 512 * 1024);
+      service.budget = spent;
+      const reserved = async (bytes: number) => {
+        const deadline = Date.now() + 2000;
+        while (spent.used !== bytes) {
+          if (Date.now() > deadline) {
+            throw new Error(`budget never reached ${bytes} bytes reserved, stuck at ${spent.used}`);
+          }
+          await new Promise((done) => setTimeout(done, 10));
+        }
+      };
       try {
         const first = await stalledUpload('writer');
         const second = await stalledUpload('writer');
+        await reserved(2 * MB);
         const third = await stalledUpload('writer');
         const res = await third.response;
         expect(res.status).toBe(503);
