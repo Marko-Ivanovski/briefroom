@@ -237,6 +237,51 @@ describe('access checklists', () => {
       expect(items.find((i) => i.label === 'Repo')?.done).toBe(true);
     });
 
+    it('keeps a ticked item when only the label changes (R79)', async () => {
+      const repo = await linkNamed('Repo');
+      const res = await patchLinks({ toolLinks: [{ ...REPO, label: 'Code' }] });
+      expect(res.status).toBe(200);
+      expect(res.body.toolLinks).toEqual([{ id: repo.id, label: 'Code', url: REPO.url }]);
+      const items: Item[] = (await get('admin', ids.member!, 'add')).body;
+      expect(items).toHaveLength(1);
+      expect(items[0]).toMatchObject({ toolLinkId: repo.id, label: 'Code', done: true });
+      await patchLinks({ toolLinks: [REPO] });
+    });
+
+    it('matches links with the same url in order (R79)', async () => {
+      const dup = (label: string) => ({ label, url: 'https://dup.example/x' });
+      const first = await patchLinks({ toolLinks: [dup('A'), dup('B')] });
+      const [a, b] = first.body.toolLinks;
+      const second = await patchLinks({ toolLinks: [dup('A2'), dup('B2')] });
+      expect(second.body.toolLinks).toEqual([
+        { ...a, label: 'A2' },
+        { ...b, label: 'B2' },
+      ]);
+      await patchLinks({ toolLinks: [REPO] });
+    });
+
+    it('keeps tool links in the order sent and keeps checklist rows on a reorder (R78)', async () => {
+      const res = await patchLinks({ toolLinks: [BOARD, REPO] });
+      expect(res.status).toBe(200);
+      const before = res.body.toolLinks;
+      const labels = (b: { label: string }[]) => b.map((l) => l.label);
+      expect(labels(before)).toEqual(['Board', 'Repo']);
+      await tick('admin', ids.member!, { toolLinkId: before[0].id, kind: 'add', done: true });
+
+      const flipped = await patchLinks({ toolLinks: [REPO, BOARD] });
+      expect(labels(flipped.body.toolLinks)).toEqual(['Repo', 'Board']);
+      expect(flipped.body.toolLinks.map((l: { id: string }) => l.id)).toEqual([
+        before[1].id,
+        before[0].id,
+      ]);
+      const read = await http().get(`${base()}/projects/${projectId}`).set(as('admin'));
+      expect(labels(read.body.toolLinks)).toEqual(['Repo', 'Board']);
+      const items: Item[] = (await get('admin', ids.member!, 'add')).body;
+      expect(labels(items)).toEqual(['Repo', 'Board']);
+      expect(items.find((i) => i.label === 'Board')?.done).toBe(true);
+      await patchLinks({ toolLinks: [REPO] });
+    });
+
     it('resets an item whose url changed', async () => {
       const repo = await linkNamed('Repo');
       const res = await patchLinks({ toolLinks: [{ ...REPO, url: 'https://github.com/acme/q' }] });

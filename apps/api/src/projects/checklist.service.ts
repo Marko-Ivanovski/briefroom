@@ -127,7 +127,7 @@ export class ChecklistService {
           toolLinkId ? eq(projectToolLinks.id, toolLinkId) : undefined,
         ),
       )
-      .orderBy(asc(projectToolLinks.createdAt), asc(projectToolLinks.id));
+      .orderBy(asc(projectToolLinks.position), asc(projectToolLinks.id));
     return rows.map((row) => ({
       toolLinkId: row.toolLinkId,
       label: row.label,
@@ -143,7 +143,7 @@ export class ChecklistService {
       .select({ id: projectToolLinks.id })
       .from(projectToolLinks)
       .where(and(scoped(scope, projectToolLinks), eq(projectToolLinks.projectId, projectId)))
-      .orderBy(asc(projectToolLinks.createdAt), asc(projectToolLinks.id));
+      .orderBy(asc(projectToolLinks.position), asc(projectToolLinks.id));
   }
 
   /**

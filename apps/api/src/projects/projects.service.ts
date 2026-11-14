@@ -44,14 +44,21 @@ function isUniqueViolation(err: unknown): boolean {
   return false;
 }
 
+interface ToolLinkRow {
+  label: string;
+  url: string;
+  position: number;
+}
+
 interface RemoteRow {
   original: string;
   normalized: string;
 }
 
 function toRemotes(remotes: readonly string[]): RemoteRow[] {
+  let rows: RemoteRow[];
   try {
-    return remotes.map((original) => ({
+    rows = remotes.map((original) => ({
       original: stripCredentials(original),
       normalized: normalizeRemote(original),
     }));
@@ -59,6 +66,13 @@ function toRemotes(remotes: readonly string[]): RemoteRow[] {
     if (err instanceof InvalidRemoteError) throw new BadRequestException(err.message);
     throw err;
   }
+  if (new Set(rows.map((r) => r.normalized)).size < rows.length) {
+    throw new BadRequestException({
+      code: 'duplicate_remote_in_request',
+      message: 'The same repo remote is listed more than once.',
+    });
+  }
+  return rows;
 }
 
 function toSummary(p: Project): ProjectSummary {
@@ -133,7 +147,8 @@ export class ProjectsService {
           .insert(projects)
           .values(scopedInsert(scope, { name, client, summary, status, ticketKey, isClientWork }))
           .returning();
-        await this.insertLists(tx, scope, project!.id, remotes, input.toolLinks);
+        const links = input.toolLinks.map((l, position) => ({ ...l, position }));
+        await this.insertLists(tx, scope, project!.id, remotes, links);
         await tx
           .insert(projectMembers)
           .values(scopedInsert(scope, { projectId: project!.id, userId: scope.userId }));
@@ -147,7 +162,8 @@ export class ProjectsService {
     const remotes = patch.repoRemotes && toRemotes(patch.repoRemotes);
     return this.write(() =>
       this.db.transaction(async (tx) => {
-        await this.require(tx, scope, projectId);
+        // Serialises concurrent edits of one project so the list syncs never interleave.
+        await this.require(tx, scope, projectId, true);
         const { name, client, summary, status, ticketKey, isClientWork, toolLinks } = patch;
         const fields = { name, client, summary, status, ticketKey, isClientWork };
         const [project] = await tx
@@ -165,6 +181,7 @@ export class ProjectsService {
   }
 
   async remove(scope: Scope, projectId: string): Promise<void> {
+    if (!z.uuid().safeParse(projectId).success) throw new NotFoundException('Project not found');
     const deleted = await this.db
       .delete(projects)
       .where(and(scopedProjects(scope), eq(projects.id, projectId)))
@@ -186,18 +203,24 @@ export class ProjectsService {
     }
   }
 
-  private async require(db: Db | Tx, scope: Scope, projectId: string): Promise<Project> {
+  private async require(
+    db: Db | Tx,
+    scope: Scope,
+    projectId: string,
+    lock = false,
+  ): Promise<Project> {
     if (!z.uuid().safeParse(projectId).success) throw new NotFoundException('Project not found');
-    const [project] = await db
+    const query = db
       .select()
       .from(projects)
       .where(and(scopedProjects(scope), eq(projects.id, projectId)));
+    const [project] = await (lock ? query.for('update') : query);
     if (!project) throw new NotFoundException('Project not found');
     return project;
   }
 
-  // Rows that did not change keep their id: access checklist rows cascade from tool links, so
-  // replacing every link on an edit would wipe the checklist progress.
+  // Links are matched by url, as a multiset in order. A matched link keeps its id, so a label edit
+  // or a reorder does not wipe the access checklist rows that cascade from it.
   private async syncToolLinks(
     tx: Tx,
     scope: Scope,
@@ -205,15 +228,30 @@ export class ProjectsService {
     links: ProjectInput['toolLinks'],
   ): Promise<void> {
     const existing = await tx
-      .select({ id: projectToolLinks.id, label: projectToolLinks.label, url: projectToolLinks.url })
+      .select({
+        id: projectToolLinks.id,
+        label: projectToolLinks.label,
+        url: projectToolLinks.url,
+        position: projectToolLinks.position,
+      })
       .from(projectToolLinks)
-      .where(and(scoped(scope, projectToolLinks), eq(projectToolLinks.projectId, projectId)));
+      .where(and(scoped(scope, projectToolLinks), eq(projectToolLinks.projectId, projectId)))
+      .orderBy(asc(projectToolLinks.position), asc(projectToolLinks.id));
     const unmatched = [...existing];
-    const added: ProjectInput['toolLinks'] = [];
-    for (const link of links) {
-      const at = unmatched.findIndex((e) => e.label === link.label && e.url === link.url);
-      if (at >= 0) unmatched.splice(at, 1);
-      else added.push(link);
+    const added: ToolLinkRow[] = [];
+    for (const [position, link] of links.entries()) {
+      const at = unmatched.findIndex((e) => e.url === link.url);
+      if (at < 0) {
+        added.push({ ...link, position });
+        continue;
+      }
+      const [row] = unmatched.splice(at, 1);
+      if (row && (row.label !== link.label || row.position !== position)) {
+        await tx
+          .update(projectToolLinks)
+          .set(scopedUpdate(scope, { label: link.label, position }))
+          .where(and(scoped(scope, projectToolLinks), eq(projectToolLinks.id, row.id)));
+      }
     }
     if (unmatched.length > 0) {
       await tx.delete(projectToolLinks).where(
@@ -278,7 +316,7 @@ export class ProjectsService {
     scope: Scope,
     projectId: string,
     remotes: readonly RemoteRow[],
-    links: ProjectInput['toolLinks'],
+    links: readonly ToolLinkRow[],
   ): Promise<void> {
     if (remotes.length > 0) {
       await tx
@@ -307,7 +345,7 @@ export class ProjectsService {
         })
         .from(projectToolLinks)
         .where(and(scoped(scope, projectToolLinks), eq(projectToolLinks.projectId, project.id)))
-        .orderBy(asc(projectToolLinks.createdAt), asc(projectToolLinks.id)),
+        .orderBy(asc(projectToolLinks.position), asc(projectToolLinks.id)),
     ]);
     return { ...toSummary(project), repoRemotes: remotes, toolLinks: links };
   }

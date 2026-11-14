@@ -1,0 +1,47 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "c11cfe81-4d2c-4285-99b6-9c207135b395",
+  "prevIds": [
+    "d26a4231-e296-45e7-8ef6-dcbe70f97f0b"
+  ],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "project_tool_links",
+        "position"
+      ],
+      "writes": [
+        "s|col|public.project_tool_links.position",
+        "n|col|public.project_tool_links.position",
+        "e|col|public.project_tool_links.position"
+      ],
+      "reads": [
+        "n|tbl|public.project_tool_links",
+        "n|sch|public"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_tool_links",
+        "name": "position",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    }
+  ]
+}

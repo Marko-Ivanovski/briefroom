@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { boolean, check, index, pgTable, text, unique, uuid } from 'drizzle-orm/pg-core';
+import { boolean, check, index, integer, pgTable, text, unique, uuid } from 'drizzle-orm/pg-core';
 import { auditColumns } from '../audit.ts';
 import { organization } from './auth.ts';
 
@@ -59,6 +59,7 @@ export const projectToolLinks = pgTable(
       .references(() => projects.id, { onDelete: 'cascade' }),
     label: text('label').notNull(),
     url: text('url').notNull(),
+    position: integer('position').notNull(),
     ...auditColumns(),
   },
   (t) => [index('project_tool_links_project_id_idx').on(t.projectId)],

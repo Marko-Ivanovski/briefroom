@@ -112,6 +112,8 @@ describe('projects', () => {
       for (const id of ids404) {
         const res = await http().get(`${base()}/projects/${id}`).set(as('admin'));
         expect(res.status).toBe(404);
+        const del = await http().delete(`${base()}/projects/${id}`).set(as('admin'));
+        expect(del.status).toBe(404);
       }
       const list = await http().get(`${base()}/projects`).set(as('admin'));
       expect(list.body.map((p: { id: string }) => p.id)).not.toContain(other.body.id);
@@ -148,6 +150,20 @@ describe('projects', () => {
       expect(rows.map((r) => r.userId)).toEqual([ids.member]);
       expect((await setting(false)).status).toBe(200);
       expect((await create('member', { name: 'Mine again' })).status).toBe(403);
+    });
+
+    it('returns tool links in the order they were sent', async () => {
+      const links = [
+        { label: 'Zeta', url: 'https://z.example' },
+        { label: 'Alpha', url: 'https://a.example' },
+        { label: 'Mid', url: 'https://m.example' },
+      ];
+      const res = await create('admin', { name: 'Ordered', toolLinks: links });
+      expect(res.status).toBe(201);
+      const labels = (b: { toolLinks: { label: string }[] }) => b.toolLinks.map((l) => l.label);
+      expect(labels(res.body)).toEqual(['Zeta', 'Alpha', 'Mid']);
+      const read = await http().get(`${base()}/projects/${res.body.id}`).set(as('admin'));
+      expect(labels(read.body)).toEqual(['Zeta', 'Alpha', 'Mid']);
     });
 
     it('refuses an outsider with 404', async () => {
@@ -208,13 +224,30 @@ describe('projects', () => {
       expect(await projectCount()).toBe(before);
     });
 
-    it('refuses the same remote twice in one request (409)', async () => {
+    it('refuses the same remote twice in one request (400)', async () => {
       const res = await create('admin', {
         name: 'Twice',
         repoRemotes: ['https://github.com/tw/ice', 'git@github.com:TW/ice.git'],
       });
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe('duplicate_remote_in_request');
+    });
+
+    it('collides a dot-segment spelling with the repo it resolves to (409)', async () => {
+      const res = await create('admin', {
+        name: 'Dot dup',
+        repoRemotes: ['https://github.com/dup/x/../repo'],
+      });
       expect(res.status).toBe(409);
     });
+
+    it.each([['git@github.com:./dup/repo.git'], ['git@github.com:dup/%2e%2e/dup/repo.git']])(
+      'refuses the dot-segment remote %s with 400',
+      async (remote) => {
+        const res = await create('admin', { name: 'Dot', repoRemotes: [remote] });
+        expect(res.status).toBe(400);
+      },
+    );
 
     it('allows the same remote in another workspace', async () => {
       const res = await create(
@@ -359,6 +392,52 @@ describe('projects', () => {
         'git@github.com:acme/keep.git',
         'git@github.com:acme/new.git',
       ]);
+    });
+
+    it('keeps the row id of a re-spelled remote and updates its original', async () => {
+      const first = await patch('admin', { repoRemotes: ['https://github.com/acme/spell.git'] });
+      expect(first.status).toBe(200);
+      const [before] = await t.db.db
+        .select()
+        .from(projectRemotes)
+        .where(eq(projectRemotes.normalized, 'github.com/acme/spell'));
+      const res = await patch('admin', { repoRemotes: ['git@github.com:Acme/Spell.git'] });
+      expect(res.status).toBe(200);
+      expect(res.body.repoRemotes).toEqual([
+        { original: 'git@github.com:Acme/Spell.git', normalized: 'github.com/acme/spell' },
+      ]);
+      const [after] = await t.db.db
+        .select()
+        .from(projectRemotes)
+        .where(eq(projectRemotes.normalized, 'github.com/acme/spell'));
+      expect(after!.id).toBe(before!.id);
+      expect(after!.original).toBe('git@github.com:Acme/Spell.git');
+      await patch('admin', {
+        repoRemotes: ['git@github.com:acme/keep.git', 'git@github.com:acme/new.git'],
+      });
+    });
+
+    it('refuses the same remote twice in one patch (400)', async () => {
+      const res = await patch('admin', {
+        repoRemotes: ['https://github.com/tw/ice', 'git@github.com:TW/ice.git'],
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe('duplicate_remote_in_request');
+    });
+
+    it('serialises concurrent patches of one project', async () => {
+      const bodies = [1, 2, 3, 4].map((n) => ({
+        toolLinks: [
+          { label: `L${n}a`, url: `https://c${n}.example/a` },
+          { label: `L${n}b`, url: `https://c${n}.example/b` },
+        ],
+      }));
+      const results = await Promise.all(bodies.map((b) => patch('admin', b)));
+      expect(results.map((r) => r.status)).toEqual([200, 200, 200, 200]);
+      const read = await http().get(`${base()}/projects/${id}`).set(as('admin'));
+      expect(read.body.toolLinks).toHaveLength(2);
+      const urls = read.body.toolLinks.map((l: { url: string }) => new URL(l.url).host);
+      expect(new Set(urls).size).toBe(1);
     });
 
     it('keeps the old lists when the new ones conflict (409) or are invalid (400)', async () => {
