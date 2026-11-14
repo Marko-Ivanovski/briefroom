@@ -155,6 +155,8 @@ export class ProjectsService {
           .set(scopedUpdate(scope, fields))
           .where(and(scopedProjects(scope), eq(projects.id, projectId)))
           .returning();
+        // Before any list write: a project deleted since require() must give 404, not an FK error.
+        if (!project) throw new NotFoundException('Project not found');
         if (remotes) {
           await tx.delete(projectRemotes).where(eq(projectRemotes.projectId, projectId));
         }
@@ -162,7 +164,6 @@ export class ProjectsService {
           await tx.delete(projectToolLinks).where(eq(projectToolLinks.projectId, projectId));
         }
         await this.insertLists(tx, scope, projectId, remotes ?? [], toolLinks ?? []);
-        if (!project) throw new NotFoundException('Project not found');
         return this.detail(tx, scope, project);
       }),
     );
