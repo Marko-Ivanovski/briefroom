@@ -6,6 +6,7 @@ import {
   HttpStatus,
   Inject,
   Injectable,
+  InternalServerErrorException,
   Logger,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -13,6 +14,7 @@ import { eq } from 'drizzle-orm';
 import { AUTH } from '../auth/auth.module.ts';
 import type { Auth } from '../auth/auth.ts';
 import { DB } from '../database/database.module.ts';
+import { describeError } from '../errors/safe-error.ts';
 import { workspaceSlug } from '../workspaces/workspace-slug.ts';
 import { InstallService } from './install.service.ts';
 import { setupCodeMatches } from './setup-code.ts';
@@ -106,8 +108,8 @@ export class SetupService {
       };
     } catch (err) {
       await this.rollback(slug, userId);
-      this.logger.error('First-run setup failed and was rolled back', err);
-      throw err;
+      this.logger.error(`First-run setup failed and was rolled back: ${describeError(err)}`);
+      throw new InternalServerErrorException('Setup failed and was rolled back');
     }
   }
 
@@ -116,7 +118,7 @@ export class SetupService {
       await this.db.delete(authSchema.organization).where(eq(authSchema.organization.slug, slug));
       if (userId) await this.db.delete(authSchema.user).where(eq(authSchema.user.id, userId));
     } catch (cleanupErr) {
-      this.logger.error('Setup rollback failed, clean up by hand', cleanupErr);
+      this.logger.error(`Setup rollback failed, clean up by hand: ${describeError(cleanupErr)}`);
     }
   }
 }
