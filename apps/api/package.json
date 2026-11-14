@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "node --watch --env-file-if-exists=../../.env --import @swc-node/register/esm-register src/main.ts",
     "start": "node --import @swc-node/register/esm-register src/main.ts",
+    "admin": "node --env-file-if-exists=../../.env --import @swc-node/register/esm-register src/admin-cli.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

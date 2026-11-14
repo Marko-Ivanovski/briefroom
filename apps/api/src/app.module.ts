@@ -31,7 +31,7 @@ export class AppModule {
 
 @Global()
 @Module({})
-class EnvModule {
+export class EnvModule {
   static register(env: Env): DynamicModule {
     return {
       module: EnvModule,
