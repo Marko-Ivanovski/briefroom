@@ -108,7 +108,12 @@ describe('handlers explorer', () => {
     )[0]!;
     const invoke = vi.spyOn(handler, 'invoke');
     const isEnabled = vi.fn(() => Promise.resolve(false));
-    const runner = new JobRunner({} as never, {} as never, { isEnabled, settings: vi.fn() });
+    const runner = new JobRunner(
+      {} as never,
+      {} as never,
+      { isEnabled, settings: vi.fn() },
+      {} as never,
+    );
 
     await (
       runner as unknown as {

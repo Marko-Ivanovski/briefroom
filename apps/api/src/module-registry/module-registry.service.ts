@@ -16,6 +16,13 @@ export class ModuleRegistryService {
     return [...this.byId.values()];
   }
 
+  /** Every permission of every registered module, as `<moduleId>:<key>`. */
+  permissionKeys(): string[] {
+    return this.list().flatMap(({ manifest }) =>
+      manifest.permissions.map((p) => `${manifest.id}:${p.key}`),
+    );
+  }
+
   get(id: string): RegisteredModule | undefined {
     return this.byId.get(id);
   }

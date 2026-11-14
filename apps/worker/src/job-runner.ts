@@ -1,4 +1,9 @@
-import { FILES_GC_CRON, FILES_GC_JOB, JobsService } from '@briefroom/api/worker-kit';
+import {
+  FILES_GC_CRON,
+  FILES_GC_JOB,
+  JobsService,
+  ModuleRegistryService,
+} from '@briefroom/api/worker-kit';
 import { MODULE_STATE, systemScope, type ModuleState } from '@briefroom/module-kit';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { Job } from 'pg-boss';
@@ -16,6 +21,7 @@ export class JobRunner {
     private readonly jobs: JobsService,
     private readonly explorer: HandlersExplorer,
     @Inject(MODULE_STATE) private readonly state: ModuleState,
+    private readonly registry: ModuleRegistryService,
   ) {}
 
   /** Starts pg-boss with migration off, so it throws a clear error when the app has not made the schema. */
@@ -53,7 +59,7 @@ export class JobRunner {
     const context = {
       payload,
       jobId: job.id,
-      ...(hasWorkspace ? { scope: systemScope(workspaceId) } : {}),
+      ...(hasWorkspace ? { scope: systemScope(workspaceId, this.registry.permissionKeys()) } : {}),
     };
     try {
       await handler.invoke(context);

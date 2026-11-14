@@ -22,9 +22,7 @@ export class MemberPermissionsService {
 
   /** Every permission of every registered module, as `<moduleId>:<key>`. */
   allKeys(): string[] {
-    return this.registry
-      .list()
-      .flatMap(({ manifest }) => manifest.permissions.map((p) => `${manifest.id}:${p.key}`));
+    return this.registry.permissionKeys();
   }
 
   /** The grants a member holds, limited to modules that are still registered. */

@@ -46,14 +46,17 @@ export const ON_JOB = 'briefroom:on-job';
  */
 export const OnJob = (name: string): MethodDecorator => SetMetadata(ON_JOB, name);
 
-/** The scope jobs run under: full reach inside one workspace, attributed to the system. */
-export function systemScope(workspaceId: string): Scope {
+/**
+ * The scope jobs run under: full reach inside one workspace, attributed to the system. Pass every
+ * registered permission key to match an owner, which is what the worker does.
+ */
+export function systemScope(workspaceId: string, permissions: Iterable<string> = []): Scope {
   return {
     userId: 'system',
     workspaceId,
     role: 'owner',
     visibleProjectIds: 'all',
-    permissions: new Set(),
+    permissions: new Set(permissions),
     actor: { userId: 'system', via: 'system' },
   };
 }
