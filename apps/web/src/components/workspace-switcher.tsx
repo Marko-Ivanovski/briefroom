@@ -48,7 +48,7 @@ export function WorkspaceSwitcher({
             </Link>
           </DropdownMenuItem>
         ))}
-        {bookmarks.length > 0 && (
+        {isInstallOwner && bookmarks.length > 0 && (
           <>
             <DropdownMenuSeparator />
             <DropdownMenuLabel>Bookmarks</DropdownMenuLabel>
@@ -73,14 +73,16 @@ export function WorkspaceSwitcher({
             })}
           </>
         )}
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={onJoin}>Join a workspace</DropdownMenuItem>
         {isInstallOwner && (
-          <DropdownMenuItem asChild>
-            <Link to="/w/$workspaceId/new-workspace" params={{ workspaceId: currentId }}>
-              New workspace
-            </Link>
-          </DropdownMenuItem>
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={onJoin}>Join a workspace</DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link to="/w/$workspaceId/new-workspace" params={{ workspaceId: currentId }}>
+                New workspace
+              </Link>
+            </DropdownMenuItem>
+          </>
         )}
       </DropdownMenuContent>
     </DropdownMenu>

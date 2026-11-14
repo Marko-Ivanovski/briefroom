@@ -3,8 +3,8 @@ import { createServer, type Server } from 'node:http';
 import { workspaceBookmarks } from '@briefroom/db';
 import { eq } from 'drizzle-orm';
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createTestApp, makeInstallOwner, type TestApp } from './helpers.ts';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { createTestApp, makeInstallOwner, resetThrottle, type TestApp } from './helpers.ts';
 
 const PASSWORD = 'correct horse battery';
 const TOKEN = 'tokenABCDEFGHIJKLMNOP';
@@ -73,6 +73,11 @@ describe('workspace bookmarks', () => {
       cookies[who] = u.cookie;
       ids[who] = u.id;
     }
+    await makeInstallOwner(mine, ids.alice!);
+  });
+
+  beforeEach(() => {
+    resetThrottle(mine);
   });
 
   afterAll(async () => {
@@ -125,7 +130,7 @@ describe('workspace bookmarks', () => {
   });
 
   it('gives 400 invite_invalid for an unknown token', async () => {
-    const res = await post(`${hostBase}/join/not-a-real-token`, 'carol');
+    const res = await post(`${hostBase}/join/not-a-real-token`, 'alice');
     expect(res.status).toBe(400);
     expect(res.body.code).toBe('invite_invalid');
   });
@@ -138,7 +143,7 @@ describe('workspace bookmarks', () => {
     await request(host.app.getHttpServer())
       .delete(`/api/v1/workspaces/${hostWs}/invites/${created.body.id}`)
       .set({ cookie: cookies.hostOwner! });
-    const res = await post(`${hostBase}/join/${created.body.url.split('/join/')[1]}`, 'carol');
+    const res = await post(`${hostBase}/join/${created.body.url.split('/join/')[1]}`, 'alice');
     expect(res.status).toBe(400);
     expect(res.body.code).toBe('invite_invalid');
   });
@@ -146,14 +151,14 @@ describe('workspace bookmarks', () => {
   it.each(['file:///etc/join/abc', 'ftp://127.0.0.1/join/abc', 'http://u:p@127.0.0.1/join/abc'])(
     'gives 400 invalid_invite_url for %s',
     async (url) => {
-      const res = await post(url, 'carol');
+      const res = await post(url, 'alice');
       expect(res.status).toBe(400);
       expect(res.body.code).toBe('invalid_invite_url');
     },
   );
 
   it('gives 400 for a path without /join/<token>', async () => {
-    const res = await post(`${hostBase}/somewhere/else`, 'carol');
+    const res = await post(`${hostBase}/somewhere/else`, 'alice');
     expect(res.status).toBe(400);
     expect(res.body.code).toBe('invalid_invite_url');
   });
@@ -164,7 +169,7 @@ describe('workspace bookmarks', () => {
     const port = (s.address() as AddressInfo).port;
     await new Promise((r) => s.close(r));
     const started = Date.now();
-    const res = await post(`http://127.0.0.1:${port}/join/${TOKEN}`, 'carol');
+    const res = await post(`http://127.0.0.1:${port}/join/${TOKEN}`, 'alice');
     expect(res.status).toBe(502);
     expect(res.body.code).toBe('host_unreachable');
     expect(Date.now() - started).toBeLessThan(6000);
@@ -173,7 +178,7 @@ describe('workspace bookmarks', () => {
   it('gives 502 host_unreachable for a host that accepts but never answers', async () => {
     const base = await listenOn(() => undefined);
     const started = Date.now();
-    const res = await post(`${base}/join/${TOKEN}`, 'carol');
+    const res = await post(`${base}/join/${TOKEN}`, 'alice');
     expect(res.status).toBe(502);
     expect(res.body.code).toBe('host_unreachable');
     expect(Date.now() - started).toBeLessThan(6500);
@@ -185,7 +190,7 @@ describe('workspace bookmarks', () => {
       res.setHeader('location', 'http://127.0.0.1:1/elsewhere');
       res.end();
     });
-    const res = await post(`${base}/join/${TOKEN}`, 'carol');
+    const res = await post(`${base}/join/${TOKEN}`, 'alice');
     expect(res.status).toBe(502);
     expect(res.body.code).toBe('host_unreachable');
   });
@@ -215,13 +220,25 @@ describe('workspace bookmarks', () => {
     expect(res.status).toBe(401);
   });
 
-  it('throttles POST to 10 a minute per user, and another user can still POST', async () => {
+  it('throttles POST to 10 a minute per user', async () => {
     const statuses: number[] = [];
-    for (let i = 0; i < 12; i++) statuses.push((await post('ftp://x/join/a', 'dave')).status);
+    for (let i = 0; i < 12; i++) statuses.push((await post('ftp://x/join/a', 'alice')).status);
     expect(statuses.slice(0, 10)).toEqual(Array(10).fill(400));
     expect(statuses[10]).toBe(429);
-    const other = await post(await newInvite(), 'erin');
-    expect(other.status).toBe(201);
+  });
+
+  it('gives 403 to everyone but the install owner, including an account with no workspace', async () => {
+    const invite = await newInvite();
+    for (const who of ['bob', 'dave', 'erin']) {
+      const res = await post(invite, who);
+      expect(res.status).toBe(403);
+    }
+    const rows = await mine.db.db
+      .select()
+      .from(workspaceBookmarks)
+      .where(eq(workspaceBookmarks.userId, ids.bob!));
+    expect(rows).toEqual([]);
+    expect((await post(invite, 'alice')).status).toBe(201);
   });
 
   const fakeHost = (workspaceName: string, installId: string, workspaceId: string) =>
@@ -239,14 +256,14 @@ describe('workspace bookmarks', () => {
   it('a second host claiming the same install and workspace ids gets its own bookmark', async () => {
     const hostVersion = await request(host.app.getHttpServer()).get('/api/version');
     const lookalike = await fakeHost('Imposter', hostVersion.body.installId, hostWs);
-    const real = await post(await newInvite(), 'bob');
-    const fake = await post(`${lookalike}/join/${TOKEN}`, 'bob');
+    const real = await post(await newInvite(), 'alice');
+    const fake = await post(`${lookalike}/join/${TOKEN}`, 'alice');
     expect(fake.status).toBe(201);
     expect(fake.body.id).not.toBe(real.body.id);
     const rows = await mine.db.db
       .select()
       .from(workspaceBookmarks)
-      .where(eq(workspaceBookmarks.userId, ids.bob!));
+      .where(eq(workspaceBookmarks.userId, ids.alice!));
     expect(rows.find((r) => r.id === real.body.id)).toMatchObject({
       remoteBaseUrl: hostBase,
       label: 'Remote Acme',
@@ -258,10 +275,10 @@ describe('workspace bookmarks', () => {
   });
 
   it('labels: whitespace falls back to the hostname, and truncation is by code point', async () => {
-    const blank = await post(`${await fakeHost('   ', 'i1', 'w')}/join/${TOKEN}`, 'bob');
+    const blank = await post(`${await fakeHost('   ', 'i1', 'w')}/join/${TOKEN}`, 'alice');
     expect(blank.body.label).toBe('127.0.0.1');
     const emoji = String.fromCodePoint(0x1f600).repeat(100);
-    const long = await post(`${await fakeHost(emoji, 'i2', 'w')}/join/${TOKEN}`, 'bob');
+    const long = await post(`${await fakeHost(emoji, 'i2', 'w')}/join/${TOKEN}`, 'alice');
     expect(Array.from(long.body.label as string)).toHaveLength(80);
     expect(long.body.label).not.toContain('�');
   });
@@ -271,7 +288,7 @@ describe('workspace bookmarks', () => {
       res.statusCode = 404;
       res.end();
     });
-    const res = await post(`${base}/join/${TOKEN}`, 'carol');
+    const res = await post(`${base}/join/${TOKEN}`, 'alice');
     expect(res.status).toBe(502);
     expect(res.body.code).toBe('host_unreachable');
   });
