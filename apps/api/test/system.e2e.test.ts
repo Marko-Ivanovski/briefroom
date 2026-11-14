@@ -41,6 +41,12 @@ describe('system routes', () => {
     expect(res.headers['content-type']).toMatch(/application\/json/);
   });
 
+  it.each(['/api', '/mcp'])('does not fall back to index.html for bare %s', async (path) => {
+    const res = await request(t.app.getHttpServer()).get(path);
+    expect(res.status).toBe(404);
+    expect(res.headers['content-type']).toMatch(/application\/json/);
+  });
+
   it('does not fall back to index.html under /mcp', async () => {
     const res = await request(t.app.getHttpServer()).get('/mcp/anything');
     expect(res.status).toBe(404);
