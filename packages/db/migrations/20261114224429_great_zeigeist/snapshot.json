@@ -1,0 +1,38 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "a7deab67-27ad-4281-abba-6326f94208ee",
+  "prevIds": [
+    "8d039342-86c6-43f6-956c-2fcb8358dd1e"
+  ],
+  "footprints": [
+    {
+      "statementType": "alter_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "record_history",
+        "at"
+      ],
+      "writes": [
+        "s|colprop|public.record_history.at.default"
+      ],
+      "reads": [
+        "n|tbl|public.record_history",
+        "n|sch|public",
+        "n|col|public.record_history.at"
+      ],
+      "sqlHash": "d5a0f6ae5c25ea82"
+    }
+  ],
+  "deltas": [
+    {
+      "op": "alter",
+      "key": "columns\u0000[\"public\",\"record_history\",\"at\"]",
+      "set": {
+        "default": "clock_timestamp()"
+      }
+    }
+  ]
+}

@@ -1,0 +1,1 @@
+ALTER TABLE "record_history" ALTER COLUMN "at" SET DEFAULT clock_timestamp();

@@ -1,7 +1,9 @@
+import { randomUUID } from 'node:crypto';
 import { projectMembers, recordHistory, scopedInsert } from '@briefroom/db';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { HistoryService } from '../src/history/history.service.ts';
 import { WorkspaceModulesService } from '../src/module-registry/workspace-modules.service.ts';
 import { createTestApp, makeInstallOwner, type TestApp } from './helpers.ts';
 
@@ -88,6 +90,55 @@ describe('change history', () => {
     expect(res.body[2].changes.text).toEqual({ from: null, to: 'v1' });
     expect(typeof res.body[0].at).toBe('string');
     expect(res.body[0]).not.toHaveProperty('workspaceId');
+  });
+
+  describe('the recorder', () => {
+    const scope = () =>
+      ({
+        userId: ids.owner!,
+        workspaceId: ws,
+        role: 'owner',
+        visibleProjectIds: 'all',
+        permissions: new Set<string>(),
+        actor: { userId: ids.owner!, via: 'web' },
+      }) as const;
+
+    it('stamps each entry with the clock, not the transaction start', async () => {
+      const service = t.app.get(HistoryService);
+      const recordId = randomUUID();
+      const entry = { scope: scope(), table: 'testkit_notes', recordId } as const;
+      await t.db.db.transaction(async (tx) => {
+        await service.record(tx, { ...entry, before: null, after: { text: 'a' } });
+        await tx.execute(sql`select pg_sleep(0.1)`);
+        await service.record(tx, { ...entry, before: { text: 'a' }, after: { text: 'b' } });
+      });
+      const rows = await t.db.db
+        .select()
+        .from(recordHistory)
+        .where(eq(recordHistory.recordId, recordId))
+        .orderBy(recordHistory.at);
+      expect(rows[1]!.at.getTime() - rows[0]!.at.getTime()).toBeGreaterThanOrEqual(90);
+      const res = await history('owner', 'testkit_notes', recordId);
+      expect(res.body.map((e: { changes: object }) => e.changes)).toEqual([
+        { text: { from: 'a', to: 'b' } },
+        { text: { from: null, to: 'a' } },
+      ]);
+    });
+
+    it('refuses a record id that is not a uuid, before writing anything', async () => {
+      const service = t.app.get(HistoryService);
+      await expect(
+        t.db.db.transaction((tx) =>
+          service.record(tx, {
+            scope: scope(),
+            table: 'testkit_notes',
+            recordId: 'note-1',
+            before: null,
+            after: { text: 'a' },
+          }),
+        ),
+      ).rejects.toThrow(/recordId must be a uuid/);
+    });
   });
 
   it('writes nothing for an edit that changes nothing', async () => {

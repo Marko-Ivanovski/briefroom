@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import { index, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 import { auditColumns, type Via } from '../audit.ts';
 import { organization } from './auth.ts';
@@ -28,7 +29,10 @@ export const recordHistory = pgTable(
     actorId: text('actor_id').notNull(),
     via: text('via').$type<Via>().notNull(),
     agent: text('agent'),
-    at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),
+    // The clock, not the transaction start, so entries written in one transaction keep their order.
+    at: timestamp('at', { withTimezone: true })
+      .notNull()
+      .default(sql`clock_timestamp()`),
     ...auditColumns(),
   },
   (t) => [

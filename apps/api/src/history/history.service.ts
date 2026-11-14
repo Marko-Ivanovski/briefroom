@@ -14,6 +14,7 @@ import { and, desc, eq, inArray, isNull, or } from 'drizzle-orm';
 import type { Scope } from '../access/scope.ts';
 import { DB } from '../database/database.module.ts';
 import { ModuleRegistryService } from '../module-registry/module-registry.service.ts';
+import { z } from 'zod';
 import { diffRecord } from './diff.ts';
 
 /** Core tables that keep a history. Empty until a core table needs one. */
@@ -43,6 +44,9 @@ export class HistoryService implements HistoryRecorder {
   async record(tx: Tx, input: HistoryInput): Promise<void> {
     const { scope, table, recordId } = input;
     if (!this.source(table)) throw new Error(`History is not switched on for table "${table}"`);
+    if (!z.uuid().safeParse(recordId).success) {
+      throw new Error(`History recordId must be a uuid, got "${recordId}" for table "${table}"`);
+    }
     const changes = diffRecord(
       input.before as Record<string, unknown> | null,
       input.after as Record<string, unknown>,
@@ -90,7 +94,7 @@ export class HistoryService implements HistoryRecorder {
           or(isNull(recordHistory.projectId), inArray(recordHistory.projectId, visibleProjects)),
         ),
       )
-      .orderBy(desc(recordHistory.at), desc(recordHistory.createdAt));
+      .orderBy(desc(recordHistory.at), desc(recordHistory.id));
 
     // One answer for "no history" and "none you may see", so a caller cannot probe for hidden records.
     if (rows.length === 0) throw new NotFoundException('Record not found');
