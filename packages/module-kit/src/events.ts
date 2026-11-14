@@ -10,7 +10,7 @@ export interface EventInput {
   payload?: unknown;
 }
 
-/** Implemented by the API and the worker. Provided globally, so module code never imports an app. */
+/** Implemented by the API and the worker. Modules get one bound to their own id, so they never import an app. */
 export interface EventPublisher {
   /**
    * Sends an event to the open streams of `scope.workspaceId`, whatever the event holds. A `core.*`

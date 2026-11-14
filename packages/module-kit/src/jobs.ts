@@ -4,12 +4,15 @@ import type { Scope } from './scope.ts';
 /** No options yet: deduplication isn't offered, because module queues don't drop duplicates. */
 export type EnqueueOptions = Record<string, never>;
 
-/** Implemented by the API and the worker. Provided globally, so module code never imports an app. */
+/** Implemented by the API and the worker. Modules get one bound to their own id, so they never import an app. */
 export interface JobQueue {
   /**
    * Queues a job named `<moduleId>.<name>` and returns its id. The job's workspace is always
    * `scope.workspaceId`, whatever the payload holds. A `core.*` name or an unregistered module
    * prefix is refused. The worker skips the job when the module is off in that workspace.
+   *
+   * A job carries no user: its handler runs as the system with `'all'` visibility. Check every id
+   * you put in the payload against the caller's own scope before enqueueing.
    */
   enqueue<T extends object>(
     scope: Scope,
