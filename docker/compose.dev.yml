@@ -2,7 +2,7 @@ services:
   db:
     image: pgvector/pgvector:pg16
     ports:
-      - '54329:5432'
+      - '127.0.0.1:54329:5432'
     environment:
       POSTGRES_DB: briefroom_dev
       POSTGRES_USER: briefroom
