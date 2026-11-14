@@ -4,15 +4,23 @@ import { fileURLToPath } from 'node:url';
 import { createTestDb } from '@briefroom/db/testing';
 import {
   EVENTS,
+  FILE_STORE,
+  HISTORY,
   JOBS,
   moduleEnabledGuard,
   systemScope,
   type EventPublisher,
+  type FileStore,
+  type HistoryRecorder,
   type JobQueue,
   type ModuleManifest,
 } from '@briefroom/module-kit';
 import { TESTKIT_SQL_PATH } from '@briefroom/module-testkit/sql';
-import { GUARDS_METADATA, PATH_METADATA } from '@nestjs/common/constants';
+import {
+  GUARDS_METADATA,
+  PATH_METADATA,
+  SELF_DECLARED_DEPS_METADATA,
+} from '@nestjs/common/constants';
 import { getTableColumns, getTableName } from 'drizzle-orm';
 import { getTableConfig, pgTable, uuid, type PgTable } from 'drizzle-orm/pg-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -211,6 +219,59 @@ function controllerProblems(root: ModuleRef, id: string): string[] {
   });
 }
 
+const BOUND_TOKENS: readonly unknown[] = [EVENTS, JOBS, FILE_STORE, HISTORY];
+
+interface Consumer {
+  nestModule: object;
+  consumer: string;
+  token: unknown;
+}
+
+interface DynamicParts {
+  providers?: unknown[];
+  controllers?: unknown[];
+  imports?: ModuleRef[];
+}
+
+/**
+ * Every class in a Nest module and in everything it imports (dynamic modules and forwardRef
+ * included) that injects a bound service, with the Nest module that has to provide it (R140).
+ */
+function boundConsumers(root: ModuleRef): Consumer[] {
+  const seen = new Set<object>();
+  const found: Consumer[] = [];
+  const classesOf = (entries: unknown[]): { name: string }[] =>
+    entries.flatMap((p) => {
+      if (typeof p === 'function') return [p as { name: string }];
+      const useClass = (p as { useClass?: { name: string } } | undefined)?.useClass;
+      return useClass ? [useClass] : [];
+    });
+  const visit = (ref: ModuleRef): void => {
+    const cls = resolveModuleRef(ref);
+    if (!cls || seen.has(cls)) return;
+    seen.add(cls);
+    const dynamic: DynamicParts = typeof ref === 'object' && ref ? (ref as DynamicParts) : {};
+    const classes = classesOf([
+      ...(Reflect.getMetadata('providers', cls) ?? []),
+      ...(Reflect.getMetadata('controllers', cls) ?? []),
+      ...(dynamic.providers ?? []),
+      ...(dynamic.controllers ?? []),
+    ]);
+    for (const c of classes) {
+      const deps: { param: unknown }[] = Reflect.getMetadata(SELF_DECLARED_DEPS_METADATA, c) ?? [];
+      for (const { param } of deps) {
+        if (BOUND_TOKENS.includes(param)) {
+          found.push({ nestModule: cls, consumer: c.name, token: param });
+        }
+      }
+    }
+    for (const i of Reflect.getMetadata('imports', cls) ?? []) visit(i);
+    for (const i of dynamic.imports ?? []) visit(i);
+  };
+  visit(root);
+  return found;
+}
+
 function configuredModuleSchemas(): string[] {
   return [...readFileSync(DRIZZLE_CONFIG, 'utf8').matchAll(MODULE_SCHEMA_PATH)].map((m) => m[1]!);
 }
@@ -243,14 +304,15 @@ describe('module contract', () => {
         expect(controllerProblems(nestModule, id)).toEqual([]);
       });
 
-      it('gets its publisher and queue bound to its own id (R138)', () => {
+      it('has classes that inject the bound services, so the runtime check below is not vacuous', () => {
         const nestModule = REGISTERED_MODULES.find((m) => m.manifest.id === id)!.nestModule;
-        const providers = (Reflect.getMetadata('providers', nestModule) ?? []) as {
+        if (id !== 'testkit') return;
+        const tokens = new Set(boundConsumers(nestModule).map((c) => c.token));
+        expect([...tokens]).toEqual(expect.arrayContaining([EVENTS, FILE_STORE, HISTORY]));
+        const provided = (Reflect.getMetadata('providers', nestModule) ?? []) as {
           provide?: unknown;
         }[];
-        const provided = providers.map((p) => p.provide);
-        expect(provided).toContain(EVENTS);
-        expect(provided).toContain(JOBS);
+        expect(provided.map((p) => p.provide)).toContain(JOBS);
       });
 
       it('calls provideModuleServices with its own id and never touches the core tokens', () => {
@@ -449,7 +511,19 @@ describe('the service binding check', () => {
   });
 });
 
-describe('registered modules get a bound publisher and queue (R138)', () => {
+describe('boundConsumers', () => {
+  it('finds a class in an imported Nest module that injects a bound service', () => {
+    class Svc {}
+    Reflect.defineMetadata(SELF_DECLARED_DEPS_METADATA, [{ index: 0, param: HISTORY }], Svc);
+    class Inner {}
+    Reflect.defineMetadata('providers', [Svc], Inner);
+    class Outer {}
+    Reflect.defineMetadata('imports', [{ module: Inner }], Outer);
+    expect(boundConsumers(Outer)).toEqual([{ nestModule: Inner, consumer: 'Svc', token: HISTORY }]);
+  });
+});
+
+describe('registered modules get bound services (R138, R140)', () => {
   let t: TestApp;
 
   beforeAll(async () => {
@@ -460,23 +534,45 @@ describe('registered modules get a bound publisher and queue (R138)', () => {
     await t.close();
   });
 
-  it.each(REGISTERED_MODULES.map((m) => [m.manifest.id, m.nestModule] as const))(
-    '%s: its EVENTS and JOBS refuse another prefix and accept its own',
-    async (id, nestModule) => {
+  const consumers = REGISTERED_MODULES.flatMap((m) =>
+    boundConsumers(m.nestModule).map((c) => [m.manifest.id, c] as const),
+  );
+
+  it.each(consumers.map(([id, c]) => [id, c.consumer, String(c.token), c] as const))(
+    '%s: %s gets its own bound %s from the Nest module that declares it',
+    async (id, _consumer, _token, c) => {
       const scope = systemScope('contract-check');
-      const module = t.app.select(nestModule as never);
-      const events = module.get<EventPublisher>(EVENTS, { strict: true });
-      const jobs = module.get<JobQueue>(JOBS, { strict: true });
-      await expect(events.publish(scope, { type: 'zz.x' })).rejects.toThrow(/can only use/);
-      await expect(jobs.enqueue(scope, 'zz.x', {})).rejects.toThrow(/can only use/);
-      for (const attempt of [
-        () => events.publish(scope, { type: `${id}.x` }),
-        () => jobs.enqueue(scope, `${id}.x`, {}),
-      ]) {
-        // Past the binding, the core may still refuse for its own reasons (no pg-boss schema here).
-        await attempt().catch((err: unknown) => {
+      const resolved = t.app
+        .select(c.nestModule as never)
+        .get<unknown>(c.token as symbol, { strict: true });
+      if (c.token === EVENTS) {
+        const events = resolved as EventPublisher;
+        await expect(events.publish(scope, { type: 'zz.x' })).rejects.toThrow(/can only use/);
+        // Past the binding, the core may still refuse for its own reasons.
+        await events.publish(scope, { type: `${id}.x` }).catch((err: unknown) => {
           expect(String(err instanceof Error ? err.message : err)).not.toMatch(/can only use/);
         });
+      } else if (c.token === JOBS) {
+        const jobs = resolved as JobQueue;
+        await expect(jobs.enqueue(scope, 'zz.x', {})).rejects.toThrow(/can only use/);
+        // Past the binding, the core may still refuse for its own reasons (no pg-boss schema here).
+        await jobs.enqueue(scope, `${id}.x`, {}).catch((err: unknown) => {
+          expect(String(err instanceof Error ? err.message : err)).not.toMatch(/can only use/);
+        });
+      } else if (c.token === FILE_STORE) {
+        await expect(
+          (resolved as FileStore).store(scope, { moduleId: 'zz', bytes: Buffer.alloc(0) }),
+        ).rejects.toThrow(/can only store files/);
+      } else {
+        await expect(
+          (resolved as HistoryRecorder).record({} as never, {
+            scope,
+            table: 'zz_other',
+            recordId: 'r',
+            before: null,
+            after: {},
+          }),
+        ).rejects.toThrow(/can only record history/);
       }
     },
   );

@@ -9,7 +9,6 @@ import {
   MAX_UPLOAD_BYTES,
   type UploadLimits,
   type FileRecord,
-  type FileStore,
   type FileStoreInput,
 } from '@briefroom/module-kit';
 import {
@@ -22,7 +21,9 @@ import {
   PayloadTooLargeException,
   UnsupportedMediaTypeException,
 } from '@nestjs/common';
+import type { CoreFileStore } from '@briefroom/module-kit/core';
 import { and, eq } from 'drizzle-orm';
+import { z } from 'zod';
 import type { Scope } from '../access/scope.ts';
 import { ENV, type Env } from '../config/env.ts';
 import { DB } from '../database/database.module.ts';
@@ -49,7 +50,7 @@ const moduleOff = (moduleId: string) =>
   });
 
 @Injectable()
-export class FilesService implements FileStore {
+export class FilesService implements CoreFileStore {
   private readonly log = new Logger('Files');
   /** Process-wide and replaceable by tests: four body reads at once, eight waiting, then 503. */
   readers = new Semaphore(4, 8);
@@ -71,7 +72,7 @@ export class FilesService implements FileStore {
     return join(this.env.dataDir, 'files', workspaceId, fileId);
   }
 
-  async store(scope: Scope, input: FileStoreInput): Promise<FileRecord> {
+  async store(scope: Scope, input: FileStoreInput & { moduleId: string }): Promise<FileRecord> {
     const { moduleId, projectId } = input;
     if (!this.registry.get(moduleId)) throw new BadRequestException('Unknown module');
     if (!(await this.modules.isEnabled(scope.workspaceId, moduleId))) throw moduleOff(moduleId);
@@ -98,6 +99,34 @@ export class FilesService implements FileStore {
     } finally {
       release();
     }
+  }
+
+  /**
+   * Visibility comes from `scoped()`, so an invisible file, a missing one and (with `moduleId`) one
+   * owned by another module are all the same 404. The row goes first. A failed removal on disk only
+   * leaves an orphan directory, which `core.files-gc` collects.
+   */
+  async remove(scope: Scope, fileId: string, moduleId?: string): Promise<void> {
+    if (!z.uuid().safeParse(fileId).success) throw new NotFoundException('File not found');
+    const [row] = await this.db.transaction((tx) =>
+      tx
+        .delete(files)
+        .where(
+          and(
+            scoped(scope, files),
+            eq(files.id, fileId),
+            moduleId === undefined ? undefined : eq(files.moduleId, moduleId),
+          ),
+        )
+        .returning({ id: files.id, workspaceId: files.workspaceId }),
+    );
+    if (!row) throw new NotFoundException('File not found');
+    await rm(this.dir(row.workspaceId, row.id), { recursive: true, force: true }).catch(
+      (err: unknown) =>
+        this.log.error(
+          `File ${row.id} was removed but its directory was not: ${err instanceof Error ? err.message : String(err)}`,
+        ),
+    );
   }
 
   private process(

@@ -6,7 +6,8 @@ import { Readable } from 'node:stream';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { files, projectMembers, scopedInsert } from '@briefroom/db';
-import { FILE_STORE, type FileRecord, type FileStore } from '@briefroom/module-kit';
+import type { FileRecord } from '@briefroom/module-kit';
+import { CORE_FILE_STORE, type CoreFileStore } from '@briefroom/module-kit/core';
 import { eq } from 'drizzle-orm';
 import sharp from 'sharp';
 import request from 'supertest';
@@ -570,7 +571,7 @@ describe('file store', () => {
 
   describe('modules (R116)', () => {
     it('refuses an unregistered module with 400 and a switched-off module with 409', async () => {
-      const store = t.app.get<FileStore>(FILE_STORE);
+      const store = t.app.get<CoreFileStore>(CORE_FILE_STORE);
       const scope = {
         userId: ids.owner!,
         workspaceId: ws,

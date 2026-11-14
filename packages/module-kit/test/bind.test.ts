@@ -1,6 +1,23 @@
 import { describe, expect, it, vi } from 'vitest';
-import { EVENTS, JOBS, provideModuleServices, systemScope } from '../src/index.ts';
-import { CORE_EVENTS, CORE_JOBS, bindEvents, bindJobs } from '../src/core.ts';
+import {
+  EVENTS,
+  FILE_STORE,
+  HISTORY,
+  JOBS,
+  provideModuleServices,
+  systemScope,
+} from '../src/index.ts';
+import {
+  CORE_EVENTS,
+  CORE_FILE_STORE,
+  CORE_HISTORY,
+  CORE_JOBS,
+  bindEvents,
+  bindFileStore,
+  bindHistory,
+  bindJobs,
+  type CoreFileStore,
+} from '../src/core.ts';
 
 const scope = systemScope('w');
 
@@ -25,8 +42,44 @@ describe('per-module publisher and queue (R138)', () => {
     }
     expect(core.enqueue).toHaveBeenCalledTimes(1);
   });
+});
 
-  it('provides EVENTS and JOBS as factories over the core instances', () => {
+describe('per-module file store and history (R140)', () => {
+  const input = { bytes: Buffer.alloc(0) };
+
+  it('stores and removes only under the module id, and refuses any other id', async () => {
+    const core = {
+      store: vi.fn<CoreFileStore['store']>(async () => ({}) as never),
+      remove: vi.fn<CoreFileStore['remove']>(async () => undefined),
+    };
+    const files = bindFileStore('testkit', core);
+    await files.store(scope, input);
+    await files.store(scope, { ...input, moduleId: 'testkit' });
+    expect(core.store.mock.calls.map((c) => c[1].moduleId)).toEqual(['testkit', 'testkit']);
+    await expect(files.store(scope, { ...input, moduleId: 'design' })).rejects.toThrow(/testkit/);
+    expect(core.store).toHaveBeenCalledTimes(2);
+    await files.remove(scope, 'f');
+    expect(core.remove).toHaveBeenCalledWith(scope, 'f', 'testkit');
+  });
+
+  it('records history only for tables the module owns', async () => {
+    const owners: Record<string, { moduleId: string | null }> = {
+      testkit_notes: { moduleId: 'testkit' },
+      design_entries: { moduleId: 'design' },
+      core_table: { moduleId: null },
+    };
+    const core = { record: vi.fn(async () => undefined), source: (t: string) => owners[t] };
+    const history = bindHistory('testkit', core);
+    const write = (table: string) =>
+      history.record({} as never, { scope, table, recordId: 'r', before: null, after: {} });
+    await write('testkit_notes');
+    for (const table of ['design_entries', 'core_table', 'nobody_owns']) {
+      await expect(write(table)).rejects.toThrow(/testkit/);
+    }
+    expect(core.record).toHaveBeenCalledTimes(1);
+  });
+
+  it('provides EVENTS, JOBS, FILE_STORE and HISTORY as factories over the core instances', () => {
     const providers = provideModuleServices('testkit') as {
       provide: symbol;
       inject: symbol[];
@@ -34,6 +87,8 @@ describe('per-module publisher and queue (R138)', () => {
     expect(providers.map((p) => [p.provide, p.inject[0]])).toEqual([
       [EVENTS, CORE_EVENTS],
       [JOBS, CORE_JOBS],
+      [FILE_STORE, CORE_FILE_STORE],
+      [HISTORY, CORE_HISTORY],
     ]);
   });
 });
