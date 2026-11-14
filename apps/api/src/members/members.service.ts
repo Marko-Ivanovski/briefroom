@@ -75,10 +75,15 @@ export class MembersService {
       throw new ForbiddenException('Only the owner can demote an admin');
     }
 
+    // R112: grants belong to the role they were given under. They are cleared before the role
+    // update, so a failed update leaves a member with fewer grants, never more, and again after
+    // it, to catch a grant written between the two steps.
+    if (target.role !== role) await this.clearGrants(scope.workspaceId, targetUserId);
     await this.auth.api.updateMemberRole({
       headers,
       body: { memberId: target.id, role, organizationId: scope.workspaceId },
     });
+    if (target.role !== role) await this.clearGrants(scope.workspaceId, targetUserId);
     // Admin-issued links were authorised against the old role. Removal (Task 4.3) must do the same.
     await this.db
       .update(passwordResetLinks)
@@ -93,6 +98,27 @@ export class MembersService {
     const [updated] = await this.select(scope.workspaceId, targetUserId);
     if (!updated) throw new NotFoundException('Member not found');
     return updated;
+  }
+
+  private async clearGrants(workspaceId: string, userId: string): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      // Locking the member row queues this behind a grant in flight, which holds a share lock on it.
+      await tx
+        .select({ id: authSchema.member.id })
+        .from(authSchema.member)
+        .where(
+          and(
+            eq(authSchema.member.organizationId, workspaceId),
+            eq(authSchema.member.userId, userId),
+          ),
+        )
+        .for('update');
+      await tx
+        .delete(memberPermissions)
+        .where(
+          and(eq(memberPermissions.workspaceId, workspaceId), eq(memberPermissions.userId, userId)),
+        );
+    });
   }
 
   async leave(scope: Scope): Promise<void> {

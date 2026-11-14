@@ -1,10 +1,12 @@
-import { memberPermissions, workspaceModules } from '@briefroom/db';
+import { authSchema, memberPermissions, workspaceModules } from '@briefroom/db';
+import { ForbiddenException } from '@nestjs/common';
 import { and, eq } from 'drizzle-orm';
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { InstallService } from '../src/install/install.service.ts';
 import { SetupService } from '../src/install/setup.service.ts';
 import { WorkspaceModulesService } from '../src/module-registry/workspace-modules.service.ts';
+import { MemberPermissionsService } from '../src/module-registry/member-permissions.service.ts';
 import { createTestApp, makeInstallOwner, type TestApp } from './helpers.ts';
 
 const PASSWORD = 'correct horse battery';
@@ -254,6 +256,78 @@ describe('switching modules and module permissions', () => {
       .from(memberPermissions)
       .where(eq(memberPermissions.userId, ids.leaver!));
     expect(rows).toHaveLength(0);
+  });
+
+  it('clears grants on promotion and demotion, so a cycle does not bring them back (R112)', async () => {
+    await addUser('cycler', 'member');
+    await grant('admin', 'cycler', true);
+    const role = (r: string) =>
+      http().patch(`${base()}/members/${ids.cycler}`).set(as('owner')).send({ role: r });
+    expect((await role('admin')).status).toBe(200);
+    expect((await role('member')).status).toBe(200);
+    const denied = await http().post(notes()).set(as('cycler')).send({ text: 'back' });
+    expect(denied.status).toBe(403);
+    const view = await http().get(`${base()}/members/${ids.cycler}/permissions`).set(as('admin'));
+    expect(view.body.every((p: { granted: boolean }) => !p.granted)).toBe(true);
+  });
+
+  it('re-reads the caller role under the lock and refuses a demoted admin (item 3)', async () => {
+    const stale = {
+      userId: ids.member!,
+      workspaceId: ws,
+      role: 'admin' as const,
+      visibleProjectIds: 'all' as const,
+      permissions: new Set<string>(),
+      actor: { userId: ids.member!, via: 'web' as const },
+    };
+    await expect(
+      t.app
+        .get(MemberPermissionsService)
+        .set(stale, ids.cycler!, { moduleId: 'testkit', key: 'write-notes', granted: true }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('keeps project A and project B apart for a member', async () => {
+    await grant('admin', 'member', true);
+    const a = (await http().post(`${base()}/projects`).set(as('admin')).send({ name: 'A' })).body
+      .id;
+    const b = (await http().post(`${base()}/projects`).set(as('admin')).send({ name: 'B' })).body
+      .id;
+    const added = await http()
+      .post(`${base()}/projects/${a}/members`)
+      .set(as('admin'))
+      .send({ userId: ids.member });
+    expect(added.status).toBeLessThan(300);
+    const onB = await http().post(notes()).set(as('member')).send({ text: 'b', projectId: b });
+    expect(onB.status).toBe(404);
+    const onA = await http().post(notes()).set(as('member')).send({ text: 'a', projectId: a });
+    expect(onA.status).toBe(201);
+  });
+
+  it('gives a fixed message when a grant targets an owner or admin', async () => {
+    const res = await grant('admin', 'admin', true);
+    expect(res.status).toBe(409);
+    expect(res.body).toMatchObject({
+      code: 'implied_by_role',
+      message: 'Owners and admins have every module permission.',
+    });
+  });
+
+  it('removes the new workspace when enabling its modules fails', async () => {
+    const spy = vi
+      .spyOn(WorkspaceModulesService.prototype, 'enableStarting')
+      .mockRejectedValueOnce(new Error('boom'));
+    const res = await http()
+      .post('/api/v1/workspaces')
+      .set(as('owner'))
+      .send({ name: 'Doomed', modules: ['testkit'] });
+    spy.mockRestore();
+    expect(res.status).toBe(500);
+    const left = await t.db.db
+      .select()
+      .from(authSchema.organization)
+      .where(eq(authSchema.organization.name, 'Doomed'));
+    expect(left).toHaveLength(0);
   });
 
   it('lets the install owner start a new workspace with chosen modules, and rejects unknown ones', async () => {

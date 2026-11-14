@@ -45,7 +45,16 @@ export class WorkspacesService {
     const org = await this.auth.api.createOrganization({
       body: { name, slug: workspaceSlug(name), userId },
     });
-    await this.modules.enableStarting(org.id, { userId, via: 'web' }, starting);
+    try {
+      await this.modules.enableStarting(org.id, { userId, via: 'web' }, starting);
+    } catch (err) {
+      // Best effort: a retry must not find a module-less duplicate. Cascades remove the rest.
+      await this.db
+        .delete(authSchema.organization)
+        .where(eq(authSchema.organization.id, org.id))
+        .catch(() => undefined);
+      throw err;
+    }
     return { id: org.id, name: org.name, role: 'owner' };
   }
 }

@@ -3,11 +3,12 @@ import { authSchema, memberPermissions, scopedInsert, type Db } from '@briefroom
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, eq } from 'drizzle-orm';
+import { and, asc, eq, inArray } from 'drizzle-orm';
 import type { Scope } from '../access/scope.ts';
 import { DB } from '../database/database.module.ts';
 import { ModuleRegistryService } from './module-registry.service.ts';
@@ -66,19 +67,28 @@ export class MemberPermissionsService {
     await this.db.transaction(async (tx) => {
       // The share lock on the member row queues this write behind a removal in flight, which
       // locks the same row and deletes the member's permissions, so none can outlive membership.
-      const [target] = await tx
-        .select({ role: authSchema.member.role })
+      // Both rows are share-locked in one statement in user_id order, as revoke() locks them, and
+      // the caller's role is read here so an admin demoted a moment ago is refused.
+      const locked = await tx
+        .select({ userId: authSchema.member.userId, role: authSchema.member.role })
         .from(authSchema.member)
         .where(
           and(
             eq(authSchema.member.organizationId, scope.workspaceId),
-            eq(authSchema.member.userId, userId),
+            inArray(authSchema.member.userId, [...new Set([userId, scope.userId])]),
           ),
         )
+        .orderBy(asc(authSchema.member.userId))
         .for('share');
+      const caller = locked.find((m) => m.userId === scope.userId);
+      if (caller?.role !== 'owner' && caller?.role !== 'admin') throw new ForbiddenException();
+      const target = locked.find((m) => m.userId === userId);
       if (!target) throw new NotFoundException('Member not found');
       if (target.role === 'owner' || target.role === 'admin') {
-        throw new ConflictException({ code: 'implied_by_role', message: 'implied_by_role' });
+        throw new ConflictException({
+          code: 'implied_by_role',
+          message: 'Owners and admins have every module permission.',
+        });
       }
       if (input.granted) {
         await tx

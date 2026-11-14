@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { createTestDb } from '@briefroom/db/testing';
 import type { ModuleManifest } from '@briefroom/module-kit';
 import { TESTKIT_SQL_PATH } from '@briefroom/module-testkit/sql';
+import { GUARDS_METADATA, PATH_METADATA } from '@nestjs/common/constants';
 import { getTableColumns, getTableName } from 'drizzle-orm';
 import { getTableConfig, pgTable, uuid, type PgTable } from 'drizzle-orm/pg-core';
 import { describe, expect, it } from 'vitest';
@@ -105,6 +106,22 @@ describe('module contract', () => {
 
       it('follows the project_id rule for its content levels (R109)', () => {
         expect(projectIdProblems(manifest)).toEqual([]);
+      });
+
+      it('mounts every controller under its own prefix, behind the module-enabled guard', () => {
+        const nestModule = REGISTERED_MODULES.find((m) => m.manifest.id === id)!.nestModule;
+        const controllers: object[] = Reflect.getMetadata('controllers', nestModule) ?? [];
+        expect(controllers.length).toBeGreaterThan(0);
+        for (const c of controllers) {
+          const name = (c as { name: string }).name;
+          const path = String(Reflect.getMetadata(PATH_METADATA, c));
+          expect(path.startsWith(`v1/workspaces/:workspaceId/m/${id}`), name).toBe(true);
+          const guards: { name: string }[] = Reflect.getMetadata(GUARDS_METADATA, c) ?? [];
+          expect(
+            guards.map((g) => g.name),
+            name,
+          ).toContain('ModuleEnabledGuard');
+        }
       });
 
       it('prefixes its table names with the module id', () => {
