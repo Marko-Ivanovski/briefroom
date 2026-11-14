@@ -1,0 +1,6 @@
+import type { INestApplication } from '@nestjs/common';
+
+export function configureApp(app: INestApplication): void {
+  app.setGlobalPrefix('api', { exclude: ['mcp', 'mcp/{*path}', '.well-known/{*path}'] });
+  app.enableShutdownHooks();
+}

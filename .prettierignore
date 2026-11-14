@@ -1,0 +1,10 @@
+node_modules
+dist
+build
+coverage
+pnpm-lock.yaml
+.claude/worktrees
+.superpowers
+docs
+packages/db/migrations
+routeTree.gen.ts

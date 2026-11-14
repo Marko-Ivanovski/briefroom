@@ -1,0 +1,19 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    ports:
+      - '127.0.0.1:54329:5432'
+    environment:
+      POSTGRES_DB: briefroom_dev
+      POSTGRES_USER: briefroom
+      POSTGRES_PASSWORD: briefroom
+    volumes:
+      - briefroom_dev_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U briefroom -d briefroom_dev']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  briefroom_dev_pgdata:

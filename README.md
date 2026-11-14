@@ -11,6 +11,18 @@ Early development. Nothing is released yet. The foundation is being built first,
 - Design: [`docs/specs/2026-11-14-foundation-design.md`](docs/specs/2026-11-14-foundation-design.md)
 - Plan: [`docs/plans/2026-11-14-brief-1-foundation.md`](docs/plans/2026-11-14-brief-1-foundation.md)
 
+## Development
+
+Needs Node 24, pnpm and Docker.
+
+```sh
+pnpm install
+pnpm db:up
+pnpm dev
+```
+
+A clean clone runs without a `.env`. Outside production, `DATABASE_URL` defaults to the dev database from `pnpm db:up` and `BRIEFROOM_PUBLIC_URL` defaults to `http://localhost:5173`. In production both are required, and any secret added later is required in every mode. The API listens on `127.0.0.1` unless `HOST` is set.
+
 ## Branches
 
 - `main` holds releases only.
