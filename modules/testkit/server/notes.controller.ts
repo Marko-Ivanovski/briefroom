@@ -9,9 +9,11 @@ import {
 import {
   CurrentScope,
   DB,
+  EVENTS,
   HISTORY,
   hasPermission,
   ModuleController,
+  type EventPublisher,
   type HistoryRecorder,
   type Scope,
 } from '@briefroom/module-kit';
@@ -40,6 +42,7 @@ export class NotesController {
   constructor(
     @Inject(DB) private readonly db: Db,
     @Inject(HISTORY) private readonly history: HistoryRecorder,
+    @Inject(EVENTS) private readonly events: EventPublisher,
   ) {}
 
   @Get()
@@ -78,6 +81,15 @@ export class NotesController {
         before: null,
         after: row!,
       });
+      await this.events.publish(
+        scope,
+        {
+          type: 'testkit.note_created',
+          ...(row!.projectId ? { projectId: row!.projectId } : {}),
+          payload: { noteId: row!.id },
+        },
+        tx,
+      );
       return row!;
     });
   }

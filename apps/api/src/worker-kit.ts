@@ -11,6 +11,8 @@ export {
   FilesGcJob,
   MAX_WORKSPACE_REMOVALS,
 } from './files/files-gc.job.ts';
+export { EventsModule } from './events/events.module.ts';
+export { EventsService } from './events/events.service.ts';
 export { FilesService } from './files/files.service.ts';
 export { HistoryService } from './history/history.service.ts';
 export { JobsModule } from './jobs/jobs.module.ts';

@@ -19,9 +19,21 @@ export class RevocationService {
   private readonly log = new Logger(RevocationService.name);
   private readonly memberHandlers: MemberRemovedHandler[] = [];
   private readonly projectHandlers: ProjectMemberRemovedHandler[] = [];
+  private readonly roleHandlers: MemberRemovedHandler[] = [];
 
   onMemberRemoved(handler: MemberRemovedHandler): void {
     this.memberHandlers.push(handler);
+  }
+
+  onRoleChanged(handler: MemberRemovedHandler): void {
+    this.roleHandlers.push(handler);
+  }
+
+  roleChanged(workspaceId: string, userId: string): Promise<void> {
+    return this.run(
+      'roleChanged',
+      this.roleHandlers.map((h) => () => h(workspaceId, userId)),
+    );
   }
 
   onProjectMemberRemoved(handler: ProjectMemberRemovedHandler): void {

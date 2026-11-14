@@ -1,6 +1,7 @@
 import {
   DatabaseModule,
   EnvModule,
+  EventsModule,
   JobsModule,
   REGISTERED_MODULES,
   type Env,
@@ -21,6 +22,7 @@ export class WorkerModule {
         DatabaseModule,
         CoreServicesModule,
         JobsModule.register('worker'),
+        EventsModule.register('worker'),
         DiscoveryModule,
         ...REGISTERED_MODULES.map((m) => m.nestModule),
       ],

@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { JobsService, ModuleRegistryService } from '@briefroom/api/worker-kit';
 import { systemScope } from '@briefroom/module-kit';
 import { Logger } from '@nestjs/common';
+import pg from 'pg';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { stopOnSignals } from '../src/shutdown.ts';
 import { startWorker, type RunningWorker } from '../src/worker.ts';
@@ -66,6 +67,32 @@ describe('worker', () => {
     );
     expect(note.updatedBy).toBe('system');
     expect(note.updatedVia).toBe('system');
+  });
+
+  it('publishes an event through NOTIFY from a job, scoped to the job’s workspace', async () => {
+    const workspaceId = await createWorkspace(fx.db, { testkitOn: true });
+    const noteId = await createNote(fx.db, workspaceId);
+    const listener = new pg.Client({ connectionString: fx.env.databaseUrl });
+    const heard: string[] = [];
+    await listener.connect();
+    listener.on('notification', (m) => heard.push(m.payload ?? ''));
+    await listener.query('LISTEN briefroom_events');
+    try {
+      worker = await startWorker(fx.env, { logger: false });
+      await producer.enqueue(systemScope(workspaceId), 'testkit.ping', { noteId });
+      const payload = await until(
+        async () => heard.find((p) => p.includes('testkit.pinged')),
+        5000,
+        'the pinged event',
+      );
+      expect(JSON.parse(payload)).toEqual({
+        workspaceId,
+        type: 'testkit.pinged',
+        payload: { noteId },
+      });
+    } finally {
+      await listener.end();
+    }
   });
 
   it('completes a job without running it when the module is off in that workspace', async () => {

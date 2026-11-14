@@ -83,7 +83,11 @@ export class MembersService {
       headers,
       body: { memberId: target.id, role, organizationId: scope.workspaceId },
     });
-    if (target.role !== role) await this.clearGrants(scope.workspaceId, targetUserId);
+    if (target.role !== role) {
+      await this.clearGrants(scope.workspaceId, targetUserId);
+      // The role decides which projects a stream may see, so streams end and reconnect with a new snapshot.
+      await this.revocation.roleChanged(scope.workspaceId, targetUserId);
+    }
     // Admin-issued links were authorised against the old role. Removal (Task 4.3) must do the same.
     await this.db
       .update(passwordResetLinks)
