@@ -98,7 +98,8 @@ export class ChecklistService {
     await this.requireProject(scope, projectId);
     const row = projectAccessChecklist;
     const undone = sql<number>`count(*) filter (where ${row.done} = false)::int`;
-    const removedAt = sql<Date>`max(${row.createdAt})`;
+    // Latest event, not first: a second removal resets the rows and refreshes updated_at (R80).
+    const removedAt = sql<Date>`max(${row.updatedAt}) filter (where ${row.done} = false)`;
     const rows = await this.db
       .select({
         userId: row.userId,

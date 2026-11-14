@@ -77,6 +77,7 @@ export class ProjectMembersService {
 
     try {
       const row = await this.db.transaction(async (tx) => {
+        await this.lockProject(tx, scope, projectId);
         const [added] = await tx
           .insert(projectMembers)
           .values(scopedInsert(scope, { projectId, userId }))
@@ -97,7 +98,7 @@ export class ProjectMembersService {
       if (hasPgCode(err, PG_UNIQUE_VIOLATION))
         throw new ConflictException({ code: 'already_on_project', message: 'already_on_project' });
       if (hasPgCode(err, PG_FOREIGN_KEY_VIOLATION)) {
-        throw new NotFoundException('Project not found');
+        throw new NotFoundException({ code: 'project_not_found', message: 'Project not found' });
       }
       throw err;
     }
@@ -109,20 +110,45 @@ export class ProjectMembersService {
    */
   async remove(scope: Scope, projectId: string, userId: string): Promise<void> {
     if (!z.uuid().safeParse(projectId).success) throw new NotFoundException('Project not found');
-    await this.db.transaction(async (tx) => {
-      const deleted = await tx
-        .delete(projectMembers)
-        .where(
-          and(
-            scoped(scope, projectMembers),
-            eq(projectMembers.projectId, projectId),
-            eq(projectMembers.userId, userId),
-          ),
-        )
-        .returning({ userId: projectMembers.userId });
-      if (deleted.length === 0) throw new NotFoundException('Not on this project');
-      await this.resetChecklist(tx, scope, projectId, userId, 'remove');
-    });
+    await this.guardLinks(() =>
+      this.db.transaction(async (tx) => {
+        await this.lockProject(tx, scope, projectId);
+        const deleted = await tx
+          .delete(projectMembers)
+          .where(
+            and(
+              scoped(scope, projectMembers),
+              eq(projectMembers.projectId, projectId),
+              eq(projectMembers.userId, userId),
+            ),
+          )
+          .returning({ userId: projectMembers.userId });
+        if (deleted.length === 0) throw new NotFoundException('Not on this project');
+        await this.resetChecklist(tx, scope, projectId, userId, 'remove');
+      }),
+    );
+  }
+
+  // A concurrent project edit holds FOR UPDATE and may delete tool links. A shared lock makes this
+  // transaction wait for it, so the links read below are the ones that still exist.
+  private async lockProject(tx: Tx, scope: Scope, projectId: string): Promise<void> {
+    const [project] = await tx
+      .select({ id: projects.id })
+      .from(projects)
+      .where(and(scopedProjects(scope), eq(projects.id, projectId)))
+      .for('share');
+    if (!project) throw new NotFoundException('Project not found');
+  }
+
+  private async guardLinks<T>(run: () => Promise<T>): Promise<T> {
+    try {
+      return await run();
+    } catch (err) {
+      if (hasPgCode(err, PG_FOREIGN_KEY_VIOLATION)) {
+        throw new NotFoundException({ code: 'project_not_found', message: 'Project not found' });
+      }
+      throw err;
+    }
   }
 
   // Each add is a new grant and each removal a new revocation, so the items start undone again (R80).

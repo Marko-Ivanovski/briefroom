@@ -1,4 +1,4 @@
-import { authSchema, projectAccessChecklist } from '@briefroom/db';
+import { authSchema, projectAccessChecklist, projects } from '@briefroom/db';
 import { eq } from 'drizzle-orm';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -497,6 +497,56 @@ describe('access checklists', () => {
       const items: Item[] = (await get('admin', ids.member!, 'add', p)).body;
       expect(items).toHaveLength(2);
       expect(items.every((i) => !i.done)).toBe(true);
+    });
+
+    it('dates a pending removal by the latest removal and sorts on it', async () => {
+      const p = await newProject();
+      await join(p, 'member');
+      await join(p, 'admin');
+      await http()
+        .delete(`${members(p)}/${ids.member}`)
+        .set(as('owner'));
+      await http()
+        .delete(`${members(p)}/${ids.admin}`)
+        .set(as('owner'));
+      const first = (await pending('owner', p)).body as Pending[];
+      const firstMember = first.find((r) => r.userId === ids.member)!.removedAt;
+      await join(p, 'member');
+      await new Promise((r) => setTimeout(r, 25));
+      await http()
+        .delete(`${members(p)}/${ids.member}`)
+        .set(as('owner'));
+      const res = (await pending('owner', p)).body as Pending[];
+      expect(res.map((r) => r.userId)).toEqual([ids.member, ids.admin]);
+      expect(Date.parse(res[0]!.removedAt)).toBeGreaterThan(Date.parse(firstMember));
+    });
+
+    it('waits for a concurrent project edit instead of racing it on removal', async () => {
+      const p = await newProject();
+      await join(p, 'member');
+      let release!: () => void;
+      const held = new Promise<void>((r) => (release = r));
+      let locked!: () => void;
+      const hasLock = new Promise<void>((r) => (locked = r));
+      const editor = t.db.db.transaction(async (tx) => {
+        await tx.select().from(projects).where(eq(projects.id, p)).for('update');
+        locked();
+        await held;
+      });
+      await hasLock;
+      let done = false;
+      const removal = http()
+        .delete(`${members(p)}/${ids.member}`)
+        .set(as('admin'))
+        .then((res) => {
+          done = true;
+          return res;
+        });
+      await new Promise((r) => setTimeout(r, 300));
+      expect(done).toBe(false);
+      release();
+      await editor;
+      expect((await removal).status).toBe(204);
     });
 
     it('creates nothing when the project has no tool links', async () => {
