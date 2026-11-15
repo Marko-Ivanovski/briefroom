@@ -218,7 +218,7 @@ importers:
         specifier: workspace:*
         version: link:../../modules/testkit
       '@modelcontextprotocol/server':
-        specifier: ^2.4.0
+        specifier: 2.4.0
         version: 2.4.0
       '@nestjs/common':
         specifier: 12.5.0
@@ -273,7 +273,7 @@ importers:
         version: 4.6.7
     devDependencies:
       '@modelcontextprotocol/client':
-        specifier: ^2.4.0
+        specifier: 2.4.0
         version: 2.4.0
       '@swc-node/register':
         specifier: 1.12.1

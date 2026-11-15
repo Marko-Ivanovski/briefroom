@@ -7,3 +7,4 @@ allowBuilds:
   '@swc/core': true
   '@prisma/client': false
   better-sqlite3: false
+minimumReleaseAge: 1440
