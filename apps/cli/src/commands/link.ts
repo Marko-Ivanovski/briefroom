@@ -80,6 +80,8 @@ export async function readLink(
   const root = await repoRoot(cwd);
   if (!root) return null;
   try {
+    // A symlinked link file is treated as not linked, never read through.
+    await refuseSymlink(join(root, LINK_FILE));
     const parsed = JSON.parse(await readFile(join(root, LINK_FILE), 'utf8')) as {
       installId?: unknown;
       workspaceId?: unknown;

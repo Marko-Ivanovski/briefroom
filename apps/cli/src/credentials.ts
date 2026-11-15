@@ -1,7 +1,7 @@
 import { chmod, mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { CliError } from './errors.ts';
-import { writeFileReplacing } from './fs-safe.ts';
+import { refuseSymlink, writeFileReplacing } from './fs-safe.ts';
 
 export interface WorkspaceCredential {
   name: string;
@@ -26,6 +26,7 @@ export function credentialsPath(home: string): string {
 }
 
 export async function loadCredentials(home: string): Promise<Credentials> {
+  await refuseSymlink(credentialsPath(home));
   let raw: string;
   try {
     raw = await readFile(credentialsPath(home), 'utf8');
