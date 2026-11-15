@@ -3,6 +3,7 @@ import pkg from '../package.json' with { type: 'json' };
 import { disconnect } from './commands/disconnect.ts';
 import { link } from './commands/link.ts';
 import { login } from './commands/login.ts';
+import { mcpProxy } from './commands/mcp-proxy.ts';
 import type { Context } from './context.ts';
 import { CliError } from './errors.ts';
 
@@ -33,6 +34,11 @@ export function buildProgram(ctx: Context): Command {
     .description('Revoke the saved token and remove it from this machine')
     .option('--all', 'disconnect every saved workspace on every install')
     .action((opts: { all?: boolean }) => disconnect(ctx, opts));
+
+  program
+    .command('mcp-proxy')
+    .description('Run the MCP server that coding agents launch (stdio)')
+    .action(() => mcpProxy(ctx));
 
   return program;
 }

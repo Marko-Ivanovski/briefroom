@@ -2,6 +2,7 @@ import { assertCompatible, request } from '../api.ts';
 import type { Context } from '../context.ts';
 import { loadCredentials, removeWorkspaceToken } from '../credentials.ts';
 import { CliError } from '../errors.ts';
+import { removeLinksFor } from '../links.ts';
 import { readLink } from './link.ts';
 
 interface Target {
@@ -67,6 +68,9 @@ export async function disconnect(ctx: Context, options: { all?: boolean } = {}):
       ctx.err(`Warning: could not revoke the token on ${host}. ${err.message}\n`);
     }
     await removeWorkspaceToken(ctx.home, target.baseUrl, target.workspaceId);
+    await removeLinksFor(ctx.home, target.baseUrl, target.workspaceId).catch((err: unknown) => {
+      ctx.err(`Warning: could not update the local link records. ${(err as Error).message}\n`);
+    });
     ctx.out(`Disconnected from ${target.name} on ${host}.\n`);
   }
   if (outdated) throw outdated;

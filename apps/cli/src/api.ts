@@ -16,7 +16,7 @@ function isLoopback(hostname: string): boolean {
   );
 }
 
-function assertSecure(url: URL): void {
+export function assertSecure(url: URL): void {
   if (url.protocol === 'http:' && !isLoopback(url.hostname)) {
     throw new CliError(
       `${url.origin} uses plain http, which would send your token unencrypted. Use https://${url.host}.`,

@@ -1,10 +1,11 @@
-import { appendFile, mkdir, readFile } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, realpath } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import type { Context } from '../context.ts';
 import { loadCredentials } from '../credentials.ts';
 import { CliError } from '../errors.ts';
 import { refuseSymlink, writeFileReplacing } from '../fs-safe.ts';
 import { excludeFile, repoRoot } from '../git.ts';
+import { recordLink } from '../links.ts';
 
 export const LINK_FILE = '.briefroom.json';
 
@@ -65,6 +66,13 @@ export async function link(
   const link = { installId: chosen.installId, workspaceId: chosen.workspaceId };
   if (options.private) await addToExclude(root);
   await writeFileReplacing(join(root, LINK_FILE), `${JSON.stringify(link, null, 2)}\n`, 0o644);
+  // The committed file alone never lets the proxy use a token: this machine's own record must agree with it.
+  await recordLink(
+    ctx.home,
+    await realpath(root),
+    { baseUrl: chosen.baseUrl, installId: chosen.installId, workspaceId: chosen.workspaceId },
+    ctx.now,
+  );
 
   ctx.out(
     `Linked ${basename(root)} to ${chosen.name} on ${new URL(chosen.baseUrl).host}.${

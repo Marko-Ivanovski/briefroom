@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "briefroom": {
+      "command": "briefroom",
+      "args": ["mcp-proxy"]
+    }
+  }
+}
