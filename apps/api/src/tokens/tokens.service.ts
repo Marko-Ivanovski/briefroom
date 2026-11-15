@@ -44,8 +44,8 @@ export class TokensService implements OnModuleInit {
 
   onModuleInit(): void {
     this.revocation.onMemberRemoved((workspaceId, userId) => this.revokeFor(userId, workspaceId));
-    // R145: any session deletion, including a password reset, also ends the user's tokens.
-    this.revocation.onSessionsRevoked((userId) => this.revokeFor(userId));
+    // R149: only a password reset ends all of a user's tokens, not sign-out or other session cleanup.
+    this.revocation.onPasswordReset((userId) => this.revokeFor(userId));
   }
 
   async create(scope: Scope, name: string): Promise<{ id: string; token: string }> {

@@ -145,6 +145,7 @@ export class PasswordResetService {
     try {
       await ctx.internalAdapter.deleteUserSessions(claimed.userId);
       await this.revocation.sessionsRevoked(claimed.userId);
+      await this.revocation.passwordReset(claimed.userId);
       if (!(await ctx.internalAdapter.findCredentialAccount(claimed.userId))) {
         throw new PasswordWriteFailed();
       }
@@ -161,6 +162,7 @@ export class PasswordResetService {
     try {
       await ctx.internalAdapter.deleteUserSessions(claimed.userId);
       await this.revocation.sessionsRevoked(claimed.userId);
+      await this.revocation.passwordReset(claimed.userId);
     } catch {
       failed = true;
     }

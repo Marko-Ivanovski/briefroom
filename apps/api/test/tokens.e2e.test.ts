@@ -71,6 +71,7 @@ describe('workspace tokens', () => {
       { ws, role: 'member' },
       { ws: ws2, role: 'member' },
     ]);
+    await addUser('frank', [{ ws, role: 'member' }]);
     await addUser('outsider', []);
   });
 
@@ -231,6 +232,17 @@ describe('workspace tokens', () => {
     expect(res.status).toBe(204);
     expect(await tokens().verify(a.token)).toBeNull();
     expect(await tokens().verify(b.token)).toBeNull();
+  });
+
+  it('keeps tokens after a web sign-out (R149)', async () => {
+    const { id, token } = await mint('frank');
+    const res = await http().post('/api/auth/sign-out').set(as('frank'));
+    expect(res.status).toBe(200);
+    expect(await tokens().verify(token)).toEqual({
+      userId: ids.frank,
+      workspaceId: ws,
+      tokenId: id,
+    });
   });
 
   it('keeps Better Auth’s api-key endpoints closed over HTTP', async () => {
