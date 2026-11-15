@@ -154,8 +154,6 @@ export class PasswordResetService {
         throw new PasswordWriteFailed();
       }
       await ctx.internalAdapter.updatePassword(claimed.userId, hash);
-      // A token minted after the first cutoff, before the password changed, would otherwise survive.
-      await this.tokens.invalidateAll(claimed.userId);
     } catch (err) {
       await this.db
         .update(passwordResetLinks)
@@ -164,7 +162,14 @@ export class PasswordResetService {
       throw err instanceof PasswordWriteFailed ? err : new PasswordWriteFailed();
     }
 
+    // From here the password has changed: the link stays used and the cleanup below always runs,
+    // even when this cutoff write fails. A token minted after the first cutoff would otherwise survive.
     let failed = false;
+    try {
+      await this.tokens.invalidateAll(claimed.userId);
+    } catch {
+      failed = true;
+    }
     try {
       await ctx.internalAdapter.deleteUserSessions(claimed.userId);
       await this.revocation.sessionsRevoked(claimed.userId);

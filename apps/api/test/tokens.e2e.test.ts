@@ -363,7 +363,7 @@ describe('workspace tokens', () => {
       expect(await tokens().verify(mid!.token)).toBeNull();
     });
 
-    it('fails the reset when the second cutoff write fails (S1)', async () => {
+    it('reports failure when the second cutoff write fails (S1)', async () => {
       await addUser('jo', [{ ws, role: 'member' }]);
       const resetToken = await resetTokenFor('jo');
       const service = tokens();
@@ -380,7 +380,8 @@ describe('workspace tokens', () => {
       } finally {
         spy.mockRestore();
       }
-      expect((await redeem(resetToken)).status).toBe(204);
+      // The password changed before the failing write, so the link stays used (S2).
+      expect((await redeem(resetToken)).status).toBe(410);
     });
   });
 

@@ -6,6 +6,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { DB } from '../src/database/database.module.ts';
 import { PasswordResetLinks } from '../src/members/password-reset-links.service.ts';
 import { runResetPassword } from '../src/admin-cli.ts';
+import type { Scope } from '../src/access/scope.ts';
+import { TokensService } from '../src/tokens/tokens.service.ts';
 import { createTestApp, makeInstallOwner, type TestApp } from './helpers.ts';
 
 const PASSWORD = 'correct horse battery';
@@ -365,6 +367,41 @@ describe('password reset links', () => {
       await expect(signIn('rev2@example.com', NEW_PASSWORD)).resolves.toBeTruthy();
       expect((await redeem(url, PASSWORD)).status).toBe(410);
       vi.restoreAllMocks();
+    });
+
+    it('keeps the link used and still revokes when the second token cutoff fails (S2)', async () => {
+      await join('rev4', 'member');
+      const url = await issue('admin', 'rev4');
+      const tokens = t.app.get(TokensService);
+      const scope = { userId: ids.rev4!, workspaceId } as Scope;
+      const early = await tokens.create(scope, 'early');
+      const ctx = await t.auth.$context;
+      const original = ctx.internalAdapter.updatePassword.bind(ctx.internalAdapter);
+      let gapCookie = '';
+      let gapToken = '';
+      vi.spyOn(ctx.internalAdapter, 'updatePassword').mockImplementationOnce(async (...args) => {
+        gapCookie = await signIn('rev4@example.com', PASSWORD);
+        gapToken = (await tokens.create(scope, 'gap')).token;
+        return original(...args);
+      });
+      const cutoff = tokens.invalidateAll.bind(tokens);
+      let calls = 0;
+      vi.spyOn(tokens, 'invalidateAll').mockImplementation(async (userId) => {
+        calls += 1;
+        if (calls === 2) throw new Error('cutoff boom');
+        return cutoff(userId);
+      });
+      const res = await redeem(url);
+      vi.restoreAllMocks();
+      expect(res.status).toBe(500);
+      expect(JSON.stringify(res.body)).not.toContain('boom');
+      expect(calls).toBe(2);
+      await expect(signIn('rev4@example.com', NEW_PASSWORD)).resolves.toBeTruthy();
+      expect((await http().get('/api/v1/workspaces').set({ cookie: gapCookie })).status).toBe(401);
+      expect(await tokens.verify(early.token)).toBeNull();
+      expect(await tokens.verify(gapToken)).toBeNull();
+      expect((await linkRow('rev4')).usedAt).not.toBeNull();
+      expect((await redeem(url, PASSWORD)).status).toBe(410);
     });
 
     it('still revokes sessions when expiring the other links fails', async () => {
