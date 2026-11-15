@@ -46,6 +46,19 @@ describe('disconnect', () => {
     expect([...t.stdout, ...t.stderr].join('')).not.toContain(SECRET);
   });
 
+  it('prints the plugin uninstall command only with --all, and never runs it', async () => {
+    t = await testContext();
+    await install('a', healthy);
+    expect(await run(['disconnect'], t.ctx)).toBe(0);
+    expect(t.stdout.join('')).not.toContain('plugin uninstall');
+
+    await install('b', healthy);
+    expect(await run(['disconnect', '--all'], t.ctx)).toBe(0);
+    expect(t.stdout.join('')).toContain(
+      'To remove the Claude Code plugin, run:\n  claude plugin uninstall briefroom@briefroom\n',
+    );
+  });
+
   it('removes the local credential even when the server fails, with a warning', async () => {
     t = await testContext();
     await install('a', (url) =>

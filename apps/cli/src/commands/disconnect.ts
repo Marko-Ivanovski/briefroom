@@ -3,6 +3,7 @@ import type { Context } from '../context.ts';
 import { loadCredentials, removeWorkspaceToken } from '../credentials.ts';
 import { CliError } from '../errors.ts';
 import { removeLinksFor } from '../links.ts';
+import { MARKETPLACE_NAME, PLUGIN_NAME } from '../plugin-install.ts';
 import { readLink } from './link.ts';
 
 interface Target {
@@ -41,6 +42,13 @@ async function targets(ctx: Context, all: boolean): Promise<Target[]> {
  * Revokes the token on the install, then removes it locally. The local copy goes even when the
  * server cannot be reached: a token that is still stored can leak, a failed revoke is only warned about.
  */
+/** Claude Code's own config is left alone: the command is printed, never run. */
+function printPluginUninstall(ctx: Context): void {
+  ctx.out(
+    `To remove the Claude Code plugin, run:\n  claude plugin uninstall ${PLUGIN_NAME}@${MARKETPLACE_NAME}\n`,
+  );
+}
+
 export async function disconnect(ctx: Context, options: { all?: boolean } = {}): Promise<void> {
   const list = await targets(ctx, options.all === true);
   if (list.length === 0) {
@@ -73,5 +81,6 @@ export async function disconnect(ctx: Context, options: { all?: boolean } = {}):
     });
     ctx.out(`Disconnected from ${target.name} on ${host}.\n`);
   }
+  if (options.all) printPluginUninstall(ctx);
   if (outdated) throw outdated;
 }
