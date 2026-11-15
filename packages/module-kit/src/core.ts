@@ -3,12 +3,14 @@ import type { FileRecord, FileStore, FileStoreInput } from './files.ts';
 import type { HistoryRecorder } from './history.ts';
 import type { JobQueue } from './jobs.ts';
 import type { Scope } from './scope.ts';
+import type { UsageLogger } from './usage.ts';
 
 /** The core's unbound services. Only the API and the worker import this file. */
 export const CORE_EVENTS = Symbol('CORE_EVENTS');
 export const CORE_JOBS = Symbol('CORE_JOBS');
 export const CORE_FILE_STORE = Symbol('CORE_FILE_STORE');
 export const CORE_HISTORY = Symbol('CORE_HISTORY');
+export const CORE_USAGE = Symbol('CORE_USAGE');
 
 /** The unbound file store: the caller names the owning module, and `remove` may be limited to one. */
 export interface CoreFileStore {
@@ -89,6 +91,22 @@ export function bindHistory(moduleId: string, core: CoreHistory): HistoryRecorde
         );
       }
       return core.record(tx, input);
+    },
+  };
+}
+
+/** A usage logger that refuses any tool name outside `<moduleId>_*`, whoever asks. */
+export function bindUsage(moduleId: string, core: UsageLogger): UsageLogger {
+  return {
+    log(scope, event) {
+      if (!event.tool.startsWith(`${moduleId}_`)) {
+        return Promise.reject(
+          new Error(
+            `Module "${moduleId}" can only log tools named "${moduleId}_*", not "${event.tool}"`,
+          ),
+        );
+      }
+      return core.log(scope, event);
     },
   };
 }

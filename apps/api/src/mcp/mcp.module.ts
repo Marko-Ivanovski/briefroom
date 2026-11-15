@@ -5,7 +5,6 @@ import { ProjectsModule } from '../projects/projects.module.ts';
 import { RateLimitModule } from '../rate-limit/rate-limit.ts';
 import { APP_VERSION } from '../system/app-version.ts';
 import { TokensModule } from '../tokens/tokens.module.ts';
-import { UsageService } from '../usage/usage.service.ts';
 import { CoreTools, MCP_INSTRUCTIONS } from './core.tools.ts';
 import { McpTokenGuard } from './mcp-token.guard.ts';
 
@@ -22,6 +21,6 @@ import { McpTokenGuard } from './mcp-token.guard.ts';
       imports: [TokensModule, RateLimitModule],
     }),
   ],
-  providers: [CoreTools, UsageService],
+  providers: [CoreTools],
 })
 export class BriefroomMcpModule {}

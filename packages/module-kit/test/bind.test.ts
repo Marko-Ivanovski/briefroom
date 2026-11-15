@@ -5,6 +5,7 @@ import {
   HISTORY,
   JOBS,
   provideModuleServices,
+  USAGE,
   systemScope,
 } from '../src/index.ts';
 import {
@@ -12,6 +13,8 @@ import {
   CORE_FILE_STORE,
   CORE_HISTORY,
   CORE_JOBS,
+  CORE_USAGE,
+  bindUsage,
   bindEvents,
   bindFileStore,
   bindHistory,
@@ -87,7 +90,7 @@ describe('per-module file store and history (R140)', () => {
     expect(core.record).toHaveBeenCalledTimes(1);
   });
 
-  it('provides EVENTS, JOBS, FILE_STORE and HISTORY as factories over the core instances', () => {
+  it('provides EVENTS, JOBS, FILE_STORE, HISTORY and USAGE as factories over the core instances', () => {
     const providers = provideModuleServices('testkit') as {
       provide: symbol;
       inject: symbol[];
@@ -97,6 +100,18 @@ describe('per-module file store and history (R140)', () => {
       [JOBS, CORE_JOBS],
       [FILE_STORE, CORE_FILE_STORE],
       [HISTORY, CORE_HISTORY],
+      [USAGE, CORE_USAGE],
     ]);
+  });
+
+  it('lets a module log its own tools and refuses every other name', async () => {
+    const core = { log: vi.fn(async () => undefined) };
+    const usage = bindUsage('testkit', core);
+    await usage.log(scope, { tool: 'testkit_list_notes' });
+    expect(core.log).toHaveBeenCalledTimes(1);
+    for (const tool of ['briefroom_whoami', 'other_x', 'testkit', 'testkitx_y']) {
+      await expect(usage.log(scope, { tool })).rejects.toThrow(/can only log tools/);
+    }
+    expect(core.log).toHaveBeenCalledTimes(1);
   });
 });

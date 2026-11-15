@@ -26,6 +26,10 @@ export class WorkspaceModulesService implements ModuleState {
     return row?.enabled === true;
   }
 
+  displayName(moduleId: string): string | undefined {
+    return this.registry.get(moduleId)?.manifest.name;
+  }
+
   async list(workspaceId: string): Promise<ModuleSummary[]> {
     const rows = await this.db
       .select({ moduleId: workspaceModules.moduleId, enabled: workspaceModules.enabled })

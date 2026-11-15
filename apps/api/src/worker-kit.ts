@@ -19,4 +19,5 @@ export { JobsModule } from './jobs/jobs.module.ts';
 export { JobsService, migrateJobs } from './jobs/jobs.service.ts';
 export { ModuleRegistryService } from './module-registry/module-registry.service.ts';
 export { REGISTERED_MODULES, type RegisteredModule } from './module-registry/registered-modules.ts';
+export { UsageService } from './usage/usage.service.ts';
 export { WorkspaceModulesService } from './module-registry/workspace-modules.service.ts';

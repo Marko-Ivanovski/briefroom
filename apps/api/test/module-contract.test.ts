@@ -8,7 +8,11 @@ import {
   HISTORY,
   JOBS,
   moduleEnabledGuard,
+  ModuleTool,
+  moduleToolsOf,
   systemScope,
+  USAGE,
+  type UsageLogger,
   type EventPublisher,
   type FileStore,
   type HistoryRecorder,
@@ -21,8 +25,10 @@ import {
   PATH_METADATA,
   SELF_DECLARED_DEPS_METADATA,
 } from '@nestjs/common/constants';
+import type { Type } from '@nestjs/common';
 import { getTableColumns, getTableName } from 'drizzle-orm';
 import { getTableConfig, pgTable, uuid, type PgTable } from 'drizzle-orm/pg-core';
+import { z } from 'zod';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestApp, type TestApp } from './helpers.ts';
 import { REGISTERED_MODULES } from '../src/module-registry/registered-modules.ts';
@@ -219,7 +225,43 @@ function controllerProblems(root: ModuleRef, id: string): string[] {
   });
 }
 
-const BOUND_TOKENS: readonly unknown[] = [EVENTS, JOBS, FILE_STORE, HISTORY];
+/** Every `@ModuleTool` class of a Nest module and of everything it imports. */
+function moduleToolClasses(root: ModuleRef): Type[] {
+  const seen = new Set<object>();
+  const classes = new Set<Type>();
+  const visit = (ref: ModuleRef): void => {
+    const cls = resolveModuleRef(ref);
+    if (!cls || seen.has(cls)) return;
+    seen.add(cls);
+    const dynamic = typeof ref === 'object' && ref ? (ref as { providers?: unknown[] }) : {};
+    for (const p of [
+      ...(Reflect.getMetadata('providers', cls) ?? []),
+      ...(dynamic.providers ?? []),
+    ]) {
+      if (typeof p === 'function') classes.add(p as Type);
+    }
+    for (const i of Reflect.getMetadata('imports', cls) ?? []) visit(i);
+    for (const i of (dynamic as { imports?: ModuleRef[] }).imports ?? []) visit(i);
+  };
+  visit(root);
+  return [...classes];
+}
+
+/** One message per module tool that names another module's id or a name outside `<id>_*`. */
+function moduleToolProblems(root: ModuleRef, id: string): string[] {
+  return moduleToolClasses(root).flatMap((cls) =>
+    moduleToolsOf(cls).flatMap((tool) => [
+      ...(tool.moduleId !== id
+        ? [`${cls.name}.${tool.name}: declared with module id "${tool.moduleId}", not "${id}"`]
+        : []),
+      ...(!tool.name.startsWith(`${id}_`)
+        ? [`${cls.name}.${tool.name}: tool name must start with "${id}_"`]
+        : []),
+    ]),
+  );
+}
+
+const BOUND_TOKENS: readonly unknown[] = [EVENTS, JOBS, FILE_STORE, HISTORY, USAGE];
 
 interface Consumer {
   nestModule: object;
@@ -313,6 +355,17 @@ describe('module contract', () => {
           provide?: unknown;
         }[];
         expect(provided.map((p) => p.provide)).toContain(JOBS);
+      });
+
+      it('declares module tools under its own id and a name that starts with it', () => {
+        const nestModule = REGISTERED_MODULES.find((m) => m.manifest.id === id)!.nestModule;
+        expect(moduleToolProblems(nestModule, id)).toEqual([]);
+        if (id === 'testkit') {
+          const names = moduleToolClasses(nestModule).flatMap((c) =>
+            moduleToolsOf(c).map((x) => x.name),
+          );
+          expect(names).toContain('testkit_list_notes');
+        }
       });
 
       it('calls provideModuleServices with its own id and never touches the core tokens', () => {
@@ -426,6 +479,50 @@ describe('module contract', () => {
       expect(
         controllerProblems(nest([controller(P, [moduleEnabledGuard('other')])]), 'design'),
       ).toHaveLength(1);
+    });
+  });
+
+  describe('the module tool check', () => {
+    function toolClass(moduleId: string, name: string) {
+      class Tools {
+        run(): void {}
+      }
+      ModuleTool(moduleId, { name, description: 'x', inputSchema: z.object({}) })(
+        Tools.prototype,
+        'run',
+        Object.getOwnPropertyDescriptor(Tools.prototype, 'run')!,
+      );
+      return Tools;
+    }
+    function nest(providers: object[], imports: unknown[] = []) {
+      class M {}
+      Reflect.defineMetadata('providers', providers, M);
+      Reflect.defineMetadata('imports', imports, M);
+      return M;
+    }
+
+    it('passes a tool under its own id and prefix', () => {
+      expect(moduleToolProblems(nest([toolClass('design', 'design_list')]), 'design')).toEqual([]);
+    });
+
+    it('rejects a tool that names another module id', () => {
+      expect(moduleToolProblems(nest([toolClass('notes', 'design_list')]), 'design')).toHaveLength(
+        1,
+      );
+    });
+
+    it('rejects a tool whose name starts with another prefix, and one without the underscore', () => {
+      expect(moduleToolProblems(nest([toolClass('design', 'notes_list')]), 'design')).toHaveLength(
+        1,
+      );
+      expect(
+        moduleToolProblems(nest([toolClass('design', 'designer_list')]), 'design'),
+      ).toHaveLength(1);
+    });
+
+    it('follows imported Nest modules', () => {
+      const bad = toolClass('notes', 'notes_list');
+      expect(moduleToolProblems(nest([], [{ module: nest([bad]) }]), 'design')).toHaveLength(2);
     });
   });
 
@@ -563,6 +660,10 @@ describe('registered modules get bound services (R138, R140)', () => {
         await expect(
           (resolved as FileStore).store(scope, { moduleId: 'zz', bytes: Buffer.alloc(0) }),
         ).rejects.toThrow(/can only store files/);
+      } else if (c.token === USAGE) {
+        await expect((resolved as UsageLogger).log(scope, { tool: 'zz_x' })).rejects.toThrow(
+          /can only log tools/,
+        );
       } else {
         await expect(
           (resolved as HistoryRecorder).record({} as never, {

@@ -19,6 +19,7 @@ import { REGISTERED_MODULES } from './module-registry/registered-modules.ts';
 import { ProjectsModule } from './projects/projects.module.ts';
 import { SystemController } from './system/system.controller.ts';
 import { TokensModule } from './tokens/tokens.module.ts';
+import { UsageModule } from './usage/usage.module.ts';
 import { WorkspacesModule } from './workspaces/workspaces.module.ts';
 
 @Module({})
@@ -38,6 +39,7 @@ export class AppModule {
         InstallModule,
         ModuleRegistryModule,
         HistoryModule,
+        UsageModule,
         FilesModule,
         JobsModule.register('app'),
         EventsModule.register('app'),

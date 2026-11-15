@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     "./manifest": "./manifest.ts",
+    "./schema": "./schema/notes.ts",
     "./server": "./server/testkit.module.ts",
     "./web": "./web/index.tsx",
     "./sql": "./sql.ts"
