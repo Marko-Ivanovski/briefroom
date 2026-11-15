@@ -1,8 +1,8 @@
-import { readFile, stat, mkdir, writeFile } from 'node:fs/promises';
+import { readFile, stat, mkdir, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { run } from '../src/cli.ts';
-import { credentialsPath, loadCredentials } from '../src/credentials.ts';
+import { credentialsPath, loadCredentials, saveWorkspaceToken } from '../src/credentials.ts';
 import { json, SECRET, startStub, testContext, type Stub, type TestContext } from './helpers.ts';
 
 describe('credentials', () => {
@@ -24,7 +24,7 @@ describe('credentials', () => {
       if (req.url === '/api/v1/cli-login') {
         return json(res, 201, {
           code: 'ABCD-EFGH',
-          approveUrl: 'http://localhost:4300/connect?code=ABCD-EFGH',
+          approveUrl: 'http://localhost:4300/connect',
           pollToken: 'poll',
           expiresAt: new Date(Date.now() + 600_000).toISOString(),
           interval: 2,
@@ -50,7 +50,7 @@ describe('credentials', () => {
     const file = credentialsPath(t!.home);
     expect(JSON.parse(await readFile(file, 'utf8'))).toEqual({
       installs: {
-        i1: { baseUrl: stub!.baseUrl, workspaces: { ws1: { name: 'Acme', token: SECRET } } },
+        [stub!.baseUrl]: { installId: 'i1', workspaces: { ws1: { name: 'Acme', token: SECRET } } },
       },
     });
     expect(file.startsWith(t!.home)).toBe(true);
@@ -63,17 +63,19 @@ describe('credentials', () => {
 
   it('opens the approval url, prints it with the code, and never prints the token', async () => {
     await loginOnce();
-    expect(t!.opened).toEqual(['http://localhost:4300/connect?code=ABCD-EFGH']);
+    expect(t!.opened).toEqual(['http://localhost:4300/connect']);
     const printed = [...t!.stdout, ...t!.stderr].join('');
-    expect(printed).toContain('http://localhost:4300/connect?code=ABCD-EFGH');
+    expect(printed).toContain('http://localhost:4300/connect');
+    expect(printed).not.toContain('connect?code');
     expect(printed).toContain('ABCD-EFGH');
     expect(printed).not.toContain(SECRET);
   });
 
-  it('keeps the address the user typed rather than the one the server reports', async () => {
+  it('keys the entry by the address the user typed, not the one the server reports', async () => {
     await loginOnce();
     const saved = await loadCredentials(t!.home);
-    expect(saved.installs.i1!.baseUrl).toBe(stub!.baseUrl);
+    expect(Object.keys(saved.installs)).toEqual([stub!.baseUrl]);
+    expect(saved.installs[stub!.baseUrl]!.installId).toBe('i1');
   });
 
   it('does not open a browser with --no-browser', async () => {
@@ -98,7 +100,7 @@ describe('credentials', () => {
     await loginOnce();
     expect(await run(['login', stub!.baseUrl], t!.ctx)).toBe(0);
     const saved = await loadCredentials(t!.home);
-    expect(Object.keys(saved.installs.i1!.workspaces)).toEqual(['ws1']);
+    expect(Object.keys(saved.installs[stub!.baseUrl]!.workspaces)).toEqual(['ws1']);
   });
 
   it('refuses a credentials file it cannot read instead of overwriting it', async () => {
@@ -107,4 +109,59 @@ describe('credentials', () => {
     await writeFile(credentialsPath(t.home), 'not json');
     await expect(loadCredentials(t.home)).rejects.toThrow('is not valid');
   });
+
+  it('refuses a login whose poll answer names a different install than /api/version', async () => {
+    stub = await startStub((req, res) => {
+      if (req.url === '/api/version') return json(res, 200, { api: '1', installId: 'real' });
+      if (req.url === '/api/v1/cli-login') {
+        return json(res, 201, {
+          code: 'ABCD-EFGH',
+          approveUrl: 'http://x/connect',
+          pollToken: 'p',
+        });
+      }
+      return json(res, 200, {
+        status: 'approved',
+        token: SECRET,
+        workspaceId: 'ws1',
+        workspaceName: 'Acme',
+        installId: 'other',
+      });
+    });
+    t = await testContext();
+    expect(await run(['login', stub.baseUrl], t.ctx)).toBe(1);
+    expect(t.stderr.join('')).toContain('different install');
+    expect((await loadCredentials(t.home)).installs).toEqual({});
+    expect(t.stderr.join('')).not.toContain(SECRET);
+  });
+
+  it('never rebases a saved entry onto an address that reports another install', async () => {
+    await loginOnce();
+    const saved = await loadCredentials(t!.home);
+    await expect(
+      saveWorkspaceToken(t!.home, { installId: 'attacker', baseUrl: stub!.baseUrl }, 'ws9', {
+        name: 'Evil',
+        token: 'brf_evil',
+      }),
+    ).rejects.toThrow('different install');
+    expect(await loadCredentials(t!.home)).toEqual(saved);
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'refuses to write through a symlinked credentials file',
+    async () => {
+      t = await testContext();
+      const victim = join(t.home, 'victim.txt');
+      await mkdir(join(t.home, '.briefroom'));
+      await writeFile(victim, 'keep me');
+      await symlink(victim, credentialsPath(t.home));
+      await expect(
+        saveWorkspaceToken(t.home, { installId: 'i', baseUrl: 'http://127.0.0.1:1' }, 'w', {
+          name: 'n',
+          token: 't',
+        }),
+      ).rejects.toThrow('symbolic link');
+      expect(await readFile(victim, 'utf8')).toBe('keep me');
+    },
+  );
 });

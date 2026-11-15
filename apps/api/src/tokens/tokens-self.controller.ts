@@ -12,7 +12,7 @@ import { TokensService } from './tokens.service.ts';
 
 /**
  * How `briefroom disconnect` revokes its own token without a session. AllowAnonymous takes the
- * route out of the session guard, so a cookie is never read: only the Bearer token decides, and
+ * route out of the session guard, so a session never authorises it: only the Bearer token decides, and
  * the token being deleted is the one that authenticated the call.
  */
 @AllowAnonymous()

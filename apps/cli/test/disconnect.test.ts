@@ -91,7 +91,7 @@ describe('disconnect', () => {
     await install('a', healthy);
     await install('b', healthy);
     expect(await run(['disconnect'], t.ctx)).toBe(1);
-    expect(Object.keys((await loadCredentials(t.home)).installs)).toEqual(['a', 'b']);
+    expect(Object.keys((await loadCredentials(t.home)).installs)).toHaveLength(2);
   });
 
   it('says so when there is nothing to disconnect', async () => {

@@ -31,6 +31,8 @@ const OUTSIDE_A_WORKSPACE: ReadonlySet<string> = new Set([
   'POST /api/v1/cli-login',
   'POST /api/v1/cli-login/poll',
   'POST /api/v1/cli-login/approve',
+  // Needs a session, no workspace: a read-only look at a pending code before the user approves it.
+  'POST /api/v1/cli-login/preview',
   // Authenticated by the caller's own Bearer token, which it deletes. Never by a session.
   'DELETE /api/v1/tokens/self',
 ]);

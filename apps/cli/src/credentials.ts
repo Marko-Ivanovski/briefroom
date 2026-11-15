@@ -1,14 +1,19 @@
-import { chmod, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { CliError } from './errors.ts';
+import { writeFileReplacing } from './fs-safe.ts';
 
 export interface WorkspaceCredential {
   name: string;
   token: string;
 }
 
+/**
+ * Keyed by the normalised base URL the user typed, because that is where the token is sent.
+ * `installId` is what that address reported when the entry was made, and is only checked, never trusted for routing.
+ */
 export interface InstallCredentials {
-  baseUrl: string;
+  installId: string;
   workspaces: Record<string, WorkspaceCredential>;
 }
 
@@ -50,15 +55,14 @@ async function tryChmod(path: string, mode: number): Promise<void> {
 }
 
 export async function saveCredentials(home: string, credentials: Credentials): Promise<void> {
-  const file = credentialsPath(home);
   const dir = join(home, '.briefroom');
   await mkdir(dir, { recursive: true, mode: 0o700 });
   await tryChmod(dir, 0o700);
-  // Written to a temp file that is already 600 and then renamed, so the token is never readable by others.
-  const temp = `${file}.${process.pid}.tmp`;
-  await writeFile(temp, `${JSON.stringify(credentials, null, 2)}\n`, { mode: 0o600 });
-  await rename(temp, file);
-  await tryChmod(file, 0o600);
+  await writeFileReplacing(
+    credentialsPath(home),
+    `${JSON.stringify(credentials, null, 2)}\n`,
+    0o600,
+  );
 }
 
 export async function saveWorkspaceToken(
@@ -68,9 +72,15 @@ export async function saveWorkspaceToken(
   credential: WorkspaceCredential,
 ): Promise<void> {
   const credentials = await loadCredentials(home);
-  const existing = credentials.installs[install.installId];
-  credentials.installs[install.installId] = {
-    baseUrl: install.baseUrl,
+  const existing = credentials.installs[install.baseUrl];
+  // An address that answers as a different install than before must not take over the saved tokens.
+  if (existing && existing.installId !== install.installId) {
+    throw new CliError(
+      `${install.baseUrl} now reports a different install than the one saved. Run briefroom disconnect --all first if that is expected.`,
+    );
+  }
+  credentials.installs[install.baseUrl] = {
+    installId: install.installId,
     workspaces: { ...existing?.workspaces, [workspaceId]: credential },
   };
   await saveCredentials(home, credentials);
@@ -78,13 +88,13 @@ export async function saveWorkspaceToken(
 
 export async function removeWorkspaceToken(
   home: string,
-  installId: string,
+  baseUrl: string,
   workspaceId: string,
 ): Promise<void> {
   const credentials = await loadCredentials(home);
-  const install = credentials.installs[installId];
+  const install = credentials.installs[baseUrl];
   if (!install) return;
   delete install.workspaces[workspaceId];
-  if (Object.keys(install.workspaces).length === 0) delete credentials.installs[installId];
+  if (Object.keys(install.workspaces).length === 0) delete credentials.installs[baseUrl];
   await saveCredentials(home, credentials);
 }

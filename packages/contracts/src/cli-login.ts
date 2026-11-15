@@ -41,3 +41,15 @@ export type CliLoginPollResult =
       installId: string;
       baseUrl: string;
     };
+
+export const CliLoginPreview = z.object({ code: z.string().regex(CLI_LOGIN_CODE) });
+export type CliLoginPreview = z.infer<typeof CliLoginPreview>;
+
+export interface CliLoginPreviewed {
+  deviceName: string;
+  startedSecondsAgo: number;
+  expiresInSeconds: number;
+  startIp: string | null;
+  startUserAgent: string | null;
+  sameIpAsYou: boolean;
+}

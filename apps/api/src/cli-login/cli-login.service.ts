@@ -4,29 +4,34 @@ import {
   CLI_LOGIN_TTL_MS,
   type CliLoginApprove,
   type CliLoginApproved,
+  type CliLoginPreviewed,
   type CliLoginPollResult,
   type CliLoginStarted,
 } from '@briefroom/contracts';
 import {
   authSchema,
   cliLogins,
+  tokenCutoffs,
   createdStamp,
   updatedStamp,
   type Actor,
   type Db,
 } from '@briefroom/db';
 import {
+  UnauthorizedException,
+  type OnModuleInit,
   GoneException,
   Inject,
   Injectable,
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
-import { and, eq, gt, lt } from 'drizzle-orm';
+import { and, eq, gt, inArray, lt } from 'drizzle-orm';
 import { AccessService } from '../access/access.service.ts';
 import { ENV, type Env } from '../config/env.ts';
 import { DB } from '../database/database.module.ts';
 import { hasPgCode } from '../errors/pg-error.ts';
+import { RevocationService } from '../members/revocation.service.ts';
 import { InstallService } from '../install/install.service.ts';
 import { TokensService } from '../tokens/tokens.service.ts';
 
@@ -49,9 +54,21 @@ export function hashPollToken(token: string): string {
 }
 
 // Control and format characters are dropped so a device name cannot reorder or hide text on the approval page.
+function clean(raw: string | undefined, max: number): string {
+  return (raw ?? '')
+    .replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, '')
+    .trim()
+    .slice(0, max)
+    .trim();
+}
+
 export function sanitiseDeviceName(raw: string | undefined): string {
-  const cleaned = (raw ?? '').replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, '').trim();
-  return cleaned.slice(0, MAX_DEVICE_NAME).trim() || DEFAULT_DEVICE_NAME;
+  return clean(raw, MAX_DEVICE_NAME) || DEFAULT_DEVICE_NAME;
+}
+
+export interface StartOrigin {
+  ip: string | undefined;
+  userAgent: string | undefined;
 }
 
 /**
@@ -60,16 +77,32 @@ export function sanitiseDeviceName(raw: string | undefined): string {
  * approved and which workspace, and which token id was minted.
  */
 @Injectable()
-export class CliLoginService {
+export class CliLoginService implements OnModuleInit {
   constructor(
     @Inject(DB) private readonly db: Db,
     @Inject(ENV) private readonly env: Env,
     private readonly access: AccessService,
     private readonly tokens: TokensService,
     private readonly installs: InstallService,
+    private readonly revocation: RevocationService,
   ) {}
 
-  async start(rawDeviceName: string | undefined): Promise<CliLoginStarted> {
+  // An approval is only a promise to mint a token. A password reset or a removal must break it.
+  onModuleInit(): void {
+    this.revocation.onPasswordReset((userId) => this.deny(eq(cliLogins.userId, userId)));
+    this.revocation.onMemberRemoved((workspaceId, userId) =>
+      this.deny(and(eq(cliLogins.userId, userId), eq(cliLogins.workspaceId, workspaceId))),
+    );
+  }
+
+  private async deny(match: ReturnType<typeof eq> | ReturnType<typeof and>): Promise<void> {
+    await this.db
+      .update(cliLogins)
+      .set({ status: 'denied', ...updatedStamp(CLI_ACTOR) })
+      .where(and(match, inArray(cliLogins.status, ['pending', 'approved'])));
+  }
+
+  async start(rawDeviceName: string | undefined, origin: StartOrigin): Promise<CliLoginStarted> {
     // Cleanup is lazy: every new login sweeps the expired ones, so the table stays small.
     await this.db.delete(cliLogins).where(lt(cliLogins.expiresAt, new Date()));
     const pollToken = randomBytes(32).toString('base64url');
@@ -82,6 +115,8 @@ export class CliLoginService {
           code,
           pollTokenHash: hashPollToken(pollToken),
           deviceName,
+          startIp: clean(origin.ip, 64) || null,
+          startUserAgent: clean(origin.userAgent, 200) || null,
           expiresAt,
           ...createdStamp(CLI_ACTOR),
         });
@@ -91,7 +126,7 @@ export class CliLoginService {
       }
       return {
         code,
-        approveUrl: `${this.env.publicUrl}/connect?code=${code}`,
+        approveUrl: `${this.env.publicUrl}/connect`,
         pollToken,
         expiresAt: expiresAt.toISOString(),
         interval: CLI_LOGIN_POLL_INTERVAL_SECONDS,
@@ -100,7 +135,11 @@ export class CliLoginService {
     throw new InternalServerErrorException('Could not create a login code');
   }
 
-  async approve(userId: string, body: CliLoginApprove): Promise<CliLoginApproved> {
+  async approve(
+    userId: string,
+    sessionId: string,
+    body: CliLoginApprove,
+  ): Promise<CliLoginApproved> {
     // Membership first, so a non-member learns nothing about whether the code exists.
     const scope = await this.access.scopeFor(userId, body.workspaceId, 'web');
     if (!scope) throw new NotFoundException();
@@ -117,6 +156,8 @@ export class CliLoginService {
         status: 'approved',
         userId,
         workspaceId: body.workspaceId,
+        approvedAt: new Date(),
+        approvedSessionId: sessionId,
         ...updatedStamp({ userId, via: 'web' }),
       })
       .where(
@@ -145,6 +186,30 @@ export class CliLoginService {
     });
   }
 
+  /** Read-only: no row is stamped. Every non-pending state answers the one 404 so codes cannot be probed. */
+  async preview(code: string, approverIp: string | undefined): Promise<CliLoginPreviewed> {
+    const [row] = await this.db
+      .select()
+      .from(cliLogins)
+      .where(
+        and(
+          eq(cliLogins.code, code),
+          eq(cliLogins.status, 'pending'),
+          gt(cliLogins.expiresAt, new Date()),
+        ),
+      );
+    if (!row) throw new NotFoundException({ code: 'not_found', message: 'Login code not found' });
+    const now = Date.now();
+    return {
+      deviceName: row.deviceName,
+      startedSecondsAgo: Math.max(0, Math.floor((now - row.createdAt.getTime()) / 1000)),
+      expiresInSeconds: Math.max(0, Math.floor((row.expiresAt.getTime() - now) / 1000)),
+      startIp: row.startIp,
+      startUserAgent: row.startUserAgent,
+      sameIpAsYou: !!approverIp && row.startIp === approverIp,
+    };
+  }
+
   /** Unknown, expired, denied, consumed and revoked logins all answer the same, so a poll token reveals nothing. */
   async poll(pollToken: string): Promise<CliLoginPollResult> {
     const hash = hashPollToken(pollToken);
@@ -164,15 +229,46 @@ export class CliLoginService {
     return pending ? { status: 'pending' } : EXPIRED;
   }
 
+  // Same rules TokensService.verify applies to a key: a reset cutoff or a newer membership kills it.
+  private async approvalIsStale(
+    userId: string,
+    workspaceId: string,
+    approvedAt: Date,
+  ): Promise<boolean> {
+    const [member] = await this.db
+      .select({ joinedAt: authSchema.member.createdAt })
+      .from(authSchema.member)
+      .where(
+        and(
+          eq(authSchema.member.userId, userId),
+          eq(authSchema.member.organizationId, workspaceId),
+        ),
+      );
+    if (!member || approvedAt.getTime() <= member.joinedAt.getTime()) return true;
+    const [cutoff] = await this.db
+      .select({ validAfter: tokenCutoffs.validAfter })
+      .from(tokenCutoffs)
+      .where(eq(tokenCutoffs.userId, userId));
+    return !!cutoff && cutoff.validAfter.getTime() >= approvedAt.getTime();
+  }
+
   private async issue(row: typeof cliLogins.$inferSelect): Promise<CliLoginPollResult> {
     if (!row.userId || !row.workspaceId) return EXPIRED;
     // Membership is read again: someone removed after approving gets no token.
     const scope = await this.access.scopeFor(row.userId, row.workspaceId, 'cli');
     if (!scope) return EXPIRED;
+    if (!row.approvedAt || !row.approvedSessionId) return EXPIRED;
+    if (await this.approvalIsStale(row.userId, row.workspaceId, row.approvedAt)) return EXPIRED;
     let created: { id: string; token: string };
     try {
-      created = await this.tokens.create(scope, `CLI: ${row.deviceName}`.slice(0, MAX_DEVICE_NAME));
+      created = await this.tokens.create(
+        scope,
+        `CLI: ${row.deviceName}`.slice(0, MAX_DEVICE_NAME),
+        row.approvedSessionId,
+      );
     } catch (err) {
+      // The approving session ended: tokens.create already removed the key it made.
+      if (err instanceof UnauthorizedException) return EXPIRED;
       // Nothing was handed out, so the approval stays usable for the CLI's next poll.
       await this.db
         .update(cliLogins)

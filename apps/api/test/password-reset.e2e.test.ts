@@ -414,7 +414,8 @@ describe('password reset links', () => {
       const original = db.update.bind(db);
       let calls = 0;
       vi.spyOn(db, 'update').mockImplementation(((table: never) => {
-        if (++calls === 2) throw new Error('boom');
+        // Only the reset links table counts: other handlers (cli logins) update their own tables.
+        if (table === (passwordResetLinks as never) && ++calls === 2) throw new Error('boom');
         return original(table);
       }) as typeof db.update);
       const res = await redeem(url);

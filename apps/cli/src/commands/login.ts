@@ -44,10 +44,12 @@ export async function login(
   options: { browser?: boolean } = {},
 ): Promise<void> {
   const baseUrl = normaliseAddress(address);
-  await assertCompatible(ctx, baseUrl);
+  const reportedInstallId = await assertCompatible(ctx, baseUrl);
   const started = await startLogin(ctx, baseUrl);
 
-  ctx.out(`Approve this login in your browser:\n  ${started.approveUrl}\nCode: ${started.code}\n`);
+  ctx.out(
+    `Open this page in your browser, sign in, and enter the code:\n  ${started.approveUrl}\nCode: ${started.code}\n`,
+  );
   if (options.browser !== false) {
     await ctx.openUrl(started.approveUrl).catch(() => {
       ctx.out('Could not open a browser. Open the address above yourself.\n');
@@ -55,6 +57,12 @@ export async function login(
   }
 
   const approved = await waitForApproval(ctx, baseUrl, started);
+  // The address the user typed is the one that must have issued this token.
+  if (reportedInstallId === null || approved.installId !== reportedInstallId) {
+    throw new CliError(
+      `${baseUrl} answered the login as a different install than it reported. Nothing was saved.`,
+    );
+  }
   await saveWorkspaceToken(
     ctx.home,
     { installId: approved.installId, baseUrl },

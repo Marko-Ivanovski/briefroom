@@ -1,8 +1,9 @@
-import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, readFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import type { Context } from '../context.ts';
 import { loadCredentials } from '../credentials.ts';
 import { CliError } from '../errors.ts';
+import { refuseSymlink, writeFileReplacing } from '../fs-safe.ts';
 import { excludeFile, repoRoot } from '../git.ts';
 
 export const LINK_FILE = '.briefroom.json';
@@ -16,10 +17,10 @@ interface Choice {
 
 async function savedWorkspaces(ctx: Context): Promise<Choice[]> {
   const { installs } = await loadCredentials(ctx.home);
-  return Object.entries(installs).flatMap(([installId, install]) =>
+  return Object.entries(installs).flatMap(([baseUrl, install]) =>
     Object.entries(install.workspaces).map(([workspaceId, w]) => ({
-      installId,
-      baseUrl: install.baseUrl,
+      installId: install.installId,
+      baseUrl,
       workspaceId,
       name: w.name,
     })),
@@ -45,6 +46,7 @@ async function pick(ctx: Context, all: Choice[], wanted: string | undefined): Pr
 async function addToExclude(cwd: string): Promise<void> {
   const file = await excludeFile(cwd);
   if (!file) throw new CliError('Could not find .git/info/exclude for this repository.');
+  await refuseSymlink(file);
   const existing = await readFile(file, 'utf8').catch(() => '');
   if (existing.split(/\r?\n/).includes(LINK_FILE)) return;
   await mkdir(dirname(file), { recursive: true });
@@ -61,8 +63,8 @@ export async function link(
 
   const chosen = await pick(ctx, await savedWorkspaces(ctx), options.workspace);
   const link = { installId: chosen.installId, workspaceId: chosen.workspaceId };
-  await writeFile(join(root, LINK_FILE), `${JSON.stringify(link, null, 2)}\n`);
   if (options.private) await addToExclude(root);
+  await writeFileReplacing(join(root, LINK_FILE), `${JSON.stringify(link, null, 2)}\n`, 0o644);
 
   ctx.out(
     `Linked ${basename(root)} to ${chosen.name} on ${new URL(chosen.baseUrl).host}.${

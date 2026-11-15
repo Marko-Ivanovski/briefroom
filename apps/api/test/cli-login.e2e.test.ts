@@ -1,8 +1,10 @@
 import { createHash } from 'node:crypto';
-import { authSchema, cliLogins } from '@briefroom/db';
+import { authSchema, cliLogins, tokenCutoffs } from '@briefroom/db';
 import { eq } from 'drizzle-orm';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { RevocationService } from '../src/members/revocation.service.ts';
+import { TokensService } from '../src/tokens/tokens.service.ts';
 import { createTestApp, makeInstallOwner, resetThrottle, type TestApp } from './helpers.ts';
 
 const PASSWORD = 'correct horse battery';
@@ -117,7 +119,8 @@ describe('cli login', () => {
         const s = await start();
         expect(s.code).toMatch(CODE);
         seen.add(s.code);
-        expect(s.approveUrl).toBe(`http://localhost:4300/connect?code=${s.code}`);
+        expect(s.approveUrl).toBe('http://localhost:4300/connect');
+        expect(s.approveUrl).not.toContain(s.code);
         expect(s.pollToken.length).toBeGreaterThanOrEqual(43);
         expect(s.interval).toBe(2);
       }
@@ -141,6 +144,18 @@ describe('cli login', () => {
       });
       const ttl = row!.expiresAt.getTime() - row!.createdAt.getTime();
       expect(ttl).toBe(10 * 60 * 1000);
+    });
+
+    it('stores the start address and a bounded, sanitised user agent', async () => {
+      const res = await http()
+        .post('/api/v1/cli-login')
+        .set('user-agent', `Agent/1.0 ${'z'.repeat(400)}`)
+        .send({});
+      expect(res.status).toBe(201);
+      const [row] = await rows();
+      expect(row!.startIp).toBeTruthy();
+      expect(row!.startUserAgent!.length).toBe(200);
+      expect(row!.startUserAgent).toMatch(/^Agent\/1\.0 z+$/);
     });
 
     it('sanitises the device name and falls back to Briefroom CLI', async () => {
@@ -337,6 +352,157 @@ describe('cli login', () => {
       expect(res.status).toBe(429);
       expect(res.body.code).toBe('rate_limited');
       expect((await approve('bob', 'ABCD-EFGH')).status).toBe(404);
+    });
+  });
+
+  describe('preview', () => {
+    const preview = (who: string, code: string) =>
+      http().post('/api/v1/cli-login/preview').set(as(who)).send({ code });
+
+    it('shows what is being approved for a pending code, without changing anything', async () => {
+      const s = await start('my laptop');
+      const before = JSON.stringify(await rows());
+      const res = await preview('alice', s.code);
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({ deviceName: 'my laptop', sameIpAsYou: true });
+      expect(res.body.startedSecondsAgo).toBeGreaterThanOrEqual(0);
+      expect(res.body.expiresInSeconds).toBeGreaterThan(0);
+      expect(typeof res.body.startIp).toBe('string');
+      expect(res.body).toHaveProperty('startUserAgent');
+      expect(JSON.stringify(res.body)).not.toContain(s.pollToken);
+      expect(JSON.stringify(await rows())).toBe(before);
+    });
+
+    it('reports a different start address', async () => {
+      const s = await start();
+      await t.db.db
+        .update(cliLogins)
+        .set({ startIp: '203.0.113.9' })
+        .where(eq(cliLogins.code, s.code));
+      expect((await preview('alice', s.code)).body.sameIpAsYou).toBe(false);
+    });
+
+    it('answers one identical 404 for unknown, expired, denied, consumed and approved codes', async () => {
+      const expired = await start();
+      await t.db.db
+        .update(cliLogins)
+        .set({ expiresAt: new Date(Date.now() - 1000) })
+        .where(eq(cliLogins.code, expired.code));
+      const denied = await start();
+      await t.db.db
+        .update(cliLogins)
+        .set({ status: 'denied' })
+        .where(eq(cliLogins.code, denied.code));
+      const consumed = await start();
+      await approve('alice', consumed.code);
+      await poll(consumed.pollToken);
+      const approved = await start();
+      await approve('alice', approved.code);
+      const responses = [];
+      for (const c of ['ABCD-EFGH', expired.code, denied.code, consumed.code, approved.code]) {
+        responses.push(await preview('bob', c));
+      }
+      for (const res of responses) {
+        expect(res.status).toBe(404);
+        expect(res.body).toEqual(responses[0]!.body);
+      }
+      expect(responses[0]!.body.code).toBe('not_found');
+    });
+
+    it('needs a session and a well formed code', async () => {
+      const anon = await http().post('/api/v1/cli-login/preview').send({ code: 'ABCD-EFGH' });
+      expect(anon.status).toBe(401);
+      expect((await preview('alice', 'nope')).status).toBe(400);
+    });
+
+    it('shares one budget with approve, per user', async () => {
+      for (let i = 0; i < 5; i++) expect((await preview('alice', 'ABCD-EFGH')).status).toBe(404);
+      for (let i = 0; i < 5; i++) expect((await approve('alice', 'ABCD-EFGH')).status).toBe(404);
+      expect((await preview('alice', 'ABCD-EFGH')).status).toBe(429);
+      expect((await approve('alice', 'ABCD-EFGH')).status).toBe(429);
+    });
+
+    it('is refused for a cross-site browser request', async () => {
+      const res = await http()
+        .post('/api/v1/cli-login/preview')
+        .set(as('alice'))
+        .set('origin', 'http://evil.example')
+        .send({ code: 'ABCD-EFGH' });
+      expect(res.status).toBe(403);
+    });
+  });
+
+  describe('approvals do not outlive a reset or removal', () => {
+    const apikeys = async (userId: string) =>
+      (await t.db.db.select().from(authSchema.apikey)).filter((k) => k.referenceId === userId);
+
+    it('answers expired after a password reset between approve and poll, and mints no key', async () => {
+      await addUser('reset1', [ws]);
+      const s = await start();
+      await approve('reset1', s.code);
+      await t.app.get(TokensService).invalidateAll(ids.reset1!);
+      expect((await poll(s.pollToken)).body).toEqual(EXPIRED);
+      expect(await apikeys(ids.reset1!)).toHaveLength(0);
+    });
+
+    it('marks approved logins denied when the password is reset', async () => {
+      await addUser('reset2', [ws]);
+      const s = await start();
+      await approve('reset2', s.code);
+      await t.app.get(RevocationService).passwordReset(ids.reset2!);
+      expect((await rows()).find((r) => r.code === s.code)!.status).toBe('denied');
+      expect((await poll(s.pollToken)).body).toEqual(EXPIRED);
+    });
+
+    it('answers expired when the approving session is gone, and mints no key', async () => {
+      await addUser('gone1', [ws]);
+      const s = await start();
+      await approve('gone1', s.code);
+      await t.db.db.delete(authSchema.session).where(eq(authSchema.session.userId, ids.gone1!));
+      expect((await poll(s.pollToken)).body).toEqual(EXPIRED);
+      expect(await apikeys(ids.gone1!)).toHaveLength(0);
+    });
+
+    it('answers expired when the cutoff is at or after the approval', async () => {
+      await addUser('cut1', [ws]);
+      const s = await start();
+      await approve('cut1', s.code);
+      const [row] = await t.db.db.select().from(cliLogins).where(eq(cliLogins.code, s.code));
+      await t.db.db.insert(tokenCutoffs).values({
+        userId: ids.cut1!,
+        validAfter: row!.approvedAt!,
+        createdBy: 'x',
+        createdVia: 'system',
+        updatedBy: 'x',
+        updatedVia: 'system',
+      });
+      expect((await poll(s.pollToken)).body).toEqual(EXPIRED);
+      expect(await apikeys(ids.cut1!)).toHaveLength(0);
+    });
+
+    it('answers expired after a removal and rejoin between approve and poll', async () => {
+      await addUser('rejoin1', [ws]);
+      const s = await start();
+      await approve('rejoin1', s.code);
+      await t.db.db.delete(authSchema.member).where(eq(authSchema.member.userId, ids.rejoin1!));
+      await new Promise((r) => setTimeout(r, 20));
+      await t.auth.api.addMember({
+        body: { userId: ids.rejoin1!, role: 'member', organizationId: ws },
+      });
+      expect((await poll(s.pollToken)).body).toEqual(EXPIRED);
+      expect(await apikeys(ids.rejoin1!)).toHaveLength(0);
+    });
+
+    it('marks only that workspace logins denied when a member is removed', async () => {
+      await addUser('rm1', [ws, other]);
+      const a = await start();
+      await approve('rm1', a.code);
+      const b = await start();
+      await approve('rm1', b.code, other);
+      await t.app.get(RevocationService).memberRemoved(ws, ids.rm1!);
+      const status = async (code: string) => (await rows()).find((x) => x.code === code)!.status;
+      expect(await status(a.code)).toBe('denied');
+      expect(await status(b.code)).toBe('approved');
     });
   });
 

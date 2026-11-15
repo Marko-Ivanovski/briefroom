@@ -14,10 +14,10 @@ interface Target {
 
 async function targets(ctx: Context, all: boolean): Promise<Target[]> {
   const { installs } = await loadCredentials(ctx.home);
-  const every = Object.entries(installs).flatMap(([installId, install]) =>
+  const every = Object.entries(installs).flatMap(([baseUrl, install]) =>
     Object.entries(install.workspaces).map(([workspaceId, w]) => ({
-      installId,
-      baseUrl: install.baseUrl,
+      installId: install.installId,
+      baseUrl,
       workspaceId,
       name: w.name,
       token: w.token,
@@ -66,7 +66,7 @@ export async function disconnect(ctx: Context, options: { all?: boolean } = {}):
       if (err.exitCode === 2) outdated = err;
       ctx.err(`Warning: could not revoke the token on ${host}. ${err.message}\n`);
     }
-    await removeWorkspaceToken(ctx.home, target.installId, target.workspaceId);
+    await removeWorkspaceToken(ctx.home, target.baseUrl, target.workspaceId);
     ctx.out(`Disconnected from ${target.name} on ${host}.\n`);
   }
   if (outdated) throw outdated;

@@ -1,0 +1,149 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "24db6d8c-3023-4ec6-adbf-5fbc37c59107",
+  "prevIds": [
+    "20feaa76-ee19-4556-85e5-c37529219c4f"
+  ],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "cli_logins",
+        "start_ip"
+      ],
+      "writes": [
+        "s|col|public.cli_logins.start_ip",
+        "n|col|public.cli_logins.start_ip",
+        "e|col|public.cli_logins.start_ip"
+      ],
+      "reads": [
+        "n|tbl|public.cli_logins",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "cli_logins",
+        "start_user_agent"
+      ],
+      "writes": [
+        "s|col|public.cli_logins.start_user_agent",
+        "n|col|public.cli_logins.start_user_agent",
+        "e|col|public.cli_logins.start_user_agent"
+      ],
+      "reads": [
+        "n|tbl|public.cli_logins",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "cli_logins",
+        "approved_at"
+      ],
+      "writes": [
+        "s|col|public.cli_logins.approved_at",
+        "n|col|public.cli_logins.approved_at",
+        "e|col|public.cli_logins.approved_at"
+      ],
+      "reads": [
+        "n|tbl|public.cli_logins",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "cli_logins",
+        "approved_session_id"
+      ],
+      "writes": [
+        "s|col|public.cli_logins.approved_session_id",
+        "n|col|public.cli_logins.approved_session_id",
+        "e|col|public.cli_logins.approved_session_id"
+      ],
+      "reads": [
+        "n|tbl|public.cli_logins",
+        "n|sch|public"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "cli_logins",
+        "name": "start_ip",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "cli_logins",
+        "name": "start_user_agent",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "cli_logins",
+        "name": "approved_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "cli_logins",
+        "name": "approved_session_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    }
+  ]
+}
