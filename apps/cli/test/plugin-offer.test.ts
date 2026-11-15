@@ -1,16 +1,17 @@
 import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { run } from '../src/cli.ts';
 import { json, startStub, testContext, type Stub, type TestContext } from './helpers.ts';
 
 const root = join(import.meta.dirname, '..', '..', '..');
+const CLAUDE = resolve('/opt/claude-bin/claude');
 const SOURCE = 'https://github.com/Marko-Ivanovski/briefroom.git';
 
 describe('login plugin offer', () => {
   let stub: Stub | undefined;
   let t: TestContext | undefined;
-  let calls: [string, string[]][];
+  let calls: [string, string[], string][];
 
   afterEach(async () => {
     await stub?.close();
@@ -33,8 +34,8 @@ describe('login plugin offer', () => {
       });
     });
     t = await testContext({
-      exec: (file, args) => {
-        calls.push([file, args]);
+      exec: (file, args, cwd) => {
+        calls.push([file, args, cwd]);
         return Promise.resolve();
       },
       ...overrides,
@@ -54,20 +55,20 @@ describe('login plugin offer', () => {
   it('runs exactly the two claude commands, without a shell, after y', async () => {
     await setup({
       interactive: true,
-      hasCommand: (name) => Promise.resolve(name === 'claude'),
+      resolveCommand: () => CLAUDE,
       confirm: (prompt) => {
         expect(prompt).toBe('Install the Briefroom plugin for Claude Code? [y/N]');
         return Promise.resolve(true);
       },
     });
     expect(await run(['login', stub!.baseUrl], t!.ctx)).toBe(0);
-    expect(calls).toEqual(commands);
+    expect(calls).toEqual(commands.map(([, args]) => [CLAUDE, args, t!.home]));
   });
 
   it('runs nothing and prints the commands after N', async () => {
     await setup({
       interactive: true,
-      hasCommand: () => Promise.resolve(true),
+      resolveCommand: () => CLAUDE,
       confirm: () => Promise.resolve(false),
     });
     expect(await run(['login', stub!.baseUrl], t!.ctx)).toBe(0);
@@ -76,14 +77,14 @@ describe('login plugin offer', () => {
   });
 
   it('runs nothing and prints the commands without a terminal', async () => {
-    await setup({ interactive: false, hasCommand: () => Promise.resolve(true) });
+    await setup({ interactive: false, resolveCommand: () => CLAUDE });
     expect(await run(['login', stub!.baseUrl], t!.ctx)).toBe(0);
     expect(calls).toEqual([]);
     for (const line of printed) expect(t!.stdout.join('')).toContain(line);
   });
 
   it('prints the commands when claude is not on PATH', async () => {
-    await setup({ interactive: true, hasCommand: () => Promise.resolve(false) });
+    await setup({ interactive: true, resolveCommand: () => null });
     expect(await run(['login', stub!.baseUrl], t!.ctx)).toBe(0);
     expect(calls).toEqual([]);
     for (const line of printed) expect(t!.stdout.join('')).toContain(line);
@@ -92,12 +93,24 @@ describe('login plugin offer', () => {
   it('still exits 0 and warns when claude fails', async () => {
     await setup({
       interactive: true,
-      hasCommand: () => Promise.resolve(true),
+      resolveCommand: () => CLAUDE,
       confirm: () => Promise.resolve(true),
       exec: () => Promise.reject(new Error('boom')),
     });
     expect(await run(['login', stub!.baseUrl], t!.ctx)).toBe(0);
     expect(t!.stderr.join('')).toContain('Warning');
+    for (const line of printed) expect(t!.stdout.join('')).toContain(line);
+  });
+
+  it('runs nothing and prints the commands for a .cmd shim', async () => {
+    await setup({
+      interactive: true,
+      resolveCommand: () => resolve('/opt/npm/claude.CMD'),
+      confirm: () => Promise.resolve(true),
+    });
+    expect(await run(['login', stub!.baseUrl], t!.ctx)).toBe(0);
+    expect(calls).toEqual([]);
+    expect(t!.stdout.join('')).toContain('yourself');
     for (const line of printed) expect(t!.stdout.join('')).toContain(line);
   });
 

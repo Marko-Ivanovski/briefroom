@@ -1,9 +1,8 @@
 import { execFile, spawn } from 'node:child_process';
-import { access } from 'node:fs/promises';
 import { homedir, hostname } from 'node:os';
-import { delimiter, join } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { CliError } from './errors.ts';
+import { resolveCommand } from './resolve-command.ts';
 
 /** Everything a command touches outside its own arguments, so tests can replace it. */
 export interface Context {
@@ -21,8 +20,9 @@ export interface Context {
   interactive: boolean;
   confirm(prompt: string): Promise<boolean>;
   /** Runs a program with an argument array and no shell. Rejects on a non-zero exit. */
-  exec(file: string, args: string[]): Promise<void>;
-  hasCommand(name: string): Promise<boolean>;
+  exec(file: string, args: string[], cwd: string): Promise<void>;
+  /** Absolute path of a program found in the absolute PATH entries, never in the working directory. */
+  resolveCommand(name: string): string | null;
 }
 
 // No shell is involved, so a url from the server cannot inject a command.
@@ -73,27 +73,10 @@ async function confirm(prompt: string): Promise<boolean> {
   }
 }
 
-function exec(file: string, args: string[]): Promise<void> {
+function exec(file: string, args: string[], cwd: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    execFile(file, args, { windowsHide: true }, (err) => (err ? reject(err) : resolve()));
+    execFile(file, args, { cwd, windowsHide: true }, (err) => (err ? reject(err) : resolve()));
   });
-}
-
-async function hasCommand(name: string): Promise<boolean> {
-  const extensions =
-    process.platform === 'win32' ? (process.env.PATHEXT ?? '.EXE').split(';') : [''];
-  for (const dir of (process.env.PATH ?? '').split(delimiter)) {
-    for (const ext of extensions) {
-      if (
-        await access(join(dir, name + ext)).then(
-          () => true,
-          () => false,
-        )
-      )
-        return true;
-    }
-  }
-  return false;
 }
 
 export function defaultContext(): Context {
@@ -111,6 +94,6 @@ export function defaultContext(): Context {
     interactive: process.stdin.isTTY && process.stdout.isTTY,
     confirm,
     exec,
-    hasCommand,
+    resolveCommand: (name) => resolveCommand(name, process.env, process.platform),
   };
 }

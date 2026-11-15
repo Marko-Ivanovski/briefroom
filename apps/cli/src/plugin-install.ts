@@ -23,16 +23,20 @@ export async function offerPlugin(ctx: Context): Promise<void> {
       `To add the Claude Code plugin, run:\n${commands.map(([f, a]) => `  ${f} ${a.join(' ')}\n`).join('')}`,
     );
 
-  if (
-    !ctx.interactive ||
-    !(await ctx.hasCommand('claude')) ||
-    !(await ctx.confirm('Install the Briefroom plugin for Claude Code? [y/N]'))
-  ) {
+  const claude = ctx.interactive ? ctx.resolveCommand('claude') : null;
+  if (claude && /\.(cmd|bat)$/i.test(claude)) {
+    // Node cannot run a batch shim without a shell, and a shell is never used here.
+    ctx.out('Claude Code is installed as a batch shim, so run these commands yourself.\n');
+    printCommands();
+    return;
+  }
+  if (!claude || !(await ctx.confirm('Install the Briefroom plugin for Claude Code? [y/N]'))) {
     printCommands();
     return;
   }
   try {
-    for (const [file, args] of commands) await ctx.exec(file, args);
+    // Run from the home folder so nothing in a cloned repo can be picked up.
+    for (const [, args] of commands) await ctx.exec(claude, args, ctx.home);
     ctx.out('Installed the Briefroom plugin for Claude Code.\n');
   } catch (err) {
     ctx.err(`Warning: the plugin was not installed. ${(err as Error).message}\n`);

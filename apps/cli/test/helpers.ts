@@ -90,7 +90,7 @@ export async function testContext(overrides: Partial<Context> = {}): Promise<Tes
     interactive: false,
     confirm: () => Promise.reject(new Error('confirm was not expected')),
     exec: () => Promise.reject(new Error('exec was not expected')),
-    hasCommand: () => Promise.resolve(false),
+    resolveCommand: () => null,
     ...overrides,
   };
   return {
