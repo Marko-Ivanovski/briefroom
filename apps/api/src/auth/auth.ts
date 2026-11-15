@@ -104,7 +104,14 @@ export function createAuth(
           },
         },
       }),
-      apiKey({ defaultPrefix: API_KEY_PREFIX, enableMetadata: true }),
+      // Keys are hashed (SHA-256) and never expire by default. The plugin's own per-key limit
+      // (10 requests a day) would cut an agent off, so it is off. Names may be up to 80 characters.
+      apiKey({
+        defaultPrefix: API_KEY_PREFIX,
+        enableMetadata: true,
+        maximumNameLength: 80,
+        rateLimit: { enabled: false },
+      }),
     ],
   });
 }

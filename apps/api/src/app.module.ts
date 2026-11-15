@@ -17,6 +17,7 @@ import { ModuleRegistryModule } from './module-registry/module-registry.module.t
 import { REGISTERED_MODULES } from './module-registry/registered-modules.ts';
 import { ProjectsModule } from './projects/projects.module.ts';
 import { SystemController } from './system/system.controller.ts';
+import { TokensModule } from './tokens/tokens.module.ts';
 import { WorkspacesModule } from './workspaces/workspaces.module.ts';
 
 @Module({})
@@ -44,6 +45,7 @@ export class AppModule {
         WorkspacesModule,
         ProjectsModule,
         InvitesModule,
+        TokensModule,
         ...REGISTERED_MODULES.map((m) => m.nestModule),
         ...extraImports,
         ServeStaticModule.forRoot({
