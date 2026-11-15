@@ -135,6 +135,31 @@ test('a CLI login is approved on /connect and the token works', async ({ browser
   await close();
 });
 
+test('approving a code that was already used shows the neutral message and returns to the code step', async ({
+  browser,
+}) => {
+  const started = await startLogin(process.env.E2E_BASE_URL!);
+  const first = await memberPage(browser);
+  const second = await memberPage(browser);
+  for (const { page } of [first, second]) {
+    await page.goto('/connect');
+    await page.getByLabel('Code from your terminal').fill(started.code);
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await expect(page.getByRole('heading', { name: 'Approve this login' })).toBeFocused();
+    await page.getByLabel('Workspace').selectOption({ index: 1 });
+  }
+  await first.page.getByRole('button', { name: 'Approve' }).click();
+  await expect(first.page.getByRole('heading', { name: 'Connected' })).toBeVisible();
+
+  await second.page.getByRole('button', { name: 'Approve' }).click();
+  await expect(second.page.getByRole('alert')).toHaveText("That code isn't valid or has expired.");
+  await expect(second.page.getByLabel('Code from your terminal')).toBeFocused();
+  await expect(second.page.getByLabel('Code from your terminal')).toHaveValue('');
+  await expect(second.page.getByRole('heading', { name: 'Approve this login' })).toHaveCount(0);
+  await first.close();
+  await second.close();
+});
+
 test('tokens are shown once, listed without the key and revoked after confirmation', async ({
   browser,
 }) => {

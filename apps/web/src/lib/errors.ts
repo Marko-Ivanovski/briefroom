@@ -75,6 +75,7 @@ export const CONNECT_ERRORS: Record<number, string> = {
   400: CONNECT_INVALID_CODE,
   403: "You aren't a member of that workspace.",
   404: CONNECT_INVALID_CODE,
+  410: CONNECT_INVALID_CODE,
   429: 'Too many attempts. Wait a minute and try again.',
 };
 

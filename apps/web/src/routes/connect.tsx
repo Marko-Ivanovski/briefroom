@@ -3,7 +3,7 @@ import { Button, Label } from '@briefroom/ui';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { createFileRoute, redirect } from '@tanstack/react-router';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { api } from '../api/client.ts';
+import { api, ApiError } from '../api/client.ts';
 import { meQuery, workspacesQuery } from '../api/queries.ts';
 import { AuthCard } from '../components/auth-card.tsx';
 import { Field } from '../components/field.tsx';
@@ -58,6 +58,15 @@ function ConnectPage() {
   const approve = useMutation({
     mutationFn: ({ code, workspace }: { code: string; workspace: string }) =>
       api.cliLoginApprove(code, workspace),
+    // A used or expired code cannot be approved, so the page goes back to asking for a code.
+    onError: (error) => {
+      if (error instanceof ApiError && error.status === 410) {
+        setReview(null);
+        setInput('');
+        setInvalid(true);
+        lookup.reset();
+      }
+    },
   });
 
   function restart() {
