@@ -19,6 +19,7 @@ class RefusingTools {
     name: 'testkit_fixture_missing',
     description: 'test fixture',
     inputSchema: z.object({}),
+    readOnly: true,
   })
   missing(): string {
     throw new NotFoundException('Note not found');
@@ -28,6 +29,7 @@ class RefusingTools {
     name: 'testkit_fixture_boom',
     description: 'test fixture',
     inputSchema: z.object({}),
+    readOnly: true,
   })
   boom(): string {
     throw new Error('db exploded: secret-detail');
@@ -47,6 +49,7 @@ class RefusingTools {
     name: 'testkit_fixture_forbidden',
     description: 'test fixture',
     inputSchema: z.object({}),
+    readOnly: true,
   })
   forbidden(): string {
     throw new ForbiddenException('Not allowed here');

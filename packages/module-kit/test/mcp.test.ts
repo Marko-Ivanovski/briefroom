@@ -25,7 +25,7 @@ const define = (method: 'run' | 'write', permission?: string) =>
     name: `notes_${method}`,
     description: 'x',
     inputSchema: z.object({}),
-    ...(permission ? { permission } : {}),
+    ...(permission ? { permission } : { readOnly: true as const }),
   })(Tools.prototype, method, Object.getOwnPropertyDescriptor(Tools.prototype, method)!);
 define('run');
 define('write', 'write-things');
@@ -56,6 +56,40 @@ const member = (permissions: string[] = []): Scope => ({
   ...systemScope('w'),
   role: 'member',
   permissions: new Set(permissions),
+});
+
+describe('@ModuleTool gating declaration', () => {
+  const apply = (options: Parameters<typeof ModuleTool>[1]) => {
+    class Fresh {
+      run(): void {}
+    }
+    ModuleTool('notes', options)(
+      Fresh.prototype,
+      'run',
+      Object.getOwnPropertyDescriptor(Fresh.prototype, 'run')!,
+    );
+  };
+  const base = { name: 'notes_x', description: 'x', inputSchema: z.object({}) };
+
+  it('does not compile without a permission or readOnly, or with both', () => {
+    // @ts-expect-error neither field
+    const neither = () => apply({ ...base });
+    // @ts-expect-error both fields
+    const both = () => apply({ ...base, permission: 'p', readOnly: true });
+    // @ts-expect-error readOnly can only be true
+    const notReadOnly = () => apply({ ...base, readOnly: false });
+    expect([neither, both, notReadOnly]).toHaveLength(3);
+  });
+
+  it('throws at registration when neither is present, and when both are', () => {
+    expect(() => apply({ ...base } as never)).toThrow(/exactly one of permission or readOnly/);
+    expect(() => apply({ ...base, permission: '' } as never)).toThrow(/exactly one/);
+    expect(() => apply({ ...base, permission: 'p', readOnly: true } as never)).toThrow(
+      /exactly one/,
+    );
+    expect(() => apply({ ...base, permission: 'p' })).not.toThrow();
+    expect(() => apply({ ...base, readOnly: true })).not.toThrow();
+  });
 });
 
 describe('@ModuleTool', () => {

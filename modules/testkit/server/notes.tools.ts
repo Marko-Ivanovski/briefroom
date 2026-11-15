@@ -32,6 +32,7 @@ export class NotesTools {
     description:
       'The testkit notes you can see, newest first, each with who last changed it and when. Returns at most 50 (or `limit`). Pass projectId to narrow to one project.',
     inputSchema: ListInput,
+    readOnly: true,
   })
   async listNotes(input: z.infer<typeof ListInput>, ctx: ModuleToolContext): Promise<string> {
     const scope = toolScope(ctx);

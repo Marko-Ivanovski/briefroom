@@ -15,16 +15,19 @@ import { hasPermission, type Scope } from './scope.ts';
 
 export const MODULE_TOOL_METADATA = 'briefroom:module-tool';
 
-export type ModuleToolOptions = ToolOptions & {
-  name: string;
-  /** A write tool names the module permission it needs. Checked against the caller's scope. */
-  permission?: string;
-};
+/**
+ * Every tool says how it is gated: a write tool names the module permission it needs, checked against
+ * the caller's scope, and a tool that changes nothing says `readOnly: true`. Never both, never neither.
+ */
+export type ModuleToolOptions = ToolOptions & { name: string } & (
+    { permission: string; readOnly?: never } | { readOnly: true; permission?: never }
+  );
 
 export interface ModuleToolMeta {
   moduleId: string;
   name: string;
   permission?: string;
+  readOnly?: true;
 }
 
 export const TOOL_REFUSED = 'This tool could not be run.';
@@ -117,12 +120,19 @@ function moduleToolInterceptor(moduleId: string): Type<NestInterceptor> {
  * `<moduleId>_`: the module contract test checks both.
  */
 export function ModuleTool(moduleId: string, options: ModuleToolOptions): MethodDecorator {
-  const { permission, ...toolOptions } = options;
+  const { permission, readOnly, ...toolOptions } = options;
+  // The type already forbids this. The check is for callers that bypass it, because a tool that
+  // forgets its permission would otherwise be open to every member.
+  if (!permission === !readOnly) {
+    throw new Error(
+      `${options.name}: a module tool must declare exactly one of permission or readOnly: true`,
+    );
+  }
   return (target, key, descriptor) => {
     const meta: ModuleToolMeta = {
       moduleId,
       name: options.name,
-      ...(permission ? { permission } : {}),
+      ...(permission ? { permission } : { readOnly: true as const }),
     };
     Reflect.defineMetadata(MODULE_TOOL_METADATA, meta, descriptor.value as object);
     UseInterceptors(moduleToolInterceptor(moduleId))(target, key, descriptor);

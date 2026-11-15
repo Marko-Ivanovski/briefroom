@@ -267,6 +267,9 @@ function moduleToolProblems(root: ModuleRef, id: string): string[] {
       ...(!tool.name.startsWith(`${id}_`)
         ? [`${cls.name}.${tool.name}: tool name must start with "${id}_"`]
         : []),
+      ...(!tool.permission && !tool.readOnly
+        ? [`${cls.name}.${tool.name}: must declare a permission or readOnly: true`]
+        : []),
     ]),
   );
 }
@@ -521,7 +524,7 @@ describe('module contract', () => {
       class Tools {
         run(): void {}
       }
-      ModuleTool(moduleId, { name, description: 'x', inputSchema: z.object({}) })(
+      ModuleTool(moduleId, { name, description: 'x', inputSchema: z.object({}), readOnly: true })(
         Tools.prototype,
         'run',
         Object.getOwnPropertyDescriptor(Tools.prototype, 'run')!,
@@ -552,6 +555,20 @@ describe('module contract', () => {
       expect(
         moduleToolProblems(nest([toolClass('design', 'designer_list')]), 'design'),
       ).toHaveLength(1);
+    });
+
+    it('rejects a tool that carries neither a permission nor readOnly', () => {
+      class Tools {
+        run(): void {}
+      }
+      Reflect.defineMetadata(
+        MODULE_TOOL_METADATA,
+        { moduleId: 'design', name: 'design_x' },
+        Tools.prototype.run,
+      );
+      expect(moduleToolProblems(nest([Tools]), 'design')).toEqual([
+        'Tools.design_x: must declare a permission or readOnly: true',
+      ]);
     });
 
     it('rejects a plain @Tool, @Resource or @Prompt in a module', () => {
