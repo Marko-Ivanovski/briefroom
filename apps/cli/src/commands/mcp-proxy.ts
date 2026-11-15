@@ -44,8 +44,15 @@ function status(ctx: Context, text: string): void {
  */
 async function resolveTarget(ctx: Context): Promise<Resolution> {
   const none = { message: NOT_LINKED };
-  const link = await readLink(ctx.cwd);
-  const root = await repoRoot(ctx.cwd);
+  let link;
+  let root;
+  try {
+    link = await readLink(ctx.cwd);
+    root = await repoRoot(ctx.cwd);
+  } catch (err) {
+    status(ctx, (err as Error).message);
+    return none;
+  }
   if (!link || !root) return none;
 
   let record;

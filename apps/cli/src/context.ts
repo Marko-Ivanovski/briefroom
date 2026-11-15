@@ -1,5 +1,7 @@
 import { execFile, spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { homedir, hostname } from 'node:os';
+import { join } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { CliError } from './errors.ts';
 import { resolveCommand } from './resolve-command.ts';
@@ -26,10 +28,17 @@ export interface Context {
 }
 
 // No shell is involved, so a url from the server cannot inject a command.
+// The program is always an absolute path, so a file in the working directory is never started.
 function openCommand(url: string): [string, string[]] {
-  if (process.platform === 'win32') return ['rundll32', ['url.dll,FileProtocolHandler', url]];
-  if (process.platform === 'darwin') return ['open', [url]];
-  return ['xdg-open', [url]];
+  if (process.platform === 'win32') {
+    const rundll = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'rundll32.exe');
+    if (!existsSync(rundll)) throw new Error('rundll32 was not found');
+    return [rundll, ['url.dll,FileProtocolHandler', url]];
+  }
+  const name = process.platform === 'darwin' ? 'open' : 'xdg-open';
+  const opener = resolveCommand(name, process.env, process.platform);
+  if (!opener) throw new Error(`${name} was not found on PATH`);
+  return [opener, [url]];
 }
 
 function openUrl(url: string): Promise<void> {
@@ -37,7 +46,13 @@ function openUrl(url: string): Promise<void> {
   if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
     return Promise.reject(new Error('Refusing to open a non-http url'));
   }
-  const [cmd, args] = openCommand(parsed.href);
+  let command: [string, string[]];
+  try {
+    command = openCommand(parsed.href);
+  } catch (err) {
+    return Promise.reject(err as Error);
+  }
+  const [cmd, args] = command;
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args, { stdio: 'ignore', detached: true });
     child.once('error', reject);
