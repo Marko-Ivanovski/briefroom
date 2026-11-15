@@ -13,6 +13,7 @@ import {
 } from '@nestjs/common';
 import { and, eq, gt, isNull, sql } from 'drizzle-orm';
 import type { Scope } from '../access/scope.ts';
+import { RevocationService } from './revocation.service.ts';
 import { AUTH } from '../auth/auth.module.ts';
 import type { Auth } from '../auth/auth.ts';
 import { DB } from '../database/database.module.ts';
@@ -33,6 +34,7 @@ export class PasswordResetService {
     @Inject(AUTH) private readonly auth: Auth,
     private readonly installs: InstallService,
     private readonly links: PasswordResetLinks,
+    private readonly revocation: RevocationService,
   ) {}
 
   async createForMember(scope: Scope, targetUserId: string): Promise<ResetLinkResponse> {
@@ -142,6 +144,7 @@ export class PasswordResetService {
     // (possibly hostile) session alive beside a changed password.
     try {
       await ctx.internalAdapter.deleteUserSessions(claimed.userId);
+      await this.revocation.sessionsRevoked(claimed.userId);
       if (!(await ctx.internalAdapter.findCredentialAccount(claimed.userId))) {
         throw new PasswordWriteFailed();
       }
@@ -157,6 +160,7 @@ export class PasswordResetService {
     let failed = false;
     try {
       await ctx.internalAdapter.deleteUserSessions(claimed.userId);
+      await this.revocation.sessionsRevoked(claimed.userId);
     } catch {
       failed = true;
     }

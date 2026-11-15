@@ -1,9 +1,16 @@
 import { DEV_DATABASE_URL } from '@briefroom/db';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { DEV_AUTH_SECRET, loadEnv } from '../src/config/env.ts';
 
 const PROD = { NODE_ENV: 'production' };
-const BASE = { DATABASE_URL: 'postgres://x/y', BRIEFROOM_PUBLIC_URL: 'http://localhost:4300' };
+const BASE = {
+  DATABASE_URL: 'postgres://x/y',
+  BRIEFROOM_PUBLIC_URL: 'http://localhost:4300',
+  BRIEFROOM_DATA_DIR: '/var/lib/briefroom',
+};
 
 describe('loadEnv BETTER_AUTH_SECRET', () => {
   const LONG = 'x'.repeat(32);
@@ -116,5 +123,38 @@ describe('loadEnv BRIEFROOM_TESTKIT', () => {
     expect(() => loadEnv({ ...BASE, BRIEFROOM_TESTKIT: '1' })).not.toThrow();
     expect(() => loadEnv({ ...PROD, ...BASE, ...SECRET })).not.toThrow();
     expect(() => loadEnv({ ...PROD, ...BASE, ...SECRET, BRIEFROOM_TESTKIT: '' })).not.toThrow();
+  });
+});
+
+describe('loadEnv BRIEFROOM_DATA_DIR', () => {
+  const SECRET = { BETTER_AUTH_SECRET: 'x'.repeat(32) };
+  const WITHOUT_DIR = {
+    DATABASE_URL: BASE.DATABASE_URL,
+    BRIEFROOM_PUBLIC_URL: BASE.BRIEFROOM_PUBLIC_URL,
+  };
+
+  it('is required in production', () => {
+    expect(() => loadEnv({ ...PROD, ...WITHOUT_DIR, ...SECRET })).toThrow(
+      /BRIEFROOM_DATA_DIR is required/,
+    );
+  });
+
+  const REPO_ROOT = fileURLToPath(new URL('../../..', import.meta.url));
+
+  it('defaults to <repo root>/.data, the same from the root and from any app folder', () => {
+    const expected = join(REPO_ROOT, '.data');
+    expect(loadEnv(WITHOUT_DIR, REPO_ROOT).dataDir).toBe(expected);
+    expect(loadEnv(WITHOUT_DIR, join(REPO_ROOT, 'apps', 'worker')).dataDir).toBe(expected);
+    expect(loadEnv(WITHOUT_DIR, join(REPO_ROOT, 'apps', 'api')).dataDir).toBe(expected);
+  });
+
+  it('refuses to start without a default when no repo root is found', () => {
+    expect(() => loadEnv(WITHOUT_DIR, tmpdir())).toThrow(/BRIEFROOM_DATA_DIR.*repo root/);
+  });
+
+  it('refuses a relative path', () => {
+    expect(() => loadEnv({ ...BASE, BRIEFROOM_DATA_DIR: 'relative/dir' })).toThrow(
+      /BRIEFROOM_DATA_DIR: must be an absolute path/,
+    );
   });
 });

@@ -19,9 +19,45 @@ export class RevocationService {
   private readonly log = new Logger(RevocationService.name);
   private readonly memberHandlers: MemberRemovedHandler[] = [];
   private readonly projectHandlers: ProjectMemberRemovedHandler[] = [];
+  private readonly roleHandlers: MemberRemovedHandler[] = [];
+  private readonly addedHandlers: MemberRemovedHandler[] = [];
+  private readonly sessionHandlers: ((userId: string) => Promise<void>)[] = [];
 
   onMemberRemoved(handler: MemberRemovedHandler): void {
     this.memberHandlers.push(handler);
+  }
+
+  onProjectMemberAdded(handler: MemberRemovedHandler): void {
+    this.addedHandlers.push(handler);
+  }
+
+  projectMemberAdded(workspaceId: string, userId: string): Promise<void> {
+    return this.run(
+      'projectMemberAdded',
+      this.addedHandlers.map((h) => () => h(workspaceId, userId)),
+    );
+  }
+
+  onSessionsRevoked(handler: (userId: string) => Promise<void>): void {
+    this.sessionHandlers.push(handler);
+  }
+
+  sessionsRevoked(userId: string): Promise<void> {
+    return this.run(
+      'sessionsRevoked',
+      this.sessionHandlers.map((h) => () => h(userId)),
+    );
+  }
+
+  onRoleChanged(handler: MemberRemovedHandler): void {
+    this.roleHandlers.push(handler);
+  }
+
+  roleChanged(workspaceId: string, userId: string): Promise<void> {
+    return this.run(
+      'roleChanged',
+      this.roleHandlers.map((h) => () => h(workspaceId, userId)),
+    );
   }
 
   onProjectMemberRemoved(handler: ProjectMemberRemovedHandler): void {

@@ -3,7 +3,7 @@ import { apiKey } from '@better-auth/api-key';
 import { drizzleAdapter } from '@better-auth/drizzle-adapter';
 import { Logger } from '@nestjs/common';
 import { betterAuth } from 'better-auth';
-import { APIError, createAuthMiddleware, isAPIError } from 'better-auth/api';
+import { APIError, createAuthMiddleware, getSessionFromCtx, isAPIError } from 'better-auth/api';
 import { admin, organization } from 'better-auth/plugins';
 import type { Env } from '../config/env.ts';
 import { describeError } from '../errors/safe-error.ts';
@@ -29,8 +29,14 @@ export const SAFE_AUTH_MESSAGES: ReadonlySet<string> = new Set([ENDPOINT_UNAVAIL
 
 export type CanCreateWorkspace = (userId: string) => Promise<boolean>;
 
-export function createAuth(db: Db, env: Env, canCreateWorkspace: CanCreateWorkspace) {
+export function createAuth(
+  db: Db,
+  env: Env,
+  canCreateWorkspace: CanCreateWorkspace,
+  onSignOut: (userId: string) => Promise<void> = async () => undefined,
+) {
   const log = new Logger('BetterAuth');
+  const signingOut = new WeakMap<Request, string>();
   return betterAuth({
     secret: env.authSecret,
     baseURL: env.publicUrl,
@@ -66,6 +72,17 @@ export function createAuth(db: Db, env: Env, canCreateWorkspace: CanCreateWorksp
         if (ctx.request && !ALLOWED_HTTP_PATHS.has(ctx.path)) {
           throw new APIError('FORBIDDEN', { message: ENDPOINT_UNAVAILABLE });
         }
+        // The session row is gone only after the endpoint ran, so the id waits for the after hook.
+        if (ctx.path === '/sign-out' && ctx.request) {
+          const session = await getSessionFromCtx(ctx).catch(() => null);
+          if (session) signingOut.set(ctx.request, session.user.id);
+        }
+      }),
+      after: createAuthMiddleware(async (ctx) => {
+        if (ctx.path !== '/sign-out' || !ctx.request) return;
+        const userId = signingOut.get(ctx.request);
+        signingOut.delete(ctx.request);
+        if (userId && !isAPIError(ctx.context.returned)) await onSignOut(userId);
       }),
     },
     plugins: [

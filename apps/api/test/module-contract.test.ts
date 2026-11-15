@@ -2,12 +2,29 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createTestDb } from '@briefroom/db/testing';
-import { moduleEnabledGuard, type ModuleManifest } from '@briefroom/module-kit';
+import {
+  EVENTS,
+  FILE_STORE,
+  HISTORY,
+  JOBS,
+  moduleEnabledGuard,
+  systemScope,
+  type EventPublisher,
+  type FileStore,
+  type HistoryRecorder,
+  type JobQueue,
+  type ModuleManifest,
+} from '@briefroom/module-kit';
 import { TESTKIT_SQL_PATH } from '@briefroom/module-testkit/sql';
-import { GUARDS_METADATA, PATH_METADATA } from '@nestjs/common/constants';
+import {
+  GUARDS_METADATA,
+  PATH_METADATA,
+  SELF_DECLARED_DEPS_METADATA,
+} from '@nestjs/common/constants';
 import { getTableColumns, getTableName } from 'drizzle-orm';
 import { getTableConfig, pgTable, uuid, type PgTable } from 'drizzle-orm/pg-core';
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { createTestApp, type TestApp } from './helpers.ts';
 import { REGISTERED_MODULES } from '../src/module-registry/registered-modules.ts';
 
 const MODULES_DIR = fileURLToPath(new URL('../../../modules', import.meta.url));
@@ -54,6 +71,15 @@ function foreignModuleImports(source: string, file: string, moduleId: string): s
     }
     if (spec.startsWith('@briefroom/')) {
       const name = spec.slice('@briefroom/'.length).split('/')[0]!;
+      // The kit's subpath for the core (`/core`) holds the unbound publisher and queue: never for modules.
+      if (
+        name === 'module-kit' &&
+        spec !== '@briefroom/module-kit' &&
+        spec !== '@briefroom/module-kit/web'
+      ) {
+        offenders.push(spec);
+        continue;
+      }
       if (!ALLOWED_CORE.includes(name) && name !== `module-${moduleId}`) offenders.push(spec);
       continue;
     }
@@ -65,6 +91,22 @@ function foreignModuleImports(source: string, file: string, moduleId: string): s
 const allModuleDirs = readdirSync(MODULES_DIR, { withFileTypes: true })
   .filter((e) => e.isDirectory() && e.name !== 'node_modules')
   .map((e) => e.name);
+
+/**
+ * Problems with how a module's source reaches its publisher and queue (R138): it must call
+ * `provideModuleServices` with its own manifest id, and never touch the core tokens or binders.
+ */
+function serviceBindingProblems(source: string, moduleId: string): string[] {
+  const problems: string[] = [];
+  for (const [, arg] of source.matchAll(/provideModuleServices\(\s*([^)]*?)\s*\)/g)) {
+    if (arg !== `'${moduleId}'` && arg !== `"${moduleId}"`) {
+      problems.push(`provideModuleServices(${arg}) is not '${moduleId}'`);
+    }
+  }
+  if (/\bCORE_[A-Z]+/.test(source)) problems.push('references a CORE_ token');
+  if (/\bbind(Events|Jobs)\b/.test(source)) problems.push('references bindEvents or bindJobs');
+  return problems;
+}
 
 const moduleDirs = allModuleDirs.filter((d) => existsSync(join(MODULES_DIR, d, 'manifest.ts')));
 
@@ -177,6 +219,59 @@ function controllerProblems(root: ModuleRef, id: string): string[] {
   });
 }
 
+const BOUND_TOKENS: readonly unknown[] = [EVENTS, JOBS, FILE_STORE, HISTORY];
+
+interface Consumer {
+  nestModule: object;
+  consumer: string;
+  token: unknown;
+}
+
+interface DynamicParts {
+  providers?: unknown[];
+  controllers?: unknown[];
+  imports?: ModuleRef[];
+}
+
+/**
+ * Every class in a Nest module and in everything it imports (dynamic modules and forwardRef
+ * included) that injects a bound service, with the Nest module that has to provide it (R140).
+ */
+function boundConsumers(root: ModuleRef): Consumer[] {
+  const seen = new Set<object>();
+  const found: Consumer[] = [];
+  const classesOf = (entries: unknown[]): { name: string }[] =>
+    entries.flatMap((p) => {
+      if (typeof p === 'function') return [p as { name: string }];
+      const useClass = (p as { useClass?: { name: string } } | undefined)?.useClass;
+      return useClass ? [useClass] : [];
+    });
+  const visit = (ref: ModuleRef): void => {
+    const cls = resolveModuleRef(ref);
+    if (!cls || seen.has(cls)) return;
+    seen.add(cls);
+    const dynamic: DynamicParts = typeof ref === 'object' && ref ? (ref as DynamicParts) : {};
+    const classes = classesOf([
+      ...(Reflect.getMetadata('providers', cls) ?? []),
+      ...(Reflect.getMetadata('controllers', cls) ?? []),
+      ...(dynamic.providers ?? []),
+      ...(dynamic.controllers ?? []),
+    ]);
+    for (const c of classes) {
+      const deps: { param: unknown }[] = Reflect.getMetadata(SELF_DECLARED_DEPS_METADATA, c) ?? [];
+      for (const { param } of deps) {
+        if (BOUND_TOKENS.includes(param)) {
+          found.push({ nestModule: cls, consumer: c.name, token: param });
+        }
+      }
+    }
+    for (const i of Reflect.getMetadata('imports', cls) ?? []) visit(i);
+    for (const i of dynamic.imports ?? []) visit(i);
+  };
+  visit(root);
+  return found;
+}
+
 function configuredModuleSchemas(): string[] {
   return [...readFileSync(DRIZZLE_CONFIG, 'utf8').matchAll(MODULE_SCHEMA_PATH)].map((m) => m[1]!);
 }
@@ -207,6 +302,28 @@ describe('module contract', () => {
         const nestModule = REGISTERED_MODULES.find((m) => m.manifest.id === id)!.nestModule;
         expect(moduleControllers(nestModule).length).toBeGreaterThan(0);
         expect(controllerProblems(nestModule, id)).toEqual([]);
+      });
+
+      it('has classes that inject the bound services, so the runtime check below is not vacuous', () => {
+        const nestModule = REGISTERED_MODULES.find((m) => m.manifest.id === id)!.nestModule;
+        if (id !== 'testkit') return;
+        const tokens = new Set(boundConsumers(nestModule).map((c) => c.token));
+        expect([...tokens]).toEqual(expect.arrayContaining([EVENTS, FILE_STORE, HISTORY]));
+        const provided = (Reflect.getMetadata('providers', nestModule) ?? []) as {
+          provide?: unknown;
+        }[];
+        expect(provided.map((p) => p.provide)).toContain(JOBS);
+      });
+
+      it('calls provideModuleServices with its own id and never touches the core tokens', () => {
+        const problems = sourceFiles(join(MODULES_DIR, id)).flatMap((file) =>
+          serviceBindingProblems(readFileSync(file, 'utf8'), id).map((p) => `${file}: ${p}`),
+        );
+        expect(problems).toEqual([]);
+        const calls = sourceFiles(join(MODULES_DIR, id)).filter((file) =>
+          readFileSync(file, 'utf8').includes(`provideModuleServices('${id}')`),
+        );
+        expect(calls.length).toBeGreaterThan(0);
       });
 
       it('prefixes its table names with the module id', () => {
@@ -361,6 +478,8 @@ describe('module contract', () => {
       `import x from 'modules/other/x';`,
       `import x from '@briefroom/api';`,
       `const w = require('@briefroom/web');`,
+      `import { CORE_EVENTS } from '@briefroom/module-kit/core';`,
+      `import { bindEvents } from '@briefroom/module-kit/src/core.ts';`,
       `import x from '/abs/path';`,
     ]) {
       expect(flagged(line), line).toBe(true);
@@ -378,4 +497,83 @@ describe('module contract', () => {
       expect(flagged(line), line).toBe(false);
     }
   });
+});
+
+describe('the service binding check', () => {
+  it('flags a wrong id, a core token and a binder, and passes the right call', () => {
+    expect(
+      serviceBindingProblems(`providers: [...provideModuleServices('notes')]`, 'notes'),
+    ).toEqual([]);
+    expect(serviceBindingProblems(`...provideModuleServices('other')`, 'notes')).toHaveLength(1);
+    expect(serviceBindingProblems(`...provideModuleServices(id)`, 'notes')).toHaveLength(1);
+    expect(serviceBindingProblems(`@Inject(CORE_EVENTS) e`, 'notes')).toHaveLength(1);
+    expect(serviceBindingProblems(`bindJobs('notes', core)`, 'notes')).toHaveLength(1);
+  });
+});
+
+describe('boundConsumers', () => {
+  it('finds a class in an imported Nest module that injects a bound service', () => {
+    class Svc {}
+    Reflect.defineMetadata(SELF_DECLARED_DEPS_METADATA, [{ index: 0, param: HISTORY }], Svc);
+    class Inner {}
+    Reflect.defineMetadata('providers', [Svc], Inner);
+    class Outer {}
+    Reflect.defineMetadata('imports', [{ module: Inner }], Outer);
+    expect(boundConsumers(Outer)).toEqual([{ nestModule: Inner, consumer: 'Svc', token: HISTORY }]);
+  });
+});
+
+describe('registered modules get bound services (R138, R140)', () => {
+  let t: TestApp;
+
+  beforeAll(async () => {
+    t = await createTestApp();
+  });
+
+  afterAll(async () => {
+    await t.close();
+  });
+
+  const consumers = REGISTERED_MODULES.flatMap((m) =>
+    boundConsumers(m.nestModule).map((c) => [m.manifest.id, c] as const),
+  );
+
+  it.each(consumers.map(([id, c]) => [id, c.consumer, String(c.token), c] as const))(
+    '%s: %s gets its own bound %s from the Nest module that declares it',
+    async (id, _consumer, _token, c) => {
+      const scope = systemScope('contract-check');
+      const resolved = t.app
+        .select(c.nestModule as never)
+        .get<unknown>(c.token as symbol, { strict: true });
+      if (c.token === EVENTS) {
+        const events = resolved as EventPublisher;
+        await expect(events.publish(scope, { type: 'zz.x' })).rejects.toThrow(/can only use/);
+        // Past the binding, the core may still refuse for its own reasons.
+        await events.publish(scope, { type: `${id}.x` }).catch((err: unknown) => {
+          expect(String(err instanceof Error ? err.message : err)).not.toMatch(/can only use/);
+        });
+      } else if (c.token === JOBS) {
+        const jobs = resolved as JobQueue;
+        await expect(jobs.enqueue(scope, 'zz.x', {})).rejects.toThrow(/can only use/);
+        // Past the binding, the core may still refuse for its own reasons (no pg-boss schema here).
+        await jobs.enqueue(scope, `${id}.x`, {}).catch((err: unknown) => {
+          expect(String(err instanceof Error ? err.message : err)).not.toMatch(/can only use/);
+        });
+      } else if (c.token === FILE_STORE) {
+        await expect(
+          (resolved as FileStore).store(scope, { moduleId: 'zz', bytes: Buffer.alloc(0) }),
+        ).rejects.toThrow(/can only store files/);
+      } else {
+        await expect(
+          (resolved as HistoryRecorder).record({} as never, {
+            scope,
+            table: 'zz_other',
+            recordId: 'r',
+            before: null,
+            after: {},
+          }),
+        ).rejects.toThrow(/can only record history/);
+      }
+    },
+  );
 });

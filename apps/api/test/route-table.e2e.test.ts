@@ -93,6 +93,9 @@ describe('route table', () => {
     expect(routes).toContain('GET /api/v1/me');
     expect(routes).toContain('POST /api/v1/workspaces/:workspaceId/leave');
     expect(routes).toContain('GET /api/v1/workspaces/:workspaceId/m/testkit/notes');
+    expect(routes).toContain('GET /api/v1/workspaces/:workspaceId/history/:table/:recordId');
+    expect(routes).toContain('GET /api/v1/workspaces/:workspaceId/files/:fileId');
+    expect(routes).toContain('POST /api/v1/workspaces/:workspaceId/m/testkit/files');
   });
 
   it('keeps every /api/v1 route inside a workspace unless it is on the allowlist', () => {

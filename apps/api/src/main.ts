@@ -7,9 +7,11 @@ import { AppModule } from './app.module.ts';
 import { configureApp } from './bootstrap.ts';
 import { loadEnv } from './config/env.ts';
 import { InstallService } from './install/install.service.ts';
+import { migrateJobs } from './jobs/jobs.service.ts';
 
 async function main(): Promise<void> {
   const env = loadEnv();
+  new Logger('Env').log(`Data directory: ${env.dataDir}`);
 
   const db = createDb(env.databaseUrl);
   try {
@@ -17,6 +19,7 @@ async function main(): Promise<void> {
   } finally {
     await db.$client.end();
   }
+  await migrateJobs(env.databaseUrl);
 
   const app = await NestFactory.create(AppModule.register(env), new NodeAdapter(), {
     bodyParser: false,

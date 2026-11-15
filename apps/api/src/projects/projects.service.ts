@@ -14,6 +14,7 @@ import {
   scopedInsert,
   scopedUpdate,
   type Db,
+  type Tx,
 } from '@briefroom/db';
 import {
   BadRequestException,
@@ -23,6 +24,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { RevocationService } from '../members/revocation.service.ts';
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import { roleAtLeast, type Scope } from '../access/scope.ts';
@@ -31,7 +33,6 @@ import { InvalidRemoteError, normalizeRemote, stripCredentials } from './remote.
 import { SettingsService } from './settings.service.ts';
 
 export type Project = typeof projects.$inferSelect;
-type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 
 const PG_UNIQUE_VIOLATION = '23505';
 
@@ -94,6 +95,7 @@ export class ProjectsService {
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly settings: SettingsService,
+    private readonly revocation: RevocationService,
   ) {}
 
   async list(scope: Scope): Promise<ProjectSummary[]> {
@@ -140,7 +142,7 @@ export class ProjectsService {
       throw new ForbiddenException('Only admins can create projects in this workspace');
     }
     const remotes = toRemotes(input.repoRemotes);
-    return this.write(() =>
+    const created = await this.write(() =>
       this.db.transaction(async (tx) => {
         const { name, client, summary, status, ticketKey, isClientWork } = input;
         const [project] = await tx
@@ -156,6 +158,11 @@ export class ProjectsService {
         return this.detail(tx, { ...scope, visibleProjectIds: 'all' }, project!);
       }),
     );
+    // R134: the creator joined the project, so a member's open streams reconnect with it in view.
+    if (!roleAtLeast(scope, 'admin')) {
+      await this.revocation.projectMemberAdded(scope.workspaceId, scope.userId);
+    }
+    return created;
   }
 
   async update(scope: Scope, projectId: string, patch: ProjectPatch): Promise<ProjectDetail> {

@@ -10,3 +10,5 @@ export * from './bookmarks.ts';
 export * from './workspace-removals.ts';
 export * from './workspace-modules.ts';
 export * from './member-permissions.ts';
+export * from './history.ts';
+export * from './files.ts';
