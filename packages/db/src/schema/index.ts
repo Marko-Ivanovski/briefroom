@@ -7,6 +7,7 @@ export * from './projects.ts';
 export * from './project-members.ts';
 export * from './access-checklist.ts';
 export * from './bookmarks.ts';
+export * from './cli-logins.ts';
 export * from './workspace-removals.ts';
 export * from './workspace-modules.ts';
 export * from './member-permissions.ts';

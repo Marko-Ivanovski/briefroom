@@ -3,6 +3,7 @@ import { APP_FILTER } from '@nestjs/core';
 import { ServeStaticModule } from '@nestjs/serve-static';
 import { AccessModule } from './access/access.module.ts';
 import { AuthModule } from './auth/auth.module.ts';
+import { CliLoginModule } from './cli-login/cli-login.module.ts';
 import { EnvModule } from './config/env.module.ts';
 import type { Env } from './config/env.ts';
 import { DatabaseModule } from './database/database.module.ts';
@@ -49,6 +50,7 @@ export class AppModule {
         ProjectsModule,
         InvitesModule,
         TokensModule,
+        CliLoginModule,
         BriefroomMcpModule,
         ...REGISTERED_MODULES.map((m) => m.nestModule),
         ...extraImports,

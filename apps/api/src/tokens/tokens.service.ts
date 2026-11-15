@@ -156,6 +156,11 @@ export class TokensService implements OnModuleInit {
     await this.db.delete(authSchema.apikey).where(eq(authSchema.apikey.id, own.id));
   }
 
+  /** Deletes the one token a verified Bearer call carries. The id never comes from the client. */
+  async removeById(tokenId: string): Promise<void> {
+    await this.db.delete(authSchema.apikey).where(eq(authSchema.apikey.id, tokenId));
+  }
+
   private async ownKeys(userId: string, workspaceId: string) {
     const rows = await this.db
       .select()

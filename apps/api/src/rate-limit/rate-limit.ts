@@ -141,6 +141,10 @@ export class RateLimitModule {}
 /** Per-route, opt-in: 20 requests a minute per client. The importing module must import RateLimitModule. */
 export const RateLimit = () => applyDecorators(UseGuards(ClientIpThrottlerGuard));
 
+/** Per-route, opt-in: `limit` requests a minute per client address, where the default 20 does not fit. */
+export const IpRateLimit = (limit: number) =>
+  applyDecorators(UseGuards(ClientIpThrottlerGuard), Throttle({ default: { limit, ttl: 60_000 } }));
+
 /** Per-route, opt-in: `limit` requests a minute per signed-in user. */
 export const UserRateLimit = (limit: number) =>
   applyDecorators(UseGuards(UserThrottlerGuard), Throttle({ default: { limit, ttl: 60_000 } }));

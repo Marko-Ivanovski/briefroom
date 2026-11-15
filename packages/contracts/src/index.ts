@@ -1,4 +1,5 @@
 export * from './bookmarks.ts';
+export * from './cli-login.ts';
 export * from './history.ts';
 export * from './install.ts';
 export * from './invites.ts';

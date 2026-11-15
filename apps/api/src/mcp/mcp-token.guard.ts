@@ -27,10 +27,11 @@ export function normalizeAgent(header: string | string[] | undefined): string {
 interface McpRequest {
   headers: IncomingHttpHeaders;
   scope?: Scope;
+  tokenId?: string;
 }
 
 /**
- * R146: /mcp takes a Bearer brf_ token and nothing else. The route is anonymous to the session
+ * R146: /mcp, and the CLI's delete of its own token, take a Bearer brf_ token and nothing else. The route is anonymous to the session
  * guard, so a session cookie is never read here. Every refusal looks the same to the caller.
  */
 @Injectable()
@@ -59,6 +60,7 @@ export class McpTokenGuard implements CanActivate {
       : null;
     if (!scope) return this.refuse(req, token ? 'invalid token' : 'no bearer token');
     req.scope = scope;
+    req.tokenId = verified?.tokenId;
     return true;
   }
 
