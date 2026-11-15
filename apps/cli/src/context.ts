@@ -1,5 +1,7 @@
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
+import { access } from 'node:fs/promises';
 import { homedir, hostname } from 'node:os';
+import { delimiter, join } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { CliError } from './errors.ts';
 
@@ -15,6 +17,12 @@ export interface Context {
   sleep(ms: number): Promise<void>;
   now(): number;
   choose(prompt: string, options: string[]): Promise<number>;
+  /** True when both input and output are a terminal, so a question can be asked. */
+  interactive: boolean;
+  confirm(prompt: string): Promise<boolean>;
+  /** Runs a program with an argument array and no shell. Rejects on a non-zero exit. */
+  exec(file: string, args: string[]): Promise<void>;
+  hasCommand(name: string): Promise<boolean>;
 }
 
 // No shell is involved, so a url from the server cannot inject a command.
@@ -56,6 +64,38 @@ async function choose(prompt: string, options: string[]): Promise<number> {
   }
 }
 
+async function confirm(prompt: string): Promise<boolean> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    return /^y(es)?$/i.test((await rl.question(`${prompt} `)).trim());
+  } finally {
+    rl.close();
+  }
+}
+
+function exec(file: string, args: string[]): Promise<void> {
+  return new Promise((resolve, reject) => {
+    execFile(file, args, { windowsHide: true }, (err) => (err ? reject(err) : resolve()));
+  });
+}
+
+async function hasCommand(name: string): Promise<boolean> {
+  const extensions =
+    process.platform === 'win32' ? (process.env.PATHEXT ?? '.EXE').split(';') : [''];
+  for (const dir of (process.env.PATH ?? '').split(delimiter)) {
+    for (const ext of extensions) {
+      if (
+        await access(join(dir, name + ext)).then(
+          () => true,
+          () => false,
+        )
+      )
+        return true;
+    }
+  }
+  return false;
+}
+
 export function defaultContext(): Context {
   return {
     home: homedir(),
@@ -68,5 +108,9 @@ export function defaultContext(): Context {
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     now: () => Date.now(),
     choose,
+    interactive: process.stdin.isTTY && process.stdout.isTTY,
+    confirm,
+    exec,
+    hasCommand,
   };
 }

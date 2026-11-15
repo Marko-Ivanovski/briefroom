@@ -2,6 +2,7 @@ import { assertCompatible, normaliseAddress, request } from '../api.ts';
 import type { Context } from '../context.ts';
 import { saveWorkspaceToken } from '../credentials.ts';
 import { CliError } from '../errors.ts';
+import { offerPlugin } from '../plugin-install.ts';
 
 const DEFAULT_INTERVAL_MS = 2000;
 const DEFAULT_LOGIN_WINDOW_MS = 10 * 60 * 1000;
@@ -70,6 +71,7 @@ export async function login(
     { name: approved.workspaceName, token: approved.token },
   );
   ctx.out(`Connected to ${approved.workspaceName} on ${new URL(baseUrl).host}.\n`);
+  await offerPlugin(ctx);
 }
 
 async function waitForApproval(ctx: Context, baseUrl: string, started: Started): Promise<Approved> {

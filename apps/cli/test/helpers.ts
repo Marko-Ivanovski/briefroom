@@ -87,6 +87,10 @@ export async function testContext(overrides: Partial<Context> = {}): Promise<Tes
     sleep: () => Promise.resolve(),
     now: () => Date.now(),
     choose: () => Promise.reject(new Error('choose was not expected')),
+    interactive: false,
+    confirm: () => Promise.reject(new Error('confirm was not expected')),
+    exec: () => Promise.reject(new Error('exec was not expected')),
+    hasCommand: () => Promise.resolve(false),
     ...overrides,
   };
   return {

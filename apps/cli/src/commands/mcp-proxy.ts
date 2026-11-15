@@ -16,6 +16,7 @@ import type { Context } from '../context.ts';
 import { loadCredentials } from '../credentials.ts';
 import { CliError } from '../errors.ts';
 import { repoRoot } from '../git.ts';
+import { MCP_INSTRUCTIONS, SAFETY_SENTENCE } from '../instructions.ts';
 import { loadLinks } from '../links.ts';
 import { readLink } from './link.ts';
 
@@ -91,37 +92,51 @@ function describeFailure(err: unknown): string {
   return OFFLINE;
 }
 
-/** One lazily opened connection to the install. A failed request drops it, so the next call retries. */
+/**
+ * One lazily opened connection to the install. A failed request drops it, so the next call retries.
+ * Every acquire gets one signal that covers the version check, connect and initialize together.
+ */
 class Upstream {
   private client: Client | null = null;
   private pending: Promise<Client> | null = null;
+  private wasDown = false;
 
   constructor(
     private readonly ctx: Context,
     private readonly target: Target,
-    private readonly deadlineMs: number,
+    private readonly onRecovered: () => void,
   ) {}
 
-  acquire(): Promise<Client> {
+  acquire(signal: AbortSignal, deadlineMs: number): Promise<Client> {
     if (this.client) return Promise.resolve(this.client);
-    this.pending ??= this.open().finally(() => {
-      this.pending = null;
-    });
-    return this.pending;
+    this.pending ??= this.open(signal)
+      .then((client) => {
+        if (this.wasDown) this.onRecovered();
+        this.wasDown = false;
+        return client;
+      })
+      .catch((err: unknown) => {
+        this.wasDown = true;
+        throw err;
+      })
+      .finally(() => {
+        this.pending = null;
+      });
+    return within(deadlineMs, this.pending);
   }
 
   async drop(): Promise<void> {
     const client = this.client;
     this.client = null;
+    this.wasDown = true;
     await client?.close().catch(() => undefined);
   }
 
-  private async open(): Promise<Client> {
+  private async open(signal: AbortSignal): Promise<Client> {
     const { baseUrl, token, installId } = this.target;
     const timed: Context = {
       ...this.ctx,
-      fetch: (input, init) =>
-        this.ctx.fetch(input, { ...init, signal: AbortSignal.timeout(this.deadlineMs) }),
+      fetch: (input, init) => this.ctx.fetch(input, { ...init, signal }),
     };
     let reported: string | null;
     try {
@@ -145,12 +160,8 @@ class Upstream {
       },
     });
     const client = new Client({ name: 'briefroom-mcp-proxy', version: pkg.version });
-    const signal = AbortSignal.timeout(this.deadlineMs);
     try {
-      await within(
-        this.deadlineMs,
-        client.connect(transport, { signal, timeout: this.deadlineMs }),
-      );
+      await client.connect(transport, { signal });
     } catch (err) {
       await client.close().catch(() => undefined);
       throw new Refused(describeFailure(err));
@@ -163,7 +174,7 @@ class Upstream {
 function within<T>(ms: number, work: Promise<T>): Promise<T> {
   let timer: NodeJS.Timeout;
   const deadline = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error('deadline')), ms);
+    timer = setTimeout(() => reject(new Refused(OFFLINE)), ms);
   });
   return Promise.race([work, deadline]).finally(() => clearTimeout(timer));
 }
@@ -185,42 +196,60 @@ export interface McpProxyOptions {
 export async function mcpProxy(ctx: Context, options: McpProxyOptions = {}): Promise<void> {
   const deadlineMs = options.offlineMs ?? OFFLINE_DEADLINE_MS;
   const resolved = await resolveTarget(ctx);
-  const upstream = 'target' in resolved ? new Upstream(ctx, resolved.target, deadlineMs) : null;
+  let server: Server | null = null;
+  const upstream =
+    'target' in resolved
+      ? new Upstream(
+          ctx,
+          resolved.target,
+          () => void server?.sendToolListChanged().catch(() => undefined),
+        )
+      : null;
+  // One signal and one deadline per answer to the agent: acquire, connect, initialize and the request together.
+  const bounded = <T>(work: (signal: AbortSignal) => Promise<T>): Promise<T> =>
+    within(deadlineMs, work(AbortSignal.timeout(deadlineMs)));
 
-  let instructions: string | undefined = 'message' in resolved ? resolved.message : undefined;
-  if (upstream) {
+  // The install's own instructions are used when it answers in time. The first answer to the
+  // agent waits at most one deadline for that, so a dead host never stalls the session start.
+  let instructions = 'message' in resolved ? `${resolved.message} ${SAFETY_SENTENCE}` : '';
+  if (upstream && 'target' in resolved) {
     try {
-      instructions = (await upstream.acquire()).getInstructions();
-      status(ctx, `connected to ${new URL((resolved as { target: Target }).target.baseUrl).host}.`);
+      const client = await bounded((signal) => upstream.acquire(signal, deadlineMs));
+      instructions = client.getInstructions() ?? MCP_INSTRUCTIONS;
+      status(ctx, `connected to ${new URL(resolved.target.baseUrl).host}.`);
     } catch (err) {
-      instructions = err instanceof Refused && err.message !== OFFLINE ? err.message : undefined;
+      instructions =
+        err instanceof Refused && err.message !== OFFLINE
+          ? `${err.message} ${SAFETY_SENTENCE}`
+          : `${MCP_INSTRUCTIONS} ${OFFLINE}`;
       status(ctx, 'the install is not reachable right now. Each call will retry.');
     }
   }
 
-  const server = new Server(
+  const proxy = new Server(
     { name: 'briefroom', version: pkg.version },
-    { capabilities: { tools: {} }, ...(instructions === undefined ? {} : { instructions }) },
+    { capabilities: { tools: { listChanged: true } }, instructions },
   );
+  server = proxy;
 
-  server.setRequestHandler('tools/list', async () => {
+  proxy.setRequestHandler('tools/list', async () => {
     if (!upstream) return { tools: [] };
     try {
-      const client = await upstream.acquire();
-      const signal = AbortSignal.timeout(deadlineMs);
-      return await within(deadlineMs, client.listTools(undefined, { signal, cacheMode: 'bypass' }));
+      return await bounded(async (signal) => {
+        const client = await upstream.acquire(signal, deadlineMs);
+        return client.listTools(undefined, { signal, cacheMode: 'bypass' });
+      });
     } catch {
       await upstream.drop();
       return { tools: [] };
     }
   });
 
-  server.setRequestHandler('tools/call', async (request) => {
-    if (!upstream)
-      return refusal(resolved && 'message' in resolved ? resolved.message : NOT_LINKED);
+  proxy.setRequestHandler('tools/call', async (request) => {
+    if (!upstream) return refusal('message' in resolved ? resolved.message : NOT_LINKED);
     let client: Client;
     try {
-      client = await upstream.acquire();
+      client = await bounded((signal) => upstream.acquire(signal, deadlineMs));
     } catch (err) {
       return refusal(err instanceof Refused ? err.message : OFFLINE);
     }
@@ -238,9 +267,9 @@ export async function mcpProxy(ctx: Context, options: McpProxyOptions = {}): Pro
   });
 
   const closed = new Promise<void>((resolve) => {
-    server.onclose = resolve;
+    proxy.onclose = resolve;
   });
-  await server.connect(options.transport ?? new StdioServerTransport());
+  await proxy.connect(options.transport ?? new StdioServerTransport());
   await closed;
   await upstream?.drop();
 }

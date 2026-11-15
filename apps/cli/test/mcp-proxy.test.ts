@@ -11,6 +11,7 @@ import { saveCredentials, saveWorkspaceToken } from '../src/credentials.ts';
 import { loadLinks, recordLink } from '../src/links.ts';
 import { mcpProxy, NOT_LINKED, OFFLINE, OFFLINE_DEADLINE_MS } from '../src/commands/mcp-proxy.ts';
 import { realpath } from 'node:fs/promises';
+import { MCP_INSTRUCTIONS, SAFETY_SENTENCE } from '../src/instructions.ts';
 import { SECRET, testContext, type TestContext } from './helpers.ts';
 
 interface Seen {
@@ -34,7 +35,7 @@ function reply(res: ServerResponse, id: unknown, result: unknown): void {
 }
 
 async function startFake(
-  options: { installId?: string; api?: string; redirectMcp?: string } = {},
+  options: { installId?: string; api?: string; redirectMcp?: string; port?: number } = {},
 ): Promise<Fake> {
   const seen: Seen[] = [];
   const server: Server = createServer((req, res) => {
@@ -104,7 +105,7 @@ async function startFake(
       }
     });
   });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>((resolve) => server.listen(options.port ?? 0, '127.0.0.1', resolve));
   return {
     baseUrl: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
     seen,
@@ -207,7 +208,7 @@ describe('mcp-proxy', () => {
   it('serves no tools and the not-linked message in a repo without .briefroom.json', async () => {
     await setup();
     const client = await connect();
-    expect(client.getInstructions()).toBe(NOT_LINKED);
+    expect(client.getInstructions()).toBe(`${NOT_LINKED} ${SAFETY_SENTENCE}`);
     expect(NOT_LINKED).toBe(
       'This repo is not linked to a Briefroom workspace. Run briefroom link.',
     );
@@ -220,7 +221,7 @@ describe('mcp-proxy', () => {
     await linkedTo(f);
     await rm(join(t!.home, '.briefroom', 'links.json'));
     const client = await connect();
-    expect(client.getInstructions()).toBe(NOT_LINKED);
+    expect(client.getInstructions()).toBe(`${NOT_LINKED} ${SAFETY_SENTENCE}`);
     expect((await client.listTools()).tools).toEqual([]);
     expect(f.seen.filter((s) => s.url === '/mcp')).toEqual([]);
   });
@@ -241,7 +242,7 @@ describe('mcp-proxy', () => {
       workspaceId: 'ws1',
     });
     const client = await connect();
-    expect(client.getInstructions()).toBe(NOT_LINKED);
+    expect(client.getInstructions()).toBe(`${NOT_LINKED} ${SAFETY_SENTENCE}`);
     expect((await client.listTools()).tools).toEqual([]);
     expect(other.seen.filter((s) => s.url === '/mcp')).toEqual([]);
   });
@@ -256,7 +257,7 @@ describe('mcp-proxy', () => {
       workspaceId: 'ws-other',
     });
     const client = await connect();
-    expect(client.getInstructions()).toBe(NOT_LINKED);
+    expect(client.getInstructions()).toBe(`${NOT_LINKED} ${SAFETY_SENTENCE}`);
     expect((await client.listTools()).tools).toEqual([]);
   });
 
@@ -266,7 +267,7 @@ describe('mcp-proxy', () => {
     await linkedTo(f);
     await saveCredentials(t!.home, { installs: {} });
     const client = await connect();
-    expect(client.getInstructions()).toBe(NOT_LINKED);
+    expect(client.getInstructions()).toBe(`${NOT_LINKED} ${SAFETY_SENTENCE}`);
     expect((await client.listTools()).tools).toEqual([]);
   });
 
@@ -328,7 +329,7 @@ describe('mcp-proxy', () => {
     await linkedTo(f);
     const client = await connect();
     expect(client.getInstructions()).toBe(
-      'This Briefroom install runs API v2. Update the CLI with npm i -g briefroom.',
+      `This Briefroom install runs API v2. Update the CLI with npm i -g briefroom. ${SAFETY_SENTENCE}`,
     );
     expect((await client.listTools()).tools).toEqual([]);
     expect(f.seen.filter((s) => s.url === '/mcp')).toEqual([]);
@@ -408,6 +409,81 @@ describe('mcp-proxy', () => {
     expect(err).not.toContain('You are Alice.');
     expect(err).not.toContain(SECRET);
     expect(t!.stdout.join('')).toBe('');
+  });
+
+  it('keeps the CLI instructions identical to the API ones', async () => {
+    const api = await readFile(
+      join(import.meta.dirname, '..', '..', 'api', 'src', 'mcp', 'core.tools.ts'),
+      'utf8',
+    );
+    const match = /export const MCP_INSTRUCTIONS =\s*"([^\n]*)";/.exec(api);
+    expect(match).not.toBeNull();
+    expect(match![1]).toBe(MCP_INSTRUCTIONS);
+    expect(MCP_INSTRUCTIONS.endsWith(SAFETY_SENTENCE)).toBe(true);
+  });
+
+  it('answers initialize, tools/list and tools/call within 3.2 s each against a hanging host (default deadline, real timers)', async () => {
+    const hole = await startBlackHole();
+    fakes.push(hole);
+    await setup();
+    await saveWorkspaceToken(t!.home, { installId: 'inst-1', baseUrl: hole.baseUrl }, 'ws1', {
+      name: 'Acme',
+      token: SECRET,
+    });
+    await writeFile(
+      join(repo!, '.briefroom.json'),
+      JSON.stringify({ installId: 'inst-1', workspaceId: 'ws1' }),
+    );
+    await recordLink(t!.home, await realpath(repo!), {
+      baseUrl: hole.baseUrl,
+      installId: 'inst-1',
+      workspaceId: 'ws1',
+    });
+    const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+    void mcpProxy(t!.ctx, { transport: serverSide });
+    const client = new Client({ name: 'test', version: '1.0.0' });
+    clients.push(client);
+
+    let mark = Date.now();
+    await client.connect(clientSide);
+    expect(Date.now() - mark).toBeLessThan(3200);
+    expect(client.getInstructions()).toContain(SAFETY_SENTENCE);
+    expect(client.getInstructions()).toContain(OFFLINE);
+
+    mark = Date.now();
+    expect((await client.listTools()).tools).toEqual([]);
+    expect(Date.now() - mark).toBeLessThan(3200);
+
+    mark = Date.now();
+    const result = await client.callTool({ name: 'briefroom_whoami', arguments: {} });
+    expect(JSON.stringify(result)).toContain(OFFLINE);
+    expect(Date.now() - mark).toBeLessThan(3200);
+  }, 20_000);
+
+  it('starts offline with the safety instructions, then recovers and announces the tools', async () => {
+    const first = await fake();
+    await setup();
+    await linkedTo(first);
+    const port = Number(new URL(first.baseUrl).port);
+    await first.close();
+    fakes.length = 0;
+
+    const client = new Client({ name: 'test', version: '1.0.0' });
+    const changed = new Promise<void>((resolve) => {
+      client.setNotificationHandler('notifications/tools/list_changed', () => resolve());
+    });
+    const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+    void mcpProxy(t!.ctx, { transport: serverSide });
+    await client.connect(clientSide);
+    clients.push(client);
+    expect(client.getInstructions()).toBe(`${MCP_INSTRUCTIONS} ${OFFLINE}`);
+    expect((await client.listTools()).tools).toEqual([]);
+
+    fakes.push(await startFake({ port }));
+    const result = await client.callTool({ name: 'briefroom_whoami', arguments: {} });
+    expect(JSON.stringify(result)).toContain('You are Alice.');
+    await changed;
+    expect((await client.listTools()).tools.map((x) => x.name)).toEqual(['briefroom_whoami']);
   });
 
   describe('local link record', () => {
