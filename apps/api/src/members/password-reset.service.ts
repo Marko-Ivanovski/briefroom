@@ -154,6 +154,8 @@ export class PasswordResetService {
         throw new PasswordWriteFailed();
       }
       await ctx.internalAdapter.updatePassword(claimed.userId, hash);
+      // A token minted after the first cutoff, before the password changed, would otherwise survive.
+      await this.tokens.invalidateAll(claimed.userId);
     } catch (err) {
       await this.db
         .update(passwordResetLinks)

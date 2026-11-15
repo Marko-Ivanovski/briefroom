@@ -1,6 +1,12 @@
 import type { TokenSummary } from '@briefroom/contracts';
 import { authSchema, createdStamp, tokenCutoffs, type Db, updatedStamp } from '@briefroom/db';
-import { Inject, Injectable, NotFoundException, type OnModuleInit } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  NotFoundException,
+  UnauthorizedException,
+  type OnModuleInit,
+} from '@nestjs/common';
 import { and, eq, inArray } from 'drizzle-orm';
 import type { Scope } from '../access/scope.ts';
 import { AUTH } from '../auth/auth.module.ts';
@@ -48,10 +54,20 @@ export class TokensService implements OnModuleInit {
     this.revocation.onPasswordReset((userId) => this.revokeFor(userId));
   }
 
-  async create(scope: Scope, name: string): Promise<{ id: string; token: string }> {
+  // sessionId is the session that authorised the request. A reset can delete it after the guard
+  // passed and before the insert, so it is checked again once the key exists.
+  async create(
+    scope: Scope,
+    name: string,
+    sessionId?: string,
+  ): Promise<{ id: string; token: string }> {
     const created = await this.auth.api.createApiKey({
       body: { name, userId: scope.userId, metadata: { workspaceId: scope.workspaceId } },
     });
+    if (sessionId !== undefined && !(await this.sessionExists(sessionId))) {
+      await this.db.delete(authSchema.apikey).where(eq(authSchema.apikey.id, created.id));
+      throw new UnauthorizedException();
+    }
     return { id: created.id, token: created.key };
   }
 
@@ -70,7 +86,7 @@ export class TokensService implements OnModuleInit {
     const workspaceId = workspaceIdOf(key.metadata);
     if (!workspaceId) return null;
     const [member] = await this.db
-      .select({ id: authSchema.member.id })
+      .select({ id: authSchema.member.id, joinedAt: authSchema.member.createdAt })
       .from(authSchema.member)
       .where(
         and(
@@ -80,6 +96,9 @@ export class TokensService implements OnModuleInit {
       )
       .limit(1);
     if (!member) return null;
+    // A key made under an earlier membership stays dead after a rejoin, which adds a new member row.
+    // A role change updates the row in place, so it keeps its tokens.
+    if (new Date(key.createdAt).getTime() <= member.joinedAt.getTime()) return null;
     if (await this.predatesCutoff(key.referenceId, key.createdAt)) return null;
     return { userId: key.referenceId, workspaceId, tokenId: key.id };
   }
@@ -87,6 +106,8 @@ export class TokensService implements OnModuleInit {
   /**
    * Fail-closed part of a password reset (R151): every token created up to now stops verifying.
    * It throws on failure so the reset is refused. Deleting the rows afterwards is only cleanup.
+   * The cutoff and a key's createdAt both come from the app clock (Better Auth stamps keys with
+   * new Date()), so they compare on one clock.
    */
   async invalidateAll(userId: string): Promise<void> {
     const actor = { userId: 'reset-link', via: 'web' } as const;
@@ -98,6 +119,15 @@ export class TokensService implements OnModuleInit {
         target: tokenCutoffs.userId,
         set: { validAfter, ...updatedStamp(actor) },
       });
+  }
+
+  private async sessionExists(sessionId: string): Promise<boolean> {
+    const [row] = await this.db
+      .select({ id: authSchema.session.id })
+      .from(authSchema.session)
+      .where(eq(authSchema.session.id, sessionId))
+      .limit(1);
+    return !!row;
   }
 
   private async predatesCutoff(userId: string, createdAt: Date | string): Promise<boolean> {

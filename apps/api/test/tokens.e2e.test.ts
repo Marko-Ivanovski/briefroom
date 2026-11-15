@@ -271,6 +271,119 @@ describe('workspace tokens', () => {
     expect(await tokens().verify(fresh.token)).not.toBeNull();
   });
 
+  describe('rejoin and reset races', () => {
+    const scopeOf = (key: string, w = ws) => ({ userId: ids[key]!, workspaceId: w }) as Scope;
+    const resetTokenFor = async (key: string) => {
+      const link = await http()
+        .post(`/api/v1/workspaces/${ws}/members/${ids[key]}/reset-link`)
+        .set(as('owner'));
+      expect(link.status).toBe(201);
+      return (link.body.url as string).split('/reset/')[1]!;
+    };
+    const redeem = (resetToken: string) =>
+      http().post(`/api/v1/reset/${resetToken}`).send({ password: NEW_PASSWORD });
+
+    it('does not revive a token on rejoin when the cleanup failed (I1)', async () => {
+      await addUser('gina', [{ ws, role: 'member' }]);
+      const { token } = await mint('gina');
+      const spy = vi
+        .spyOn(tokens() as unknown as { revokeFor(): Promise<void> }, 'revokeFor')
+        .mockRejectedValue(new Error('cleanup failed'));
+      try {
+        const res = await http()
+          .delete(`/api/v1/workspaces/${ws}/members/${ids.gina}`)
+          .set(as('owner'));
+        expect(res.status).toBe(200);
+      } finally {
+        spy.mockRestore();
+      }
+      expect(await tokens().verify(token)).toBeNull();
+      await t.auth.api.addMember({
+        body: { userId: ids.gina!, role: 'member', organizationId: ws },
+      });
+      expect(await tokens().verify(token)).toBeNull();
+      const fresh = await tokens().create(scopeOf('gina'), 'after rejoin');
+      expect(await tokens().verify(fresh.token)).not.toBeNull();
+    });
+
+    it('keeps a token across a role change (I1)', async () => {
+      await addUser('rob', [{ ws, role: 'member' }]);
+      const { token } = await mint('rob');
+      const res = await http()
+        .patch(`/api/v1/workspaces/${ws}/members/${ids.rob}`)
+        .set(as('owner'))
+        .send({ role: 'admin' });
+      expect(res.status).toBe(200);
+      expect(await tokens().verify(token)).not.toBeNull();
+    });
+
+    it('refuses a create whose session ended mid-flight and leaves no key (I2)', async () => {
+      await addUser('hank', [{ ws, role: 'member' }]);
+      const original = t.auth.api.createApiKey.bind(t.auth.api);
+      const spy = vi.spyOn(t.auth.api, 'createApiKey').mockImplementationOnce(async (...args) => {
+        await t.db.db.delete(authSchema.session).where(eq(authSchema.session.userId, ids.hank!));
+        return original(...args);
+      });
+      try {
+        const res = await http().post(path()).set(as('hank')).send({ name: 'racy' });
+        expect(res.status).toBe(401);
+        expect(spy).toHaveBeenCalled();
+      } finally {
+        spy.mockRestore();
+      }
+      const rows = await t.db.db
+        .select()
+        .from(authSchema.apikey)
+        .where(eq(authSchema.apikey.referenceId, ids.hank!));
+      expect(rows).toHaveLength(0);
+    });
+
+    it('refuses a token minted between the cutoff and the password write (S1)', async () => {
+      await addUser('ivy', [{ ws, role: 'member' }]);
+      const resetToken = await resetTokenFor('ivy');
+      const ctx = await t.auth.$context;
+      const original = ctx.internalAdapter.updatePassword.bind(ctx.internalAdapter);
+      let mid: { token: string } | undefined;
+      const spy = vi
+        .spyOn(ctx.internalAdapter, 'updatePassword')
+        .mockImplementationOnce(async (...args) => {
+          mid = await tokens().create(scopeOf('ivy'), 'mid');
+          return original(...args);
+        });
+      const cleanup = vi
+        .spyOn(tokens() as unknown as { revokeFor(): Promise<void> }, 'revokeFor')
+        .mockRejectedValue(new Error('cleanup failed'));
+      try {
+        expect((await redeem(resetToken)).status).toBe(204);
+      } finally {
+        spy.mockRestore();
+        cleanup.mockRestore();
+      }
+      expect(mid).toBeDefined();
+      expect(await tokens().verify(mid!.token)).toBeNull();
+    });
+
+    it('fails the reset when the second cutoff write fails (S1)', async () => {
+      await addUser('jo', [{ ws, role: 'member' }]);
+      const resetToken = await resetTokenFor('jo');
+      const service = tokens();
+      const original = service.invalidateAll.bind(service);
+      let calls = 0;
+      const spy = vi.spyOn(service, 'invalidateAll').mockImplementation(async (userId) => {
+        calls += 1;
+        if (calls === 2) throw new Error('cutoff write failed');
+        return original(userId);
+      });
+      try {
+        expect((await redeem(resetToken)).status).toBe(500);
+        expect(calls).toBe(2);
+      } finally {
+        spy.mockRestore();
+      }
+      expect((await redeem(resetToken)).status).toBe(204);
+    });
+  });
+
   it('keeps Better Auth’s api-key endpoints closed over HTTP', async () => {
     const { token } = await mint('dave');
     const calls = [

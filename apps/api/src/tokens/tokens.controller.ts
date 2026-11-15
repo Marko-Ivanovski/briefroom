@@ -8,6 +8,7 @@ import {
   HttpCode,
   Param,
   Post,
+  Req,
 } from '@nestjs/common';
 import type { Scope } from '../access/scope.ts';
 import { CurrentScope } from '../access/workspace-scope.guard.ts';
@@ -23,7 +24,11 @@ export class TokensController {
   }
 
   @Post()
-  async create(@CurrentScope() scope: Scope, @Body() body: unknown): Promise<TokenCreated> {
+  async create(
+    @CurrentScope() scope: Scope,
+    @Req() req: { session?: { session?: { id: string } } | null },
+    @Body() body: unknown,
+  ): Promise<TokenCreated> {
     const parsed = TokenCreate.safeParse(body);
     if (!parsed.success) {
       throw new BadRequestException({
@@ -31,7 +36,11 @@ export class TokensController {
         message: 'A token needs a name of 1 to 80 characters.',
       });
     }
-    const { id, token } = await this.tokens.create(scope, parsed.data.name);
+    const { id, token } = await this.tokens.create(
+      scope,
+      parsed.data.name,
+      req.session?.session?.id ?? '',
+    );
     return { id, name: parsed.data.name, token };
   }
 
