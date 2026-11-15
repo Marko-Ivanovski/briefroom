@@ -1,6 +1,10 @@
 import { usageEvents } from '@briefroom/db';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
-import { Logger } from '@nestjs/common';
+import { Logger, Module } from '@nestjs/common';
+import { McpHttpService, Tool } from '@nestjs/mcp';
+import { z } from 'zod';
+import { RequireRole } from '../src/access/require-role.decorator.ts';
+import { TokensService } from '../src/tokens/tokens.service.ts';
 import { eq } from 'drizzle-orm';
 import request from 'supertest';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -9,6 +13,17 @@ import { createTestApp, makeInstallOwner, resetThrottle, type TestApp } from './
 const PASSWORD = 'correct horse battery';
 const NOT_FOUND = 'No Briefroom project for this repo in this workspace.';
 const ACCEPT = 'application/json, text/event-stream';
+
+class AdminFixtureTool {
+  @RequireRole('admin')
+  @Tool({ name: 'fixture_admin_only', description: 'test fixture', inputSchema: z.object({}) })
+  run(): string {
+    return 'ran as admin';
+  }
+}
+
+@Module({ providers: [AdminFixtureTool] })
+class AdminFixtureModule {}
 
 describe('mcp endpoint', () => {
   let t: TestApp;
@@ -79,7 +94,7 @@ describe('mcp endpoint', () => {
   const usage = () => t.db.db.select().from(usageEvents);
 
   beforeAll(async () => {
-    t = await createTestApp();
+    t = await createTestApp({}, [], [AdminFixtureModule]);
     await t.app.listen(0, '127.0.0.1');
     base = `http://127.0.0.1:${(t.app.getHttpServer().address() as { port: number }).port}`;
     await addUser('owner');
@@ -186,6 +201,69 @@ describe('mcp endpoint', () => {
       expect(statuses.at(-1)).toBe(429);
       const limited = await rpc({ authorization: 'Bearer brf_nope' });
       expect(await limited.json()).toMatchObject({ code: 'rate_limited' });
+    });
+  });
+
+  describe('blocking and scope', () => {
+    const refuse = async (n: number) => {
+      for (let i = 0; i < n; i++) await rpc({ authorization: 'Bearer brf_nope' });
+    };
+
+    it('answers 429 to a valid token without verifying while the address is blocked, until the window ends', async () => {
+      const { token } = await mint('alice');
+      await refuse(31);
+      const verify = vi.spyOn(t.app.get(TokensService), 'verify');
+      const warn = vi.spyOn(Logger.prototype, 'warn');
+      for (let i = 0; i < 5; i++) {
+        const res = await rpc({ authorization: `Bearer ${token}` });
+        expect(res.status).toBe(429);
+      }
+      expect(verify).not.toHaveBeenCalled();
+      expect(warn.mock.calls.length).toBeLessThanOrEqual(1);
+      expect(JSON.stringify(warn.mock.calls)).not.toContain(token);
+
+      vi.useFakeTimers({ toFake: ['Date'] });
+      try {
+        vi.setSystemTime(Date.now() + 61_000);
+        expect((await rpc({ authorization: `Bearer ${token}` })).status).toBe(200);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('refuses a tool call that reaches the handler without a token scope', async () => {
+      const before = (await usage()).length;
+      const res = await t.app.get(McpHttpService).fetch(
+        new Request('http://localhost/mcp', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', accept: ACCEPT },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'tools/call',
+            params: { name: 'briefroom_whoami', arguments: {} },
+          }),
+        }),
+      );
+      const body = await res.text();
+      expect(body).not.toContain('Acme');
+      expect(body).toMatch(/error/i);
+      expect((await usage()).length).toBe(before);
+    });
+
+    it('enforces @RequireRole on a tool call', async () => {
+      const member = await connect((await mint('alice')).token);
+      const refused = await member
+        .callTool({ name: 'fixture_admin_only', arguments: {} })
+        .catch((e: unknown) => e);
+      expect(JSON.stringify(refused)).not.toContain('ran as admin');
+      expect(refused instanceof Error || (refused as { isError?: boolean }).isError).toBeTruthy();
+      await member.close();
+
+      const owner = await connect((await mint('owner')).token);
+      const ok = await owner.callTool({ name: 'fixture_admin_only', arguments: {} });
+      expect(textOf(ok)).toBe('ran as admin');
+      await owner.close();
     });
   });
 

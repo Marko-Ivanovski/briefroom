@@ -45,6 +45,8 @@ export class McpTokenGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const req = context.switchToHttp().getRequest<McpRequest>();
+    // A blocked address gets 429 before anything is read or verified.
+    this.limiter.assertAllowed(req.headers);
     const token = TOKEN_HEADER.exec(req.headers.authorization ?? '')?.[1];
     const verified = token ? await this.tokens.verify(token) : null;
     const scope = verified
