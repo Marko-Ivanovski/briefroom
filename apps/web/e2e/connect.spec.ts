@@ -102,10 +102,17 @@ test('a CLI login is approved on /connect and the token works', async ({ browser
   await expect(
     page.getByText('Only approve this if you just ran briefroom login yourself.'),
   ).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Approve this login' })).toBeFocused();
   await expect(page.getByRole('button', { name: 'Approve' })).toBeDisabled();
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  await expect(input).toBeFocused();
+  await input.fill(started.code);
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await expect(page.getByRole('heading', { name: 'Approve this login' })).toBeFocused();
 
   await page.getByLabel('Workspace').selectOption({ index: 1 });
   await page.getByRole('button', { name: 'Approve' }).click();
+  await expect(page.getByRole('heading', { name: 'Connected' })).toBeFocused();
   await expect(page.getByRole('status')).toContainText('Connected');
   await expect(page.getByRole('status')).toContainText('return to your terminal');
 
