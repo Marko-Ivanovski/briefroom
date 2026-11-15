@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { CliError } from './errors.ts';
 import { resolveCommand } from './resolve-command.ts';
@@ -31,6 +32,8 @@ export function repoRoot(cwd: string): Promise<string | null> {
 }
 
 /** Where git keeps the repo-local ignore list. Right inside worktrees too, where .git is a file. */
-export function excludeFile(cwd: string): Promise<string | null> {
-  return git(cwd, ['rev-parse', '--path-format=absolute', '--git-path', 'info/exclude']);
+export async function excludeFile(cwd: string): Promise<string | null> {
+  // Not --path-format=absolute: it resolves a symlinked exclude to its target, which would hide the link from the symlink check.
+  const path = await git(cwd, ['rev-parse', '--git-path', 'info/exclude']);
+  return path ? resolve(cwd, path) : null;
 }
