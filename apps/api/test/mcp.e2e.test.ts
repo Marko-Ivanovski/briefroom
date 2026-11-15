@@ -195,6 +195,73 @@ describe('mcp endpoint', () => {
       await client.close();
     });
 
+    it('fails closed on anything that is not a JSON POST, so no stream can open', async () => {
+      const { token } = await mint('alice');
+      const headers = { accept: ACCEPT, authorization: `Bearer ${token}` };
+      for (const method of ['GET', 'PUT', 'DELETE']) {
+        const res = await fetch(`${base}/mcp`, {
+          method,
+          headers,
+          signal: AbortSignal.timeout(3000),
+        });
+        expect(res.status).toBe(405);
+        expect(res.headers.get('allow')).toBe('POST');
+        expect(await res.json()).toEqual({
+          code: 'method_not_allowed',
+          message: 'Use POST for MCP requests.',
+        });
+      }
+      const invalid = {
+        code: 'invalid_request',
+        message: 'The body must be a JSON-RPC object or a non-empty array.',
+      };
+      for (const [type, body] of [
+        ['text/plain', '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'],
+        ['application/json', '{not json'],
+        ['application/json', '"a string"'],
+        ['application/json', '[]'],
+      ] as const) {
+        const res = await fetch(`${base}/mcp`, {
+          method: 'POST',
+          headers: { ...headers, 'content-type': type },
+          body,
+          signal: AbortSignal.timeout(3000),
+        });
+        expect(res.status, `${type} ${body}`).toBe(400);
+        if (body === '[]' || type === 'text/plain') expect(await res.json()).toEqual(invalid);
+      }
+    });
+
+    it('refuses subscriptions/listen at dispatch even when the guards are bypassed', async () => {
+      const service = t.app.get(McpHttpService);
+      const dispatch = (body: unknown) =>
+        service.fetch(
+          new Request('http://localhost/mcp', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', accept: ACCEPT },
+            body: JSON.stringify(body),
+          }),
+        );
+      const listen = { jsonrpc: '2.0', id: 9, method: 'subscriptions/listen', params: {} };
+      for (const body of [listen, [{ jsonrpc: '2.0', id: 1, method: 'tools/list' }, listen]]) {
+        const res = await dispatch(body);
+        expect(res.status).toBe(404);
+        expect(await res.json()).toEqual({
+          jsonrpc: '2.0',
+          id: 9,
+          error: { code: -32601, message: 'Method not found' },
+        });
+      }
+    });
+
+    it('still lists and calls tools through the stream guards', async () => {
+      const client = await connect((await mint('alice')).token);
+      expect((await client.listTools()).tools.map((x) => x.name)).toContain('briefroom_whoami');
+      const res = await client.callTool({ name: 'briefroom_whoami', arguments: {} });
+      expect(textOf(res)).toContain('Acme');
+      await client.close();
+    });
+
     it('gives an invalid token and a revoked token the identical 401', async () => {
       const { id, token } = await mint('alice');
       expect((await rpc({ authorization: `Bearer ${token}` })).status).toBe(200);
