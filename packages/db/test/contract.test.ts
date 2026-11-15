@@ -21,6 +21,7 @@ const INSTALL_LEVEL_TABLES: readonly string[] = [
   'cli_logins',
   'remote_access',
   'workspace_bookmarks',
+  'token_cutoffs',
 ];
 
 describe('schema contract', () => {

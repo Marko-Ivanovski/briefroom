@@ -1,7 +1,8 @@
 import { authSchema } from '@briefroom/db';
 import { eq } from 'drizzle-orm';
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import type { Scope } from '../src/access/scope.ts';
 import { TokensService } from '../src/tokens/tokens.service.ts';
 import { createTestApp, makeInstallOwner, type TestApp } from './helpers.ts';
 
@@ -243,6 +244,31 @@ describe('workspace tokens', () => {
       workspaceId: ws,
       tokenId: id,
     });
+  });
+
+  it('fails closed on a reset when the token cleanup throws (R151)', async () => {
+    const { token } = await tokens().create(
+      { userId: ids.frank!, workspaceId: ws } as Scope,
+      'before',
+    );
+    const link = await http()
+      .post(`/api/v1/workspaces/${ws}/members/${ids.frank}/reset-link`)
+      .set(as('owner'));
+    expect(link.status).toBe(201);
+    const resetToken = (link.body.url as string).split('/reset/')[1]!;
+    const spy = vi
+      .spyOn(tokens() as unknown as { revokeFor(): Promise<void> }, 'revokeFor')
+      .mockRejectedValue(new Error('cleanup failed'));
+    try {
+      const res = await http().post(`/api/v1/reset/${resetToken}`).send({ password: NEW_PASSWORD });
+      expect(res.status).toBe(204);
+      expect(spy).toHaveBeenCalled();
+      expect(await tokens().verify(token)).toBeNull();
+    } finally {
+      spy.mockRestore();
+    }
+    const fresh = await tokens().create({ userId: ids.frank!, workspaceId: ws } as Scope, 'after');
+    expect(await tokens().verify(fresh.token)).not.toBeNull();
   });
 
   it('keeps Better Auth’s api-key endpoints closed over HTTP', async () => {

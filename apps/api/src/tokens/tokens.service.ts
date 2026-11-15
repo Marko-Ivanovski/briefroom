@@ -1,5 +1,5 @@
 import type { TokenSummary } from '@briefroom/contracts';
-import { authSchema, type Db } from '@briefroom/db';
+import { authSchema, createdStamp, tokenCutoffs, type Db, updatedStamp } from '@briefroom/db';
 import { Inject, Injectable, NotFoundException, type OnModuleInit } from '@nestjs/common';
 import { and, eq, inArray } from 'drizzle-orm';
 import type { Scope } from '../access/scope.ts';
@@ -80,7 +80,32 @@ export class TokensService implements OnModuleInit {
       )
       .limit(1);
     if (!member) return null;
+    if (await this.predatesCutoff(key.referenceId, key.createdAt)) return null;
     return { userId: key.referenceId, workspaceId, tokenId: key.id };
+  }
+
+  /**
+   * Fail-closed part of a password reset (R151): every token created up to now stops verifying.
+   * It throws on failure so the reset is refused. Deleting the rows afterwards is only cleanup.
+   */
+  async invalidateAll(userId: string): Promise<void> {
+    const actor = { userId: 'reset-link', via: 'web' } as const;
+    const validAfter = new Date();
+    await this.db
+      .insert(tokenCutoffs)
+      .values({ userId, validAfter, ...createdStamp(actor) })
+      .onConflictDoUpdate({
+        target: tokenCutoffs.userId,
+        set: { validAfter, ...updatedStamp(actor) },
+      });
+  }
+
+  private async predatesCutoff(userId: string, createdAt: Date | string): Promise<boolean> {
+    const [cutoff] = await this.db
+      .select({ validAfter: tokenCutoffs.validAfter })
+      .from(tokenCutoffs)
+      .where(eq(tokenCutoffs.userId, userId));
+    return !!cutoff && new Date(createdAt).getTime() <= cutoff.validAfter.getTime();
   }
 
   async list(scope: Scope): Promise<TokenSummary[]> {

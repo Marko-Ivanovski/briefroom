@@ -18,6 +18,7 @@ import { AUTH } from '../auth/auth.module.ts';
 import type { Auth } from '../auth/auth.ts';
 import { DB } from '../database/database.module.ts';
 import { InstallService } from '../install/install.service.ts';
+import { TokensService } from '../tokens/tokens.service.ts';
 import { hashResetToken, PasswordResetLinks } from './password-reset-links.service.ts';
 
 const ADMIN_ROLES: ReadonlySet<string> = new Set(['admin', 'owner']);
@@ -35,6 +36,7 @@ export class PasswordResetService {
     private readonly installs: InstallService,
     private readonly links: PasswordResetLinks,
     private readonly revocation: RevocationService,
+    private readonly tokens: TokensService,
   ) {}
 
   async createForMember(scope: Scope, targetUserId: string): Promise<ResetLinkResponse> {
@@ -145,6 +147,8 @@ export class PasswordResetService {
     try {
       await ctx.internalAdapter.deleteUserSessions(claimed.userId);
       await this.revocation.sessionsRevoked(claimed.userId);
+      // Not a swallowed handler: if the cutoff cannot be written, the reset fails and the link is released.
+      await this.tokens.invalidateAll(claimed.userId);
       await this.revocation.passwordReset(claimed.userId);
       if (!(await ctx.internalAdapter.findCredentialAccount(claimed.userId))) {
         throw new PasswordWriteFailed();

@@ -7,6 +7,7 @@ import { MembersService } from '../members/members.service.ts';
 import { ProjectsModule } from '../projects/projects.module.ts';
 import { RevocationModule } from '../members/revocation.module.ts';
 import { RateLimitModule } from '../rate-limit/rate-limit.ts';
+import { TokensModule } from '../tokens/tokens.module.ts';
 import { BookmarksController } from './bookmarks.controller.ts';
 import { BookmarksService } from './bookmarks.service.ts';
 import { MeController } from './me.controller.ts';
@@ -14,7 +15,7 @@ import { WorkspacesController } from './workspaces.controller.ts';
 import { WorkspacesService } from './workspaces.service.ts';
 
 @Module({
-  imports: [ProjectsModule, RevocationModule, RateLimitModule],
+  imports: [ProjectsModule, RevocationModule, RateLimitModule, TokensModule],
   controllers: [
     MeController,
     BookmarksController,
