@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { authSchema, cliLogins, tokenCutoffs } from '@briefroom/db';
 import { eq } from 'drizzle-orm';
 import request from 'supertest';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RevocationService } from '../src/members/revocation.service.ts';
 import { TokensService } from '../src/tokens/tokens.service.ts';
 import { createTestApp, makeInstallOwner, resetThrottle, type TestApp } from './helpers.ts';
@@ -144,6 +144,29 @@ describe('cli login', () => {
       });
       const ttl = row!.expiresAt.getTime() - row!.createdAt.getTime();
       expect(ttl).toBe(10 * 60 * 1000);
+    });
+
+    it('derives the expiry and the creation stamp from one clock read, even when the clock moves', async () => {
+      const RealDate = Date;
+      let ticks = 0;
+      const base = RealDate.now();
+      class TickingDate extends RealDate {
+        constructor(...args: [] | [number | string | Date]) {
+          if (args.length === 0) super(base + ticks++ * 5);
+          else super(args[0] as number);
+        }
+        static override now(): number {
+          return base + ticks++ * 5;
+        }
+      }
+      vi.stubGlobal('Date', TickingDate);
+      try {
+        await start();
+      } finally {
+        vi.unstubAllGlobals();
+      }
+      const [row] = await rows();
+      expect(row!.expiresAt.getTime() - row!.createdAt.getTime()).toBe(10 * 60 * 1000);
     });
 
     it('stores the start address and a bounded, sanitised user agent', async () => {

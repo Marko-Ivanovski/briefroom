@@ -104,9 +104,10 @@ export class CliLoginService implements OnModuleInit {
 
   async start(rawDeviceName: string | undefined, origin: StartOrigin): Promise<CliLoginStarted> {
     // Cleanup is lazy: every new login sweeps the expired ones, so the table stays small.
-    await this.db.delete(cliLogins).where(lt(cliLogins.expiresAt, new Date()));
+    const now = new Date();
+    await this.db.delete(cliLogins).where(lt(cliLogins.expiresAt, now));
     const pollToken = randomBytes(32).toString('base64url');
-    const expiresAt = new Date(Date.now() + CLI_LOGIN_TTL_MS);
+    const expiresAt = new Date(now.getTime() + CLI_LOGIN_TTL_MS);
     const deviceName = sanitiseDeviceName(rawDeviceName);
     for (let attempt = 0; attempt < MAX_CODE_ATTEMPTS; attempt++) {
       const code = generateLoginCode();
@@ -119,6 +120,8 @@ export class CliLoginService implements OnModuleInit {
           startUserAgent: clean(origin.userAgent, 200) || null,
           expiresAt,
           ...createdStamp(CLI_ACTOR),
+          createdAt: now,
+          updatedAt: now,
         });
       } catch (err) {
         if (hasPgCode(err, '23505')) continue;
