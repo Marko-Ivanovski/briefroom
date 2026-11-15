@@ -38,7 +38,7 @@ interface McpRequest {
 
 /**
  * R146: /mcp, and the CLI's delete of its own token, take a Bearer brf_ token and nothing else. The route is anonymous to the session
- * guard, so a session cookie is never read here. Every refusal looks the same to the caller.
+ * guard, which may still attach a session, but a session never authorises this route. Every refusal looks the same to the caller.
  */
 @Injectable()
 export class McpTokenGuard implements CanActivate {
