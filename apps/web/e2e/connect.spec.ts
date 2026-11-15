@@ -1,5 +1,5 @@
 import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test';
-import { ANONYMOUS, signIn } from './join.ts';
+import { ANONYMOUS } from './join.ts';
 
 test.use({ baseURL: process.env.E2E_BASE_URL });
 
@@ -18,18 +18,10 @@ interface Started {
   pollToken: string;
 }
 
-// Sign-ins are rate limited per IP, so the member signs in once and the other tests reuse the session.
+// Sign-ins are rate limited per IP. The serial run starts with the one UI sign-in, which saves the
+// member's session for every later test, so this spec makes a single sign-in.
+test.describe.configure({ mode: 'serial' });
 let memberState: Awaited<ReturnType<BrowserContext['storageState']>>;
-
-test.beforeAll(async ({ browser }) => {
-  const context = await browser.newContext({
-    baseURL: process.env.E2E_BASE_URL,
-    storageState: ANONYMOUS,
-  });
-  await signIn(await context.newPage(), MEMBER);
-  memberState = await context.storageState();
-  await context.close();
-});
 
 async function memberPage(browser: Browser): Promise<{ page: Page; close: () => Promise<void> }> {
   const context = await browser.newContext({
@@ -83,6 +75,27 @@ async function whoami(baseURL: string, token: string): Promise<string> {
   return res.text();
 }
 
+test('an anonymous visitor to /connect signs in and comes back without a code', async ({
+  browser,
+}) => {
+  const started = await startLogin(process.env.E2E_BASE_URL!);
+  const context = await browser.newContext({
+    baseURL: process.env.E2E_BASE_URL,
+    storageState: ANONYMOUS,
+  });
+  const page = await context.newPage();
+  await page.goto(`/connect?code=${started.code}`);
+  await expect(page).toHaveURL(/\/sign-in/);
+  expect(page.url()).not.toContain(started.code);
+  await page.getByLabel('Email').fill(MEMBER.email);
+  await page.getByLabel('Password').fill(MEMBER.password);
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page).toHaveURL(/\/connect$/);
+  await expect(page.getByLabel('Code from your terminal')).toHaveValue('');
+  memberState = await context.storageState();
+  await context.close();
+});
+
 test('a CLI login is approved on /connect and the token works', async ({ browser }) => {
   const baseURL = process.env.E2E_BASE_URL!;
   const started = await startLogin(baseURL);
@@ -120,26 +133,6 @@ test('a CLI login is approved on /connect and the token works', async ({ browser
   expect(result.status).toBe('approved');
   expect(await whoami(baseURL, result.token!)).toContain('Linus');
   await close();
-});
-
-test('an anonymous visitor to /connect signs in and comes back without a code', async ({
-  browser,
-}) => {
-  const started = await startLogin(process.env.E2E_BASE_URL!);
-  const context = await browser.newContext({
-    baseURL: process.env.E2E_BASE_URL,
-    storageState: ANONYMOUS,
-  });
-  const page = await context.newPage();
-  await page.goto(`/connect?code=${started.code}`);
-  await expect(page).toHaveURL(/\/sign-in/);
-  expect(page.url()).not.toContain(started.code);
-  await page.getByLabel('Email').fill(MEMBER.email);
-  await page.getByLabel('Password').fill(MEMBER.password);
-  await page.getByRole('button', { name: 'Sign in' }).click();
-  await expect(page).toHaveURL(/\/connect$/);
-  await expect(page.getByLabel('Code from your terminal')).toHaveValue('');
-  await context.close();
 });
 
 test('tokens are shown once, listed without the key and revoked after confirmation', async ({
