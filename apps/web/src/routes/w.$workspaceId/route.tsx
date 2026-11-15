@@ -90,6 +90,13 @@ function WorkspaceLayout() {
           >
             Modules
           </Link>
+          <Link
+            to="/w/$workspaceId/settings/tokens"
+            params={{ workspaceId }}
+            className="[&.active]:font-semibold"
+          >
+            Tokens
+          </Link>
           {isAdminRole(workspaces.find((w) => w.id === workspaceId)?.role) ? (
             <>
               <Link

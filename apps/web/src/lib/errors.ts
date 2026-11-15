@@ -63,6 +63,21 @@ export const JOIN_REQUEST_ERRORS: Record<number, string> = {
   409: 'That request was already handled.',
 };
 
+export const TOKEN_ERRORS: Record<number, string> = {
+  400: 'Give the token a name of 1 to 80 characters.',
+  403: "You don't have permission to do that.",
+  404: 'That token no longer exists.',
+};
+
+export const CONNECT_INVALID_CODE = "That code isn't valid or has expired.";
+
+export const CONNECT_ERRORS: Record<number, string> = {
+  400: CONNECT_INVALID_CODE,
+  403: "You aren't a member of that workspace.",
+  404: CONNECT_INVALID_CODE,
+  429: 'Too many attempts. Wait a minute and try again.',
+};
+
 export const BOOKMARK_ERRORS: Record<number, string> = {
   400: 'Check the invite link and try again.',
   404: 'That bookmark no longer exists.',

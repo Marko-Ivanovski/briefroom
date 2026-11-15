@@ -71,6 +71,12 @@ export const invitesQuery = (workspaceId: string) =>
     queryFn: () => api.invites(workspaceId),
   });
 
+export const tokensQuery = (workspaceId: string) =>
+  queryOptions({
+    queryKey: ['workspaces', workspaceId, 'tokens'],
+    queryFn: () => api.tokens(workspaceId),
+  });
+
 export const joinRequestsQuery = (workspaceId: string) =>
   queryOptions({
     queryKey: ['workspaces', workspaceId, 'join-requests'],
