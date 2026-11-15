@@ -259,4 +259,20 @@ describe('module tools over MCP', () => {
     const owner = await call('owner', 'testkit_fixture_write');
     expect(textOf(owner)).toBe('wrote');
   });
+
+  it('caps the list at 50 newest notes and says when it is truncated', async () => {
+    await t.db.db.delete(testkitNotes);
+    for (let i = 1; i <= 51; i++) await note(`bulk ${String(i).padStart(2, '0')}`, null);
+    const text = textOf(await call('alice', 'testkit_list_notes'));
+    expect(text.match(/"text": "bulk/g)).toHaveLength(50);
+    expect(text).toContain('Showing 50 of more notes.');
+    expect(text).toContain('bulk 51');
+    expect(text).not.toContain('bulk 01');
+    const few = textOf(await call('alice', 'testkit_list_notes', { limit: 2 }));
+    expect(few.match(/"text": "bulk/g)).toHaveLength(2);
+    expect(few).toContain('Showing 2 of more notes.');
+    await t.db.db.delete(testkitNotes);
+    await note('only one', null);
+    expect(textOf(await call('alice', 'testkit_list_notes'))).not.toContain('Showing');
+  });
 });

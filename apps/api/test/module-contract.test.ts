@@ -8,6 +8,7 @@ import {
   HISTORY,
   JOBS,
   moduleEnabledGuard,
+  MODULE_TOOL_METADATA,
   ModuleTool,
   moduleToolsOf,
   systemScope,
@@ -28,6 +29,7 @@ import {
 import type { Type } from '@nestjs/common';
 import { getTableColumns, getTableName } from 'drizzle-orm';
 import { getTableConfig, pgTable, uuid, type PgTable } from 'drizzle-orm/pg-core';
+import { Prompt, Tool } from '@nestjs/mcp';
 import { z } from 'zod';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestApp, type TestApp } from './helpers.ts';
@@ -73,6 +75,11 @@ function foreignModuleImports(source: string, file: string, moduleId: string): s
     if (spec.startsWith('.')) {
       const parts = relative(MODULES_DIR, resolve(dirname(file), spec)).split(sep);
       if (parts[0] === '..' || parts[0] !== moduleId) offenders.push(spec);
+      continue;
+    }
+    // A plain MCP decorator skips the module off-check. Modules get ModuleTool from the kit.
+    if (spec.startsWith('@nestjs/mcp') || spec.startsWith('@modelcontextprotocol/')) {
+      offenders.push(spec);
       continue;
     }
     if (spec.startsWith('@briefroom/')) {
@@ -239,6 +246,9 @@ function moduleToolClasses(root: ModuleRef): Type[] {
       ...(dynamic.providers ?? []),
     ]) {
       if (typeof p === 'function') classes.add(p as Type);
+      else if (typeof (p as { useClass?: unknown })?.useClass === 'function') {
+        classes.add((p as { useClass: Type }).useClass);
+      }
     }
     for (const i of Reflect.getMetadata('imports', cls) ?? []) visit(i);
     for (const i of (dynamic as { imports?: ModuleRef[] }).imports ?? []) visit(i);
@@ -259,6 +269,29 @@ function moduleToolProblems(root: ModuleRef, id: string): string[] {
         : []),
     ]),
   );
+}
+
+const MCP_PRIMITIVE_KEY = 'nestjs:mcp:primitive';
+
+/** One message per method that serves an MCP primitive without `@ModuleTool` (a plain tool, resource or prompt). */
+function plainMcpPrimitiveProblems(root: ModuleRef): string[] {
+  return moduleToolClasses(root).flatMap((cls) => {
+    const problems: string[] = [];
+    for (let proto = cls.prototype as object | null; proto && proto !== Object.prototype;) {
+      for (const name of Object.getOwnPropertyNames(proto)) {
+        const fn = (proto as Record<string, unknown>)[name];
+        if (typeof fn !== 'function') continue;
+        if (
+          Reflect.getMetadata(MCP_PRIMITIVE_KEY, fn) &&
+          !Reflect.getMetadata(MODULE_TOOL_METADATA, fn)
+        ) {
+          problems.push(`${cls.name}.${name}: serves an MCP primitive without @ModuleTool`);
+        }
+      }
+      proto = Object.getPrototypeOf(proto) as object | null;
+    }
+    return problems;
+  });
 }
 
 const BOUND_TOKENS: readonly unknown[] = [EVENTS, JOBS, FILE_STORE, HISTORY, USAGE];
@@ -360,6 +393,7 @@ describe('module contract', () => {
       it('declares module tools under its own id and a name that starts with it', () => {
         const nestModule = REGISTERED_MODULES.find((m) => m.manifest.id === id)!.nestModule;
         expect(moduleToolProblems(nestModule, id)).toEqual([]);
+        expect(plainMcpPrimitiveProblems(nestModule)).toEqual([]);
         if (id === 'testkit') {
           const names = moduleToolClasses(nestModule).flatMap((c) =>
             moduleToolsOf(c).map((x) => x.name),
@@ -520,6 +554,27 @@ describe('module contract', () => {
       ).toHaveLength(1);
     });
 
+    it('rejects a plain @Tool, @Resource or @Prompt in a module', () => {
+      class Plain {
+        run(): void {}
+        read(): void {}
+      }
+      Tool({ name: 'design_x', inputSchema: z.object({}) })(
+        Plain.prototype,
+        'run',
+        Object.getOwnPropertyDescriptor(Plain.prototype, 'run')!,
+      );
+      Prompt({ name: 'design_p' })(
+        Plain.prototype,
+        'read',
+        Object.getOwnPropertyDescriptor(Plain.prototype, 'read')!,
+      );
+      expect(plainMcpPrimitiveProblems(nest([Plain]))).toHaveLength(2);
+      expect(plainMcpPrimitiveProblems(nest([], [{ module: nest([Plain]) }]))).toHaveLength(2);
+      expect(plainMcpPrimitiveProblems(nest([{ provide: 'x', useClass: Plain }]))).toHaveLength(2);
+      expect(plainMcpPrimitiveProblems(nest([toolClass('design', 'design_list')]))).toEqual([]);
+    });
+
     it('follows imported Nest modules', () => {
       const bad = toolClass('notes', 'notes_list');
       expect(moduleToolProblems(nest([], [{ module: nest([bad]) }]), 'design')).toHaveLength(2);
@@ -578,6 +633,8 @@ describe('module contract', () => {
       `import { CORE_EVENTS } from '@briefroom/module-kit/core';`,
       `import { bindEvents } from '@briefroom/module-kit/src/core.ts';`,
       `import x from '/abs/path';`,
+      `import { Tool } from '@nestjs/mcp';`,
+      `import { Client } from '@modelcontextprotocol/server';`,
     ]) {
       expect(flagged(line), line).toBe(true);
     }
