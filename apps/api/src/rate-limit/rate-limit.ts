@@ -2,11 +2,12 @@ import {
   applyDecorators,
   HttpException,
   HttpStatus,
+  Inject,
   Injectable,
   Module,
   UseGuards,
 } from '@nestjs/common';
-import { Throttle, ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { Throttle, ThrottlerGuard, ThrottlerModule, ThrottlerStorage } from '@nestjs/throttler';
 import { CLIENT_IP_HEADER } from '../auth/client-ip.middleware.ts';
 
 export const RATE_LIMIT_PER_MINUTE = 20;
@@ -40,14 +41,44 @@ export class UserThrottlerGuard extends ClientIpThrottlerGuard {
   }
 }
 
+export const REFUSED_PER_MINUTE = 30;
+
+/**
+ * Counts only refused attempts, on the throttler's own storage and the same client-IP key as
+ * ClientIpThrottlerGuard. Successful calls never reach it, so they use no budget.
+ */
+@Injectable()
+export class RefusedAttemptLimiter {
+  constructor(@Inject(ThrottlerStorage) private readonly storage: ThrottlerStorage) {}
+
+  /** Throws 429 once the address has used up its refused attempts for the minute. */
+  async record(headers: Record<string, string | string[] | undefined>): Promise<void> {
+    const ip = headers[CLIENT_IP_HEADER];
+    const tracker = (Array.isArray(ip) ? ip[0] : ip) || 'unknown';
+    const hit = await this.storage.increment(
+      `refused:${tracker}`,
+      60_000,
+      REFUSED_PER_MINUTE,
+      60_000,
+      'refused',
+    );
+    if (hit.isBlocked) {
+      throw new HttpException(
+        { code: 'rate_limited', message: 'Too many requests. Try again in a minute.' },
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+  }
+}
+
 @Module({
   imports: [
     ThrottlerModule.forRoot({
       throttlers: [{ name: 'default', ttl: 60_000, limit: RATE_LIMIT_PER_MINUTE }],
     }),
   ],
-  providers: [ClientIpThrottlerGuard, UserThrottlerGuard],
-  exports: [ThrottlerModule, ClientIpThrottlerGuard, UserThrottlerGuard],
+  providers: [ClientIpThrottlerGuard, UserThrottlerGuard, RefusedAttemptLimiter],
+  exports: [ThrottlerModule, ClientIpThrottlerGuard, UserThrottlerGuard, RefusedAttemptLimiter],
 })
 export class RateLimitModule {}
 

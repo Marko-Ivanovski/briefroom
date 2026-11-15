@@ -13,3 +13,4 @@ export * from './member-permissions.ts';
 export * from './history.ts';
 export * from './files.ts';
 export * from './token-cutoffs.ts';
+export * from './usage.ts';

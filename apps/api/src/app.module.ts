@@ -13,6 +13,7 @@ import { HistoryModule } from './history/history.module.ts';
 import { InstallModule } from './install/install.module.ts';
 import { InvitesModule } from './invites/invites.module.ts';
 import { JobsModule } from './jobs/jobs.module.ts';
+import { BriefroomMcpModule } from './mcp/mcp.module.ts';
 import { ModuleRegistryModule } from './module-registry/module-registry.module.ts';
 import { REGISTERED_MODULES } from './module-registry/registered-modules.ts';
 import { ProjectsModule } from './projects/projects.module.ts';
@@ -46,6 +47,7 @@ export class AppModule {
         ProjectsModule,
         InvitesModule,
         TokensModule,
+        BriefroomMcpModule,
         ...REGISTERED_MODULES.map((m) => m.nestModule),
         ...extraImports,
         ServeStaticModule.forRoot({

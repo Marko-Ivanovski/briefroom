@@ -1,6 +1,7 @@
 import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
 import { ModulesContainer } from '@nestjs/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { McpTokenGuard } from '../src/mcp/mcp-token.guard.ts';
 import { createTestApp, type TestApp } from './helpers.ts';
 
 /**
@@ -37,6 +38,8 @@ const ANONYMOUS_ROUTES: readonly string[] = [
   'POST /api/v1/reset/:token',
   'GET /api/v1/join/:token',
   'POST /api/v1/join/:token/sign-up',
+  // Skips the session guard on purpose (R146): only a Bearer brf_ token is accepted, checked by McpTokenGuard.
+  'ALL /mcp',
 ];
 
 const REQUEST_METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'ALL', 'OPTIONS', 'HEAD'];
@@ -68,7 +71,9 @@ function registeredRoutes(t: TestApp, onlyAnonymous = false): string[] {
         if (onlyAnonymous && !isPublic) continue;
         for (const b of base) {
           for (const p of asArray(Reflect.getMetadata(PATH_METADATA, handler))) {
-            routes.push(`${REQUEST_METHODS[method as number]} ${join('api', b, p)}`);
+            routes.push(
+              `${REQUEST_METHODS[method as number]} ${join(b === 'mcp' ? '' : 'api', b, p)}`,
+            );
           }
         }
       }
@@ -117,6 +122,15 @@ describe('route table', () => {
       registeredRoutes(t, true).sort(),
       'A new public endpoint needs a deliberate edit to ANONYMOUS_ROUTES.',
     ).toEqual([...ANONYMOUS_ROUTES].sort());
+  });
+
+  it('puts the token guard on every /mcp route', () => {
+    const controller = [...t.app.get(ModulesContainer, { strict: false }).values()]
+      .flatMap((m) => [...m.controllers.values()])
+      .map((w) => w.metatype as (abstract new (...args: never[]) => object) | null)
+      .find((c) => c && Reflect.getMetadata(PATH_METADATA, c) === 'mcp');
+    expect(controller).toBeDefined();
+    expect(Reflect.getMetadata('__guards__', controller!)).toContain(McpTokenGuard);
   });
 
   it('knows no stale allowlist entries', () => {

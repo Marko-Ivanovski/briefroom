@@ -1,0 +1,72 @@
+import {
+  Injectable,
+  Logger,
+  UnauthorizedException,
+  type CanActivate,
+  type ExecutionContext,
+} from '@nestjs/common';
+import type { IncomingHttpHeaders } from 'node:http';
+import { AccessService } from '../access/access.service.ts';
+import type { Scope } from '../access/scope.ts';
+import { RefusedAttemptLimiter } from '../rate-limit/rate-limit.ts';
+import { TokensService } from '../tokens/tokens.service.ts';
+
+const TOKEN_HEADER = /^Bearer (brf_\S+)$/;
+const MAX_AGENT_LENGTH = 40;
+
+/** R147: lowercase, only a-z, 0-9 and `-`, at most 40 characters, `unknown` when nothing is left. */
+export function normalizeAgent(header: string | string[] | undefined): string {
+  const raw = Array.isArray(header) ? header[0] : header;
+  const cleaned = (raw ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, '')
+    .slice(0, MAX_AGENT_LENGTH);
+  return cleaned || 'unknown';
+}
+
+interface McpRequest {
+  headers: IncomingHttpHeaders;
+  scope?: Scope;
+}
+
+/**
+ * R146: /mcp takes a Bearer brf_ token and nothing else. The route is anonymous to the session
+ * guard, so a session cookie is never read here. Every refusal looks the same to the caller.
+ */
+@Injectable()
+export class McpTokenGuard implements CanActivate {
+  private readonly log = new Logger('McpAuth');
+
+  constructor(
+    private readonly tokens: TokensService,
+    private readonly access: AccessService,
+    private readonly limiter: RefusedAttemptLimiter,
+  ) {}
+
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    const req = context.switchToHttp().getRequest<McpRequest>();
+    const token = TOKEN_HEADER.exec(req.headers.authorization ?? '')?.[1];
+    const verified = token ? await this.tokens.verify(token) : null;
+    const scope = verified
+      ? await this.access.scopeFor(
+          verified.userId,
+          verified.workspaceId,
+          'mcp',
+          normalizeAgent(req.headers['x-briefroom-agent']),
+        )
+      : null;
+    if (!scope) return this.refuse(req, token ? 'invalid token' : 'no bearer token');
+    req.scope = scope;
+    return true;
+  }
+
+  // The reason goes to the log only. The response never says why.
+  private async refuse(req: McpRequest, reason: string): Promise<never> {
+    this.log.warn(`Refused MCP request: ${reason}`);
+    await this.limiter.record(req.headers);
+    throw new UnauthorizedException({
+      code: 'unauthorized',
+      message: 'A valid token is required.',
+    });
+  }
+}

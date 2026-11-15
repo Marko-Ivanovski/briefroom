@@ -1,12 +1,8 @@
-import { readFileSync } from 'node:fs';
 import type { VersionResponse } from '@briefroom/contracts';
 import { Controller, Get } from '@nestjs/common';
 import { AllowAnonymous } from '@thallesp/nestjs-better-auth';
 import { InstallService } from '../install/install.service.ts';
-
-const { version } = JSON.parse(
-  readFileSync(new URL('../../package.json', import.meta.url), 'utf8'),
-) as { version: string };
+import { APP_VERSION } from './app-version.ts';
 
 @AllowAnonymous()
 @Controller()
@@ -20,6 +16,6 @@ export class SystemController {
 
   @Get('version')
   async version(): Promise<VersionResponse> {
-    return { api: '1', app: version, installId: (await this.installs.getRow()).id };
+    return { api: '1', app: APP_VERSION, installId: (await this.installs.getRow()).id };
   }
 }

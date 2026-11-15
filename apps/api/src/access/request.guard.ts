@@ -14,6 +14,9 @@ export class RequestGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
+    // A tool call runs the global guards again, but its HTTP request already passed McpTokenGuard
+    // and carries the scope. There is no session or workspace param to check here.
+    if (context.getType<string>() === 'mcp') return true;
     if (!(await this.session.canActivate(context))) return false;
     return this.scope.canActivate(context);
   }
