@@ -162,6 +162,39 @@ describe('mcp endpoint', () => {
       });
     });
 
+    it('refuses subscriptions/listen with method-not-found, alone or in a batch, and still lists tools', async () => {
+      const { token } = await mint('alice');
+      const post = (body: unknown) =>
+        fetch(`${base}/mcp`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            accept: ACCEPT,
+            authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(3000),
+        });
+      const listen = { jsonrpc: '2.0', id: 7, method: 'subscriptions/listen', params: {} };
+      const notFound = {
+        jsonrpc: '2.0',
+        id: 7,
+        error: { code: -32601, message: 'Method not found' },
+      };
+
+      const single = await post(listen);
+      expect(single.status).toBe(404);
+      expect(await single.json()).toEqual(notFound);
+
+      const batch = await post([{ jsonrpc: '2.0', id: 1, method: 'tools/list' }, listen]);
+      expect(batch.status).toBe(404);
+      expect(await batch.json()).toEqual(notFound);
+
+      const client = await connect(token);
+      expect((await client.listTools()).tools.length).toBeGreaterThan(0);
+      await client.close();
+    });
+
     it('gives an invalid token and a revoked token the identical 401', async () => {
       const { id, token } = await mint('alice');
       expect((await rpc({ authorization: `Bearer ${token}` })).status).toBe(200);

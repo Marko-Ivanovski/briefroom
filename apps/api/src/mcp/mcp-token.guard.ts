@@ -1,4 +1,5 @@
 import {
+  HttpException,
   Injectable,
   Logger,
   UnauthorizedException,
@@ -24,8 +25,13 @@ export function normalizeAgent(header: string | string[] | undefined): string {
   return cleaned || 'unknown';
 }
 
+// Streams that stay open after the call that started them. They outlive a revoked token or a removed member.
+const LONG_LIVED_METHODS = new Set(['subscriptions/listen']);
+
 interface McpRequest {
   headers: IncomingHttpHeaders;
+  method?: string;
+  body?: unknown;
   scope?: Scope;
   tokenId?: string;
 }
@@ -61,7 +67,25 @@ export class McpTokenGuard implements CanActivate {
     if (!scope) return this.refuse(req, token ? 'invalid token' : 'no bearer token');
     req.scope = scope;
     req.tokenId = verified?.tokenId;
+    this.refuseLongLivedStreams(req);
     return true;
+  }
+
+  private refuseLongLivedStreams(req: McpRequest): void {
+    if (req.method !== 'POST') return;
+    const messages: unknown[] = Array.isArray(req.body) ? req.body : [req.body];
+    const refused = messages.find(
+      (m): m is { id?: unknown; method: string } =>
+        typeof m === 'object' &&
+        m !== null &&
+        LONG_LIVED_METHODS.has((m as { method?: unknown }).method as string),
+    );
+    if (!refused) return;
+    const id = typeof refused.id === 'string' || typeof refused.id === 'number' ? refused.id : null;
+    throw new HttpException(
+      { jsonrpc: '2.0', id, error: { code: -32601, message: 'Method not found' } },
+      404,
+    );
   }
 
   // The reason goes to the log only. The response never says why.
