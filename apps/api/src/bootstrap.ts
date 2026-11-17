@@ -1,6 +1,7 @@
 import type { INestApplication } from '@nestjs/common';
 import { ENV, type Env } from './config/env.ts';
 import { createClientIpMiddleware } from './auth/client-ip.middleware.ts';
+import { cameThroughTunnel } from './auth/proxy-socket.ts';
 import { bodyLimitMiddleware } from './auth/body-limit.middleware.ts';
 import { originCheckMiddleware } from './auth/origin.middleware.ts';
 import { referrerPolicyMiddleware } from './auth/referrer-policy.middleware.ts';
@@ -11,7 +12,12 @@ export function configureApp(app: INestApplication): void {
   const env = app.get<Env>(ENV);
   // Registered on the adapter before init, so it runs ahead of the Better Auth handler mounted in AuthModule.configure.
   const tunnel = app.get(TunnelState);
-  app.use(createClientIpMiddleware(env.trustedProxies, () => tunnel.forwardingMode()));
+  app.use(
+    createClientIpMiddleware(env.trustedProxies, {
+      cameThrough: cameThroughTunnel,
+      mode: () => tunnel.forwardingMode(),
+    }),
+  );
   app.use(secureCookieMiddleware);
   app.use(bodyLimitMiddleware);
   app.use(referrerPolicyMiddleware);

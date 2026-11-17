@@ -61,6 +61,8 @@ COPY --from=build /repo/apps/web/dist ./apps/web/dist
 # The bundled db package looks for its migrations one folder above the bundle, at apps/api/migrations.
 COPY --from=build /repo/packages/db/migrations ./apps/api/migrations
 COPY --from=tunnels /out/ /usr/local/bin/
+# The slim base has no CA bundle, and cloudflared (Go) needs one to verify Cloudflare's servers.
+COPY --from=tunnels /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --chmod=755 docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 # tailscaled runs in userspace networking as this same non-root user, with its state in /data/tailscale.
 RUN mkdir /data && chown node:node /data

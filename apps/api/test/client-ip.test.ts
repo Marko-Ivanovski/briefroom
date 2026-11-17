@@ -102,74 +102,86 @@ describe('clientIpMiddleware', () => {
   });
 });
 
-describe('clientIpMiddleware while a tunnel forwards from loopback', () => {
+describe('clientIpMiddleware with a tunnel (R185)', () => {
+  type Mode = 'tailscale' | 'funnel' | 'cloudflare' | null;
+
   function runWith(
-    hop: 'tailscale' | 'funnel' | 'cloudflare' | null,
-    socket: string,
+    mode: Mode,
+    via: 'tunnel-socket' | string,
     headers: Record<string, string> = {},
+    trusted: string[] = [],
   ) {
-    const req = { headers: { ...headers }, socket: { remoteAddress: socket } } as IncomingMessage;
-    createClientIpMiddleware([], () => hop)(req, {} as ServerResponse, () => undefined);
+    const onSocket = via === 'tunnel-socket';
+    const req = {
+      headers: { ...headers },
+      socket: { remoteAddress: onSocket ? undefined : via },
+    } as IncomingMessage;
+    createClientIpMiddleware(trusted, { cameThrough: () => onSocket, mode: () => mode })(
+      req,
+      {} as ServerResponse,
+      () => undefined,
+    );
     return { ip: req.headers[CLIENT_IP_HEADER], proto: req.headers[CLIENT_PROTO_HEADER] };
   }
 
-  it('does not trust loopback while no tunnel runs', () => {
-    expect(
-      runWith(null, '127.0.0.1', {
-        'x-forwarded-for': '198.51.100.1',
-        'x-forwarded-proto': 'https',
-      }),
-    ).toEqual({ ip: '127.0.0.1', proto: 'http' });
-  });
+  const SPOOF = { 'x-forwarded-for': '198.51.100.1', 'x-forwarded-proto': 'https' };
 
-  it.each(['127.0.0.1', '::1', '::ffff:127.0.0.1'])(
-    'trusts loopback %s while tailscale forwards',
-    (socket) => {
-      expect(
-        runWith('tailscale', socket, {
-          'x-forwarded-for': '100.64.0.7',
-          'x-forwarded-proto': 'https',
-        }),
-      ).toEqual({ ip: '100.64.0.7', proto: 'https' });
+  it.each(['tailscale', 'funnel', 'cloudflare', null] as const)(
+    'ignores spoofed headers on loopback TCP while %s runs',
+    (mode) => {
+      for (const socket of ['127.0.0.1', '::1', '::ffff:127.0.0.1']) {
+        expect(runWith(mode, socket, { ...SPOOF, 'cf-connecting-ip': '203.0.113.77' })).toEqual({
+          ip: socket === '::1' ? '::1' : '127.0.0.1',
+          proto: 'http',
+        });
+      }
     },
   );
 
-  it('still ignores a non-loopback socket', () => {
-    expect(runWith('tailscale', '203.0.113.9', { 'x-forwarded-for': '198.51.100.1' }).ip).toBe(
-      '203.0.113.9',
-    );
+  it('honours X-Forwarded-For and X-Forwarded-Proto on the tunnel socket', () => {
+    expect(runWith('tailscale', 'tunnel-socket', SPOOF)).toEqual({
+      ip: '198.51.100.1',
+      proto: 'https',
+    });
   });
 
-  it('prefers CF-Connecting-IP behind cloudflared and falls back to X-Forwarded-For', () => {
+  it('keeps the rightmost address on the socket, so a prepended value cannot win', () => {
     expect(
-      runWith('cloudflare', '127.0.0.1', {
-        'cf-connecting-ip': '203.0.113.77',
-        'x-forwarded-for': '198.51.100.1',
-      }).ip,
-    ).toBe('203.0.113.77');
+      runWith('funnel', 'tunnel-socket', { 'x-forwarded-for': '10.0.0.1, 203.0.113.5' }).ip,
+    ).toBe('203.0.113.5');
+  });
+
+  it('falls back to loopback when the tunnel sent no address', () => {
+    expect(runWith('tailscale', 'tunnel-socket')).toEqual({ ip: '127.0.0.1', proto: 'http' });
+  });
+
+  it('prefers CF-Connecting-IP on the socket only behind cloudflared', () => {
+    const headers = { 'cf-connecting-ip': '203.0.113.77', 'x-forwarded-for': '198.51.100.1' };
+    expect(runWith('cloudflare', 'tunnel-socket', headers).ip).toBe('203.0.113.77');
+    expect(runWith('funnel', 'tunnel-socket', headers).ip).toBe('198.51.100.1');
     expect(
-      runWith('cloudflare', '127.0.0.1', {
-        'cf-connecting-ip': 'garbage',
-        'x-forwarded-for': '198.51.100.1',
-      }).ip,
+      runWith('cloudflare', 'tunnel-socket', { ...headers, 'cf-connecting-ip': 'garbage' }).ip,
     ).toBe('198.51.100.1');
   });
 
-  it('ignores CF-Connecting-IP when cloudflared is not the tunnel', () => {
-    expect(
-      runWith('funnel', '127.0.0.1', {
-        'cf-connecting-ip': '203.0.113.77',
-        'x-forwarded-for': '198.51.100.1',
-      }).ip,
-    ).toBe('198.51.100.1');
+  it('ignores X-Forwarded-Proto https from an untrusted non-loopback socket (Minor 8)', () => {
+    expect(runWith('cloudflare', '203.0.113.9', SPOOF)).toEqual({
+      ip: '203.0.113.9',
+      proto: 'http',
+    });
+  });
+
+  it('still believes a configured proxy such as Caddy over TCP', () => {
+    expect(runWith('tailscale', '198.51.100.2', SPOOF, ['198.51.100.2'])).toEqual({
+      ip: '198.51.100.1',
+      proto: 'https',
+    });
   });
 
   it('reads the protocol the nearest hop wrote', () => {
-    expect(runWith('tailscale', '127.0.0.1', { 'x-forwarded-proto': 'http, https' }).proto).toBe(
-      'https',
-    );
-    expect(runWith('tailscale', '127.0.0.1', { 'x-forwarded-proto': 'https, http' }).proto).toBe(
-      'http',
-    );
+    const proto = (value: string) =>
+      runWith('tailscale', 'tunnel-socket', { 'x-forwarded-proto': value }).proto;
+    expect(proto('http, https')).toBe('https');
+    expect(proto('https, http')).toBe('http');
   });
 });

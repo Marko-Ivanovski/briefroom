@@ -18,7 +18,7 @@ function harness(onSpawn?: (call: SpawnCall) => void) {
   let clock = 0;
   const supervisor = new Supervisor({
     spawn: spawned.spawn,
-    port: 4300,
+    tunnelSocket: '/data/run/tunnel.sock',
     stateDir: '/data/tailscale',
     env: { PATH: '/usr/bin', HOME: '/home/node' },
     now: () => clock,
@@ -149,6 +149,40 @@ describe('supervisor with cloudflare', () => {
     expect(h.supervisor.snapshot().lastError).toContain('ERR bad token [redacted]');
   });
 
+  it('keeps redacting what an old run prints after stop() and after a switch (I2)', async () => {
+    // Children that keep running through their SIGTERM grace, as real ones may.
+    const stubborn = (call: SpawnCall) => {
+      call.child.kill = (signal: NodeJS.Signals = 'SIGTERM') => {
+        call.child.signals.push(signal);
+        return true;
+      };
+    };
+    h = harness(stubborn);
+    h.supervisor.start('cloudflare', TOKEN);
+    await flush();
+    const first = h.last().child;
+    h.supervisor.start('cloudflare', 'second-token-value');
+    await flush();
+    // The old child is still alive, so the new run waits for it. It prints its secret meanwhile.
+    first.say(`late line ${TOKEN}`);
+    first.complain(`late error ${TOKEN}`);
+    first.exit(0);
+    await flush();
+    const second = h.last().child;
+    expect(second).not.toBe(first);
+    const stopping = h.supervisor.stop();
+    await flush();
+    second.say('after stop second-token-value');
+    second.exit(0);
+    await stopping;
+    const logs = h.logs.join('\n');
+    expect(logs).toContain('late line [redacted]');
+    expect(logs).toContain('after stop [redacted]');
+    expect(logs).not.toContain(TOKEN);
+    expect(logs).not.toContain('second-token-value');
+    expect(h.supervisor.snapshot().lastError).toBeNull();
+  });
+
   it('stops: sends SIGTERM, schedules no restart and reports off', async () => {
     h.supervisor.start('cloudflare', TOKEN);
     await flush();
@@ -218,7 +252,7 @@ describe('supervisor with tailscale', () => {
         '--timeout=60s',
       ],
       ['/usr/local/bin/tailscale', sock, 'serve', 'reset'],
-      ['/usr/local/bin/tailscale', sock, verb, '--bg', '--https=443', 'http://127.0.0.1:4300'],
+      ['/usr/local/bin/tailscale', sock, verb, '--bg', '--https=443', 'unix:/data/run/tunnel.sock'],
     ]);
     expect(h.calls[1]!.child.stdinText).toBe(TS_KEY);
     for (const call of h.calls) {

@@ -2,7 +2,9 @@ import { cliLogins, remoteAccess } from '@briefroom/db';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { fakeSpawn, flush, healthyTunnels } from './fake-child.ts';
+import { listenOnTunnelSocket } from '../src/auth/proxy-socket.ts';
 import { createTestApp, makeInstallOwner, resetThrottle, type TestApp } from './helpers.ts';
+import { testTunnelSocket, viaTunnel } from './tunnel-request.ts';
 
 const PASSWORD = 'correct horse battery';
 const TOKEN = 'eyJhIjoiYWNjb3VudCIsInQiOiJ0dW5uZWwiLCJzIjoic2VjcmV0LXRva2VuIn0=';
@@ -14,6 +16,7 @@ describe('remote access', () => {
   let t: TestApp;
   let spawned: ReturnType<typeof fakeSpawn>;
   let workspaceId: string;
+  const socketPath = testTunnelSocket();
   const ids: Record<string, string> = {};
   const cookies: Record<string, string> = {};
   const seen: string[] = [];
@@ -66,6 +69,9 @@ describe('remote access', () => {
   beforeAll(async () => {
     spawned = fakeSpawn(healthyTunnels);
     t = await createTestApp({}, [], [], true, spawned.spawn);
+    // Listening first keeps supertest from closing the server, and the tunnel socket with it.
+    await t.app.listen(0, '127.0.0.1');
+    await listenOnTunnelSocket(t.app.getHttpServer(), socketPath);
     await addUser('owner');
     await addUser('admin');
     await makeInstallOwner(t, ids.owner!);
@@ -122,6 +128,11 @@ describe('remote access', () => {
       ],
       [{ mode: 'cloudflare', secret: TOKEN, publicUrl: `${TUNNEL}/app` }, /path/i],
       [{ mode: 'funnel', secret: TS_KEY, publicUrl: `${TUNNEL}:8443` }, /443/],
+      // M1: Better Auth would read `*` as a wildcard origin.
+      [{ mode: 'cloudflare', secret: TOKEN, publicUrl: 'https://*' }, /wildcard/],
+      [{ mode: 'cloudflare', secret: TOKEN, publicUrl: 'https://*.example.com' }, /wildcard/],
+      [{ mode: 'cloudflare', secret: TOKEN, publicUrl: 'https://localhost' }, /DNS labels/],
+      [{ mode: 'cloudflare', secret: TOKEN, publicUrl: 'https://a@briefroom.example.com' }, /path/],
       [{ mode: 'nope' }, /mode/i],
     ])('rejects %j with 400', async (body, message) => {
       const res = await put(body);
@@ -258,26 +269,49 @@ describe('remote access', () => {
     });
   });
 
-  describe('forwarded client address', () => {
+  describe('forwarded client address (R170, R185)', () => {
+    const tunnel = (method: string, path: string, headers: Record<string, string>, body?: object) =>
+      viaTunnel(socketPath, method, path, { headers, body: body ?? {} });
     const preview = (code: string, ip: string) =>
-      http()
-        .post('/api/v1/cli-login/preview')
-        .set({ ...as('owner'), 'x-forwarded-for': ip })
-        .send({ code });
-
-    it('is ignored from loopback while no tunnel runs', async () => {
-      await http().post('/api/v1/cli-login').set('x-forwarded-for', '198.51.100.7').send({});
+      tunnel(
+        'POST',
+        '/api/v1/cli-login/preview',
+        { ...as('owner'), 'x-forwarded-for': ip },
+        { code },
+      );
+    const startIp = async () => {
       const [row] = await t.db.db.select().from(cliLogins);
-      expect(row!.startIp).not.toBe('198.51.100.7');
       await t.db.db.delete(cliLogins);
+      return row!.startIp;
+    };
+
+    it('is ignored from loopback TCP while no tunnel runs', async () => {
+      await http().post('/api/v1/cli-login').set('x-forwarded-for', '198.51.100.7').send({});
+      expect(await startIp()).not.toBe('198.51.100.7');
     });
 
-    it('records the forwarded cli-login start address and compares it on preview (R159)', async () => {
+    it.each(['tailscale', 'funnel'] as const)(
+      'is ignored from loopback TCP while %s runs, as from a tailnet peer through netstack',
+      async (mode) => {
+        await switchOn({ mode, secret: TS_KEY, publicUrl: TUNNEL });
+        const res = await http()
+          .post('/api/auth/sign-in/email')
+          .set({ 'x-forwarded-for': '198.51.100.7', 'x-forwarded-proto': 'https' })
+          .send({ email: 'admin@example.com', password: PASSWORD });
+        expect(res.status).toBe(200);
+        for (const c of res.headers['set-cookie'] as unknown as string[]) {
+          expect(c).not.toMatch(/;\s*Secure/i);
+        }
+        await http().post('/api/v1/cli-login').set('x-forwarded-for', '198.51.100.7').send({});
+        expect(await startIp()).not.toBe('198.51.100.7');
+      },
+    );
+
+    it('records the forwarded cli-login start address on the socket and compares it on preview (R159)', async () => {
       await switchOn({ mode: 'tailscale', secret: TS_KEY, publicUrl: TUNNEL });
-      const started = await http()
-        .post('/api/v1/cli-login')
-        .set('x-forwarded-for', '10.9.9.9, 198.51.100.7')
-        .send({});
+      const started = record(
+        await tunnel('POST', '/api/v1/cli-login', { 'x-forwarded-for': '10.9.9.9, 198.51.100.7' }),
+      );
       expect(started.status).toBe(201);
       const same = await preview(started.body.code, '198.51.100.7');
       expect(same.body).toMatchObject({ startIp: '198.51.100.7', sameIpAsYou: true });
@@ -287,33 +321,40 @@ describe('remote access', () => {
 
     it('prefers CF-Connecting-IP behind cloudflared', async () => {
       await switchOn({ mode: 'cloudflare', secret: TOKEN, publicUrl: TUNNEL });
-      await http()
-        .post('/api/v1/cli-login')
-        .set({ 'cf-connecting-ip': '203.0.113.77', 'x-forwarded-for': '198.51.100.1' })
-        .send({});
-      const [row] = await t.db.db.select().from(cliLogins);
-      expect(row!.startIp).toBe('203.0.113.77');
-      await t.db.db.delete(cliLogins);
+      await tunnel('POST', '/api/v1/cli-login', {
+        'cf-connecting-ip': '203.0.113.77',
+        'x-forwarded-for': '198.51.100.1',
+      });
+      expect(await startIp()).toBe('203.0.113.77');
+    });
+
+    it('does not take CF-Connecting-IP from a tailscale tunnel', async () => {
+      await switchOn({ mode: 'funnel', secret: TS_KEY, publicUrl: TUNNEL });
+      await tunnel('POST', '/api/v1/cli-login', {
+        'cf-connecting-ip': '203.0.113.77',
+        'x-forwarded-for': '198.51.100.1',
+      });
+      expect(await startIp()).toBe('198.51.100.1');
     });
 
     it('still overwrites an incoming x-briefroom-client-ip', async () => {
       await switchOn({ mode: 'tailscale', secret: TS_KEY, publicUrl: TUNNEL });
-      await http()
-        .post('/api/v1/cli-login')
-        .set({ 'x-briefroom-client-ip': '10.1.1.1', 'x-forwarded-for': '198.51.100.8' })
-        .send({});
-      const [row] = await t.db.db.select().from(cliLogins);
-      expect(row!.startIp).toBe('198.51.100.8');
-      await t.db.db.delete(cliLogins);
+      await tunnel('POST', '/api/v1/cli-login', {
+        'x-briefroom-client-ip': '10.1.1.1',
+        'x-forwarded-for': '198.51.100.8',
+      });
+      expect(await startIp()).toBe('198.51.100.8');
     });
   });
 
   describe('public mode defaults (R174)', () => {
     const signIn = (ip: string, extra: Record<string, string> = {}) =>
-      http()
-        .post('/api/auth/sign-in/email')
-        .set({ 'x-forwarded-for': ip, ...extra })
-        .send({ email: 'owner@example.com', password: PASSWORD });
+      viaTunnel(socketPath, 'POST', '/api/auth/sign-in/email', {
+        headers: { 'x-forwarded-for': ip, ...extra },
+        body: { email: 'owner@example.com', password: PASSWORD },
+      });
+    const cookiesOf = (res: { headers: { 'set-cookie'?: string[] } }) =>
+      res.headers['set-cookie'] ?? [];
 
     it('rate limits sign-in per forwarded client, and a prepended address does not dodge it', async () => {
       await switchOn({ mode: 'cloudflare', secret: TOKEN, publicUrl: TUNNEL });
@@ -325,7 +366,10 @@ describe('remote access', () => {
 
     it('rate limits the public invite routes per forwarded client', async () => {
       await switchOn({ mode: 'tailscale', secret: TS_KEY, publicUrl: TUNNEL });
-      const lookup = (ip: string) => http().get('/api/v1/join/whatever').set('x-forwarded-for', ip);
+      const lookup = (ip: string) =>
+        viaTunnel(socketPath, 'GET', '/api/v1/join/whatever', {
+          headers: { 'x-forwarded-for': ip },
+        });
       for (let i = 0; i < 20; i++) expect((await lookup('203.0.113.20')).status).toBe(200);
       expect((await lookup('203.0.113.20')).status).toBe(429);
       expect((await lookup('10.0.0.1, 203.0.113.20')).status).toBe(429);
@@ -334,19 +378,20 @@ describe('remote access', () => {
 
     it('marks cookies Secure on requests that came through the https tunnel', async () => {
       await switchOn({ mode: 'cloudflare', secret: TOKEN, publicUrl: TUNNEL });
-      const viaTunnel = await signIn('203.0.113.30', { 'x-forwarded-proto': 'https' });
-      expect(viaTunnel.status).toBe(200);
-      const tunnelCookies = viaTunnel.headers['set-cookie'] as unknown as string[];
-      expect(tunnelCookies.length).toBeGreaterThan(0);
-      for (const c of tunnelCookies) expect(c).toMatch(/;\s*Secure/i);
+      const through = await signIn('203.0.113.30', { 'x-forwarded-proto': 'https' });
+      expect(through.status).toBe(200);
+      expect(cookiesOf(through).length).toBeGreaterThan(0);
+      for (const c of cookiesOf(through)) expect(c).toMatch(/;\s*Secure/i);
 
-      const local = await signIn('203.0.113.31');
+      const local = await http()
+        .post('/api/auth/sign-in/email')
+        .send({ email: 'owner@example.com', password: PASSWORD });
       for (const c of local.headers['set-cookie'] as unknown as string[]) {
         expect(c).not.toMatch(/;\s*Secure/i);
       }
     });
 
-    it('does not believe X-Forwarded-Proto from loopback while no tunnel runs', async () => {
+    it('does not believe X-Forwarded-Proto from loopback TCP while no tunnel runs', async () => {
       const res = await http()
         .post('/api/auth/sign-in/email')
         .set({ 'x-forwarded-proto': 'https' })
@@ -359,21 +404,22 @@ describe('remote access', () => {
 
     it('has no open sign-up through the tunnel once the first account exists', async () => {
       await switchOn({ mode: 'cloudflare', secret: TOKEN, publicUrl: TUNNEL });
-      const signUp = await http()
-        .post('/api/auth/sign-up/email')
-        .set({ origin: TUNNEL, 'x-forwarded-for': '203.0.113.40' })
-        .send({ email: 'stranger@example.com', password: PASSWORD, name: 'Stranger' });
+      const headers = { origin: TUNNEL, 'x-forwarded-for': '203.0.113.40' };
+      const signUp = await viaTunnel(socketPath, 'POST', '/api/auth/sign-up/email', {
+        headers,
+        body: { email: 'stranger@example.com', password: PASSWORD, name: 'Stranger' },
+      });
       expect(signUp.status).toBe(403);
-      const setup = await http()
-        .post('/api/v1/setup')
-        .set({ origin: TUNNEL, 'x-forwarded-for': '203.0.113.40' })
-        .send({
+      const setup = await viaTunnel(socketPath, 'POST', '/api/v1/setup', {
+        headers,
+        body: {
           code: 'ABCD-EFGH',
           name: 'Stranger',
           email: 'stranger@example.com',
           password: PASSWORD,
           modules: [],
-        });
+        },
+      });
       expect(setup.status).toBe(410);
     });
   });

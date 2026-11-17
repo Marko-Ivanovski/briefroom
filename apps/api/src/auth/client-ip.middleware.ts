@@ -5,12 +5,16 @@ export const CLIENT_IP_HEADER = 'x-briefroom-client-ip';
 /** `https` only when a trusted hop says the client used https. Our own listener is plain http. */
 export const CLIENT_PROTO_HEADER = 'x-briefroom-client-proto';
 
-/** Which tunnel, if any, is forwarding requests to the app from loopback right now. */
-export type LoopbackHop = () => 'tailscale' | 'funnel' | 'cloudflare' | null;
+/** How the middleware learns that a request came in on the tunnel socket, and from which tunnel. */
+export interface TunnelHop {
+  cameThrough(req: IncomingMessage): boolean;
+  mode(): 'tailscale' | 'funnel' | 'cloudflare' | null;
+}
 
-const LOOPBACK = new BlockList();
-LOOPBACK.addSubnet('127.0.0.0', 8, 'ipv4');
-LOOPBACK.addAddress('::1', 'ipv6');
+const NO_TUNNEL: TunnelHop = { cameThrough: () => false, mode: () => null };
+
+// A tunnel request carries no peer address of its own, so a missing header falls back to this.
+const TUNNEL_FALLBACK_ADDRESS = '127.0.0.1';
 
 const MAPPED_V4 = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i;
 
@@ -41,30 +45,27 @@ function trustList(entries: readonly string[]): BlockList {
 
 /**
  * Sets the client address that rate limits and audit rows key on. Forwarded headers are believed
- * only from a trusted socket, and the rightmost address that is not itself trusted wins, so a
- * value the client prepends to X-Forwarded-For never counts. Any incoming value of our own headers
- * is overwritten. Loopback is trusted only while a tunnel daemon runs, because cloudflared and
- * tailscale serve forward from there. Cloudflare's edge always overwrites CF-Connecting-IP, so it wins
- * behind cloudflared.
+ * only from a configured proxy's socket or from the tunnel socket, and the rightmost address that is
+ * not itself trusted wins, so a value the client prepends to X-Forwarded-For never counts. Any
+ * incoming value of our own headers is overwritten. Loopback TCP is never trusted: in userspace
+ * mode tailscaled forwards every tailnet connection to <tailnet IP>:N on to localhost:N (R185).
+ * Cloudflare's edge always overwrites CF-Connecting-IP, so it wins behind cloudflared, and only there.
  */
 export function createClientIpMiddleware(
   trustedProxies: readonly string[],
-  loopbackHop: LoopbackHop = () => null,
+  tunnel: TunnelHop = NO_TUNNEL,
 ) {
   const trusted = trustList(trustedProxies);
-  const inList = (list: BlockList, address: string): boolean => {
+  const isTrusted = (address: string): boolean => {
     const family = isIP(address);
-    return family !== 0 && list.check(address, family === 4 ? 'ipv4' : 'ipv6');
+    return family !== 0 && trusted.check(address, family === 4 ? 'ipv4' : 'ipv6');
   };
 
   return (req: IncomingMessage, _res: ServerResponse, next: () => void): void => {
-    const socket = normalize(req.socket.remoteAddress ?? '');
-    const hop = loopbackHop();
-    const isTrusted = (address: string): boolean =>
-      inList(trusted, address) || (hop !== null && inList(LOOPBACK, address));
-    const fromTrusted = isTrusted(socket);
-    const edgeClient =
-      hop === 'cloudflare' && inList(LOOPBACK, socket) ? cloudflareClient(req) : null;
+    const viaTunnel = tunnel.cameThrough(req);
+    const socket = viaTunnel ? TUNNEL_FALLBACK_ADDRESS : normalize(req.socket.remoteAddress ?? '');
+    const fromTrusted = viaTunnel || isTrusted(socket);
+    const edgeClient = viaTunnel && tunnel.mode() === 'cloudflare' ? cloudflareClient(req) : null;
     req.headers[CLIENT_IP_HEADER] = !fromTrusted
       ? socket
       : (edgeClient ?? forwardedClient(req, socket, isTrusted));
@@ -72,7 +73,6 @@ export function createClientIpMiddleware(
     next();
   };
 }
-
 const first = (v: string | string[] | undefined): string =>
   (Array.isArray(v) ? v.join(',') : (v ?? '')).trim();
 

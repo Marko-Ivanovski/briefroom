@@ -1,4 +1,5 @@
 import { mkdirSync } from 'node:fs';
+import { isIP } from 'node:net';
 import type {
   RemoteAccessSettings,
   RemoteAccessStatus,
@@ -198,10 +199,22 @@ function validPublicUrl(mode: TunnelMode, raw: string | undefined): string {
   if (url.pathname !== '/' || url.search || url.hash || url.username || url.password) {
     throw new BadRequestException('publicUrl must be the bare address, with no path or query');
   }
+  if (!isPlainHost(url.hostname)) {
+    throw new BadRequestException('publicUrl must name one host: DNS labels or an IP, no wildcard');
+  }
   if (mode !== 'cloudflare' && url.port !== '' && url.port !== '443') {
     throw new BadRequestException(
       'Tailscale serves Briefroom on port 443, so publicUrl must use 443',
     );
   }
   return url.origin;
+}
+
+const DNS_LABEL = /^(?!-)[a-z0-9-]{1,63}(?<!-)$/;
+
+// Better Auth reads `*` in a trusted origin as a wildcard, so the address must be one exact host.
+function isPlainHost(hostname: string): boolean {
+  if (isIP(hostname.replace(/^\[|\]$/g, '')) !== 0) return true;
+  const labels = hostname.split('.');
+  return labels.length >= 2 && labels.every((label) => DNS_LABEL.test(label));
 }

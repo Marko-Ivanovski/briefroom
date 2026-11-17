@@ -60,7 +60,8 @@ export const spawnProcess: SpawnChild = (command, args, options) =>
 
 export interface SupervisorOptions {
   spawn: SpawnChild;
-  port: number;
+  /** The app's tunnel socket, which tailscale serve and funnel forward to. */
+  tunnelSocket: string;
   stateDir: string;
   /** The whole environment a child gets, plus its own secret. The app's own secrets stay out. */
   env: Record<string, string>;
@@ -84,7 +85,12 @@ interface Step {
  * Secrets go through the environment (cloudflared reads TUNNEL_TOKEN) or stdin (`tailscale up`
  * reads no env var, but takes `file:` paths), never argv, which `ps` shows to anyone in the container.
  */
-export function planFor(mode: TunnelMode, secret: string, port: number, stateDir: string): Step[] {
+export function planFor(
+  mode: TunnelMode,
+  secret: string,
+  tunnelSocket: string,
+  stateDir: string,
+): Step[] {
   if (mode === 'cloudflare') {
     return [
       {
@@ -123,7 +129,7 @@ export function planFor(mode: TunnelMode, secret: string, port: number, stateDir
       mode === 'funnel' ? 'funnel' : 'serve',
       '--bg',
       '--https=443',
-      `http://127.0.0.1:${port}`,
+      `unix:${tunnelSocket}`,
     ]),
   ];
 }
@@ -136,6 +142,8 @@ interface Child {
 }
 
 interface Run {
+  // Each run redacts with its own secret: an old run keeps printing during its SIGTERM grace.
+  secret: string;
   children: Child[];
   cancels: (() => void)[];
   waitingForReady: number;
@@ -220,8 +228,9 @@ export class Supervisor {
   private launch(): void {
     const { mode, secret } = this;
     if (!mode || secret === null) return;
-    const steps = planFor(mode, secret, this.options.port, this.options.stateDir);
+    const steps = planFor(mode, secret, this.options.tunnelSocket, this.options.stateDir);
     const run: Run = {
+      secret,
       children: [],
       cancels: [],
       waitingForReady: steps.filter((s) => s.readyPattern).length,
@@ -338,9 +347,9 @@ export class Supervisor {
       const lines = (buffered.rest + String(chunk)).split(/\r?\n/);
       buffered.rest = lines.pop() ?? '';
       for (const raw of lines) {
-        const line = this.redact(raw).trim();
+        const line = redact(raw, run.secret).trim();
         if (!line) continue;
-        this.lastLine = line;
+        if (this.isCurrent(run)) this.lastLine = line;
         this.options.logger.log(`${step.name}: ${line}`);
         onLine(raw);
       }
@@ -372,7 +381,7 @@ export class Supervisor {
     const delay = BACKOFF_MS[Math.min(this.failures, BACKOFF_MS.length - 1)]!;
     this.failures++;
     const detail = this.lastLine && !problem.includes(this.lastLine) ? `: ${this.lastLine}` : '';
-    this.lastError = this.redact(`${problem}${detail}`).slice(0, MAX_ERROR_LENGTH);
+    this.lastError = redact(`${problem}${detail}`, run.secret).slice(0, MAX_ERROR_LENGTH);
     this.status = 'restarting';
     this.options.logger.warn(`Remote access ${this.lastError}. Restarting in ${delay / 1000}s.`);
     this.changed();
@@ -415,10 +424,6 @@ export class Supervisor {
     return this.run === run && !run.failed;
   }
 
-  private redact(text: string): string {
-    return this.secret ? text.split(this.secret).join(REDACTED) : text;
-  }
-
   private changed(): void {
     const snapshot = this.snapshot();
     const key = JSON.stringify(snapshot);
@@ -426,6 +431,10 @@ export class Supervisor {
     this.lastSent = key;
     for (const listener of this.listeners) listener(snapshot);
   }
+}
+
+function redact(text: string, secret: string): string {
+  return secret ? text.split(secret).join(REDACTED) : text;
 }
 
 function describeExit(code: number | null, signal: NodeJS.Signals | null): string {

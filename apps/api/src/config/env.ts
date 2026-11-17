@@ -1,4 +1,5 @@
 import { DEV_DATABASE_URL } from '@briefroom/db';
+import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -89,6 +90,8 @@ export interface Env {
   trustedProxies: string[];
   /** Absolute path of the folder that holds uploaded files. */
   dataDir: string;
+  /** Unix socket the tunnels forward to, `<dataDir>/run/tunnel.sock`. A named pipe on Windows. */
+  tunnelSocket: string;
 }
 
 export const ENV = Symbol('ENV');
@@ -126,5 +129,12 @@ export function loadEnv(
     webDir: v.BRIEFROOM_WEB_DIR,
     trustedProxies: v.BRIEFROOM_TRUSTED_PROXIES,
     dataDir: resolve(v.BRIEFROOM_DATA_DIR),
+    tunnelSocket: tunnelSocketFor(resolve(v.BRIEFROOM_DATA_DIR)),
   };
+}
+
+function tunnelSocketFor(dataDir: string): string {
+  if (process.platform !== 'win32') return join(dataDir, 'run', 'tunnel.sock');
+  const id = createHash('sha256').update(dataDir).digest('hex').slice(0, 12);
+  return `\\\\.\\pipe\\briefroom-tunnel-${id}`;
 }

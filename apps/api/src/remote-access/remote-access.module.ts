@@ -33,7 +33,7 @@ export class RemoteAccessModule {
             const stateDir = supervisorStateDir(env);
             return new Supervisor({
               spawn,
-              port: env.port,
+              tunnelSocket: env.tunnelSocket,
               stateDir,
               env: childEnv(stateDir),
               logger: new Logger('RemoteAccess'),

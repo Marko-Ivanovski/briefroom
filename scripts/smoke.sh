@@ -59,6 +59,16 @@ compose exec -T app tailscale version | head -1 | grep -qx '1.104.7' || fail "ta
 compose exec -T app cloudflared --version | grep -q 'version 2026.11.0' || fail "cloudflared is not 2026.11.0"
 ok "tailscale and cloudflared run as non-root in the app container"
 
+# Paths stay inside sh -c, so Git Bash on Windows does not rewrite them into Windows paths.
+compose exec -T app sh -c 'test -s /etc/ssl/certs/ca-certificates.crt' || fail "no CA bundle for cloudflared"
+ok "CA bundle present for cloudflared"
+
+perms=$(compose exec -T app sh -c "stat -c '%a %U %F' /data/run/tunnel.sock" 2>/dev/null | tr -d '\r')
+[ "$perms" = "600 node socket" ] || fail "tunnel socket is '$perms', expected '600 node socket'"
+compose exec -T app node -e "require('http').get({ socketPath: '/data/run/tunnel.sock', path: '/api/health' }, (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))" \
+  || fail "health does not answer on the tunnel socket"
+ok "tunnel socket is owner-only and answers"
+
 compose exec -T app sh -c '! grep -rli testkit /app/apps/web/dist' || fail "web bundle contains testkit code"
 ok "web bundle has no testkit"
 
