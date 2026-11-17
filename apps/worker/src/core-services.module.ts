@@ -3,10 +3,11 @@ import {
   FilesService,
   HistoryService,
   ModuleRegistryService,
+  UsageService,
   WorkspaceModulesService,
 } from '@briefroom/api/worker-kit';
 import { MODULE_STATE } from '@briefroom/module-kit';
-import { CORE_FILE_STORE, CORE_HISTORY } from '@briefroom/module-kit/core';
+import { CORE_FILE_STORE, CORE_HISTORY, CORE_USAGE } from '@briefroom/module-kit/core';
 import { Global, Module } from '@nestjs/common';
 
 /**
@@ -22,10 +23,12 @@ import { Global, Module } from '@nestjs/common';
     HistoryService,
     FilesService,
     FilesGcJob,
+    UsageService,
     { provide: MODULE_STATE, useExisting: WorkspaceModulesService },
     { provide: CORE_HISTORY, useExisting: HistoryService },
     { provide: CORE_FILE_STORE, useExisting: FilesService },
+    { provide: CORE_USAGE, useExisting: UsageService },
   ],
-  exports: [ModuleRegistryService, MODULE_STATE, CORE_HISTORY, CORE_FILE_STORE],
+  exports: [ModuleRegistryService, MODULE_STATE, CORE_HISTORY, CORE_FILE_STORE, CORE_USAGE],
 })
 export class CoreServicesModule {}

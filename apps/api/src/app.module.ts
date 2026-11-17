@@ -3,6 +3,7 @@ import { APP_FILTER } from '@nestjs/core';
 import { ServeStaticModule } from '@nestjs/serve-static';
 import { AccessModule } from './access/access.module.ts';
 import { AuthModule } from './auth/auth.module.ts';
+import { CliLoginModule } from './cli-login/cli-login.module.ts';
 import { EnvModule } from './config/env.module.ts';
 import type { Env } from './config/env.ts';
 import { DatabaseModule } from './database/database.module.ts';
@@ -13,10 +14,13 @@ import { HistoryModule } from './history/history.module.ts';
 import { InstallModule } from './install/install.module.ts';
 import { InvitesModule } from './invites/invites.module.ts';
 import { JobsModule } from './jobs/jobs.module.ts';
+import { BriefroomMcpModule } from './mcp/mcp.module.ts';
 import { ModuleRegistryModule } from './module-registry/module-registry.module.ts';
 import { REGISTERED_MODULES } from './module-registry/registered-modules.ts';
 import { ProjectsModule } from './projects/projects.module.ts';
 import { SystemController } from './system/system.controller.ts';
+import { TokensModule } from './tokens/tokens.module.ts';
+import { UsageModule } from './usage/usage.module.ts';
 import { WorkspacesModule } from './workspaces/workspaces.module.ts';
 
 @Module({})
@@ -36,6 +40,7 @@ export class AppModule {
         InstallModule,
         ModuleRegistryModule,
         HistoryModule,
+        UsageModule,
         FilesModule,
         JobsModule.register('app'),
         EventsModule.register('app'),
@@ -44,6 +49,9 @@ export class AppModule {
         WorkspacesModule,
         ProjectsModule,
         InvitesModule,
+        TokensModule,
+        CliLoginModule,
+        BriefroomMcpModule,
         ...REGISTERED_MODULES.map((m) => m.nestModule),
         ...extraImports,
         ServeStaticModule.forRoot({

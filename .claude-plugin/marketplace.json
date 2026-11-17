@@ -1,0 +1,5 @@
+{
+  "name": "briefroom",
+  "owner": { "name": "Briefroom" },
+  "plugins": [{ "name": "briefroom", "source": "./plugins/claude-code" }]
+}

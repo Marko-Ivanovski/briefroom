@@ -20,6 +20,8 @@ import {
   RemovalResult,
   SetupResponse,
   SetupStatus,
+  TokenCreated,
+  TokenSummary,
   WorkspaceSettings,
   WorkspaceSummary,
   type ChecklistKind,
@@ -96,6 +98,20 @@ const memberPath = (workspaceId: string, projectId: string, userId: string) =>
 // Better Auth answers these three with its own shapes. Only what the web app reads is declared.
 const SignInResponse = z.object({ user: z.object({ id: z.string() }) });
 const SignOutResponse = z.object({ success: z.boolean() });
+
+const CliLoginPreviewed = z.object({
+  deviceName: z.string(),
+  startedSecondsAgo: z.number(),
+  expiresInSeconds: z.number(),
+  startIp: z.string().nullable(),
+  startUserAgent: z.string().nullable(),
+  sameIpAsYou: z.boolean(),
+});
+const CliLoginApproved = z.object({
+  deviceName: z.string(),
+  startedAt: z.string(),
+  workspaceName: z.string(),
+});
 
 export const api = {
   setupStatus: () => request(SetupStatus, 'GET', '/api/v1/setup'),
@@ -230,6 +246,16 @@ export const api = {
     request(JoinResult, 'POST', `/api/v1/join/${encodeURIComponent(token)}/accept`, {}),
   resetPassword: (token: string, password: string) =>
     request(null, 'POST', `/api/v1/reset/${encodeURIComponent(token)}`, { password }),
+  tokens: (workspaceId: string) =>
+    request(TokenSummary.array(), 'GET', `${workspacePath(workspaceId)}/tokens`),
+  createToken: (workspaceId: string, name: string) =>
+    request(TokenCreated, 'POST', `${workspacePath(workspaceId)}/tokens`, { name }),
+  deleteToken: (workspaceId: string, tokenId: string) =>
+    request(null, 'DELETE', `${workspacePath(workspaceId)}/tokens/${encodeURIComponent(tokenId)}`),
+  cliLoginPreview: (code: string) =>
+    request(CliLoginPreviewed, 'POST', '/api/v1/cli-login/preview', { code }),
+  cliLoginApprove: (code: string, workspaceId: string) =>
+    request(CliLoginApproved, 'POST', '/api/v1/cli-login/approve', { code, workspaceId }),
   signIn: (email: string, password: string) =>
     request(SignInResponse, 'POST', '/api/auth/sign-in/email', { email, password }),
   signOut: () => request(SignOutResponse, 'POST', '/api/auth/sign-out', {}),

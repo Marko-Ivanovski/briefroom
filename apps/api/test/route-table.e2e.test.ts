@@ -1,6 +1,7 @@
 import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
 import { ModulesContainer } from '@nestjs/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { McpTokenGuard } from '../src/mcp/mcp-token.guard.ts';
 import { createTestApp, type TestApp } from './helpers.ts';
 
 /**
@@ -25,6 +26,15 @@ const OUTSIDE_A_WORKSPACE: ReadonlySet<string> = new Set([
   'POST /api/v1/join/:token/sign-up',
   // Needs a session but names no workspace: the invite token decides which workspace is joined.
   'POST /api/v1/join/:token/accept',
+  // The CLI has no account session yet: start and poll are public, and approve needs a session but the
+  // login code, not a URL, names the workspace through the body.
+  'POST /api/v1/cli-login',
+  'POST /api/v1/cli-login/poll',
+  'POST /api/v1/cli-login/approve',
+  // Needs a session, no workspace: a read-only look at a pending code before the user approves it.
+  'POST /api/v1/cli-login/preview',
+  // Authenticated by the caller's own Bearer token, which it deletes. Never by a session.
+  'DELETE /api/v1/tokens/self',
 ]);
 
 /** Routes that skip the session check. Adding a public endpoint must be a deliberate edit here. */
@@ -37,6 +47,13 @@ const ANONYMOUS_ROUTES: readonly string[] = [
   'POST /api/v1/reset/:token',
   'GET /api/v1/join/:token',
   'POST /api/v1/join/:token/sign-up',
+  // Public: the CLI has no session yet. The poll token authenticates the poll, and the code alone cannot approve.
+  'POST /api/v1/cli-login',
+  'POST /api/v1/cli-login/poll',
+  // Skips the session guard on purpose: only the caller's own Bearer brf_ token is accepted, and it deletes just that token.
+  'DELETE /api/v1/tokens/self',
+  // Skips the session guard on purpose (R146): only a Bearer brf_ token is accepted, checked by McpTokenGuard.
+  'ALL /mcp',
 ];
 
 const REQUEST_METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'ALL', 'OPTIONS', 'HEAD'];
@@ -68,7 +85,9 @@ function registeredRoutes(t: TestApp, onlyAnonymous = false): string[] {
         if (onlyAnonymous && !isPublic) continue;
         for (const b of base) {
           for (const p of asArray(Reflect.getMetadata(PATH_METADATA, handler))) {
-            routes.push(`${REQUEST_METHODS[method as number]} ${join('api', b, p)}`);
+            routes.push(
+              `${REQUEST_METHODS[method as number]} ${join(b === 'mcp' ? '' : 'api', b, p)}`,
+            );
           }
         }
       }
@@ -117,6 +136,15 @@ describe('route table', () => {
       registeredRoutes(t, true).sort(),
       'A new public endpoint needs a deliberate edit to ANONYMOUS_ROUTES.',
     ).toEqual([...ANONYMOUS_ROUTES].sort());
+  });
+
+  it('puts the token guard on every /mcp route', () => {
+    const controller = [...t.app.get(ModulesContainer, { strict: false }).values()]
+      .flatMap((m) => [...m.controllers.values()])
+      .map((w) => w.metatype as (abstract new (...args: never[]) => object) | null)
+      .find((c) => c && Reflect.getMetadata(PATH_METADATA, c) === 'mcp');
+    expect(controller).toBeDefined();
+    expect(Reflect.getMetadata('__guards__', controller!)).toContain(McpTokenGuard);
   });
 
   it('knows no stale allowlist entries', () => {

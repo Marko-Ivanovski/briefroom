@@ -27,6 +27,8 @@ const OWNER_ONLY = 'Only the install owner can create workspaces';
 /** Better Auth messages written by this app, safe to show. Any other APIError message is replaced by a generic one. */
 export const SAFE_AUTH_MESSAGES: ReadonlySet<string> = new Set([ENDPOINT_UNAVAILABLE, OWNER_ONLY]);
 
+const REFUSED_KEY_MESSAGE = 'Failed to validate API key:';
+
 export type CanCreateWorkspace = (userId: string) => Promise<boolean>;
 
 export function createAuth(
@@ -46,7 +48,9 @@ export function createAuth(
     // parameters (emails, hashes, tokens). Only the level and the message are forwarded.
     logger: {
       log: (level, message) => {
-        if (level === 'error') log.error(message);
+        // An unknown, expired or revoked token also lands here. That is a refused caller, not a fault (R152).
+        if (level === 'error' && message === REFUSED_KEY_MESSAGE) log.warn(message);
+        else if (level === 'error') log.error(message);
         else if (level === 'warn') log.warn(message);
         else if (level === 'debug') log.debug(message);
         else log.log(message);
@@ -104,7 +108,14 @@ export function createAuth(
           },
         },
       }),
-      apiKey({ defaultPrefix: API_KEY_PREFIX, enableMetadata: true }),
+      // Keys are hashed (SHA-256) and never expire by default. The plugin's own per-key limit
+      // (10 requests a day) would cut an agent off, so it is off. Names may be up to 80 characters.
+      apiKey({
+        defaultPrefix: API_KEY_PREFIX,
+        enableMetadata: true,
+        maximumNameLength: 80,
+        rateLimit: { enabled: false },
+      }),
     ],
   });
 }

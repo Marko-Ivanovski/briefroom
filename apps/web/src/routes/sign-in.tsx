@@ -10,16 +10,20 @@ import { FormError } from '../components/form-error.tsx';
 import { messageFor } from '../lib/errors.ts';
 
 export const Route = createFileRoute('/sign-in')({
-  beforeLoad: async ({ context: { queryClient } }) => {
+  validateSearch: (search: Record<string, unknown>): { next?: 'connect' } =>
+    search.next === 'connect' ? { next: 'connect' } : {},
+  beforeLoad: async ({ context: { queryClient }, search }) => {
     const { needsSetup } = await queryClient.query(setupStatusQuery);
     if (needsSetup) throw redirect({ to: '/setup' });
-    if (await queryClient.query(meQuery)) throw redirect({ to: '/' });
+    if (await queryClient.query(meQuery))
+      throw redirect({ to: search.next === 'connect' ? '/connect' : '/' });
   },
   component: SignInPage,
 });
 
 function SignInPage() {
   const navigate = useNavigate();
+  const { next } = Route.useSearch();
   const queryClient = useQueryClient();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -28,7 +32,7 @@ function SignInPage() {
     mutationFn: () => api.signIn(email, password),
     onSuccess: async () => {
       queryClient.clear();
-      await navigate({ to: '/' });
+      await navigate({ to: next === 'connect' ? '/connect' : '/' });
     },
   });
 

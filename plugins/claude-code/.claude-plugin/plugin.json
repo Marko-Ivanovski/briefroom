@@ -1,0 +1,7 @@
+{
+  "name": "briefroom",
+  "displayName": "Briefroom",
+  "version": "0.0.0",
+  "description": "Gives Claude Code access to your Briefroom workspace through the local briefroom mcp-proxy.",
+  "keywords": ["briefroom", "mcp"]
+}

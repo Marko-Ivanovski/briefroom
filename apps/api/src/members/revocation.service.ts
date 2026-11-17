@@ -22,6 +22,7 @@ export class RevocationService {
   private readonly roleHandlers: MemberRemovedHandler[] = [];
   private readonly addedHandlers: MemberRemovedHandler[] = [];
   private readonly sessionHandlers: ((userId: string) => Promise<void>)[] = [];
+  private readonly passwordResetHandlers: ((userId: string) => Promise<void>)[] = [];
 
   onMemberRemoved(handler: MemberRemovedHandler): void {
     this.memberHandlers.push(handler);
@@ -46,6 +47,18 @@ export class RevocationService {
     return this.run(
       'sessionsRevoked',
       this.sessionHandlers.map((h) => () => h(userId)),
+    );
+  }
+
+  onPasswordReset(handler: (userId: string) => Promise<void>): void {
+    this.passwordResetHandlers.push(handler);
+  }
+
+  /** Only a password reset calls this: sign-out and other session cleanups must not end API tokens. */
+  passwordReset(userId: string): Promise<void> {
+    return this.run(
+      'passwordReset',
+      this.passwordResetHandlers.map((h) => () => h(userId)),
     );
   }
 

@@ -458,10 +458,46 @@ describe('member removal and immediate revocation', () => {
     expect(t.db.db.$client.options.connectionTimeoutMillis).toBe(10_000);
   });
 
-  // Enabled in Task 7.2, once MCP tokens (7.1) and the event stream registry (6.4) exist.
-  it.todo(
-    'after removal, the MCP token gets 401 on the next call and the open SSE stream ends within 2 seconds',
-  );
+  it('after removal, the MCP token gets 401 on the next call and the open SSE stream ends within 2 seconds', async () => {
+    await addUser('streamer', [{ ws, role: 'member' }]);
+    await t.app.listen(0, '127.0.0.1');
+    const origin = `http://127.0.0.1:${(t.app.getHttpServer().address() as { port: number }).port}`;
+    const minted = await http()
+      .post(`${base()}/tokens`)
+      .set(as('streamer'))
+      .send({ name: 'agent' });
+    expect(minted.status).toBe(201);
+    const callMcp = () =>
+      fetch(`${origin}/mcp`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${minted.body.token}`,
+          'content-type': 'application/json',
+          accept: 'application/json, text/event-stream',
+        },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }),
+      });
+    expect((await callMcp()).status).toBe(200);
+
+    const stream = await fetch(`${origin}${base()}/events`, {
+      headers: { cookie: cookies.streamer! },
+    });
+    expect(stream.status).toBe(200);
+    const reader = stream.body!.getReader();
+    const ended = (async () => {
+      for (;;) if ((await reader.read()).done) return Date.now();
+    })();
+
+    expect((await del('admin', ids.streamer!)).status).toBeLessThan(300);
+    const removedAt = Date.now();
+    expect((await callMcp()).status).toBe(401);
+    const endedAt = await Promise.race([
+      ended,
+      new Promise<null>((r) => setTimeout(() => r(null), 2000)),
+    ]);
+    expect(endedAt).not.toBeNull();
+    expect(endedAt! - removedAt).toBeLessThan(2000);
+  });
 
   it('answers two admins removing each other at once with 403, never a 500', async () => {
     const pairs = Array.from({ length: 6 }, (_, i) => [`ma${i}`, `mb${i}`] as const);

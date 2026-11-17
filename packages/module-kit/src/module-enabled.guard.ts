@@ -13,6 +13,8 @@ export interface ModuleState {
   isEnabled(workspaceId: string, moduleId: string): Promise<boolean>;
   /** The workspace's settings for a module, parsed through its manifest schema with defaults filled in. */
   settings<T = Record<string, unknown>>(workspaceId: string, moduleId: string): Promise<T>;
+  /** The module's display name from its manifest, for messages an agent or person reads. */
+  displayName?(moduleId: string): string | undefined;
 }
 
 export const MODULE_STATE = Symbol('MODULE_STATE');

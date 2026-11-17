@@ -1,0 +1,86 @@
+import { assertCompatible, request } from '../api.ts';
+import type { Context } from '../context.ts';
+import { loadCredentials, removeWorkspaceToken } from '../credentials.ts';
+import { CliError } from '../errors.ts';
+import { removeLinksFor } from '../links.ts';
+import { MARKETPLACE_NAME, PLUGIN_NAME } from '../plugin-install.ts';
+import { readLink } from './link.ts';
+
+interface Target {
+  installId: string;
+  baseUrl: string;
+  workspaceId: string;
+  name: string;
+  token: string;
+}
+
+async function targets(ctx: Context, all: boolean): Promise<Target[]> {
+  const { installs } = await loadCredentials(ctx.home);
+  const every = Object.entries(installs).flatMap(([baseUrl, install]) =>
+    Object.entries(install.workspaces).map(([workspaceId, w]) => ({
+      installId: install.installId,
+      baseUrl,
+      workspaceId,
+      name: w.name,
+      token: w.token,
+    })),
+  );
+  if (all || every.length <= 1) return every;
+  const linked = await readLink(ctx.cwd);
+  const own = linked
+    ? every.filter((t) => t.installId === linked.installId && t.workspaceId === linked.workspaceId)
+    : [];
+  if (own.length === 0) {
+    throw new CliError(
+      'Several workspaces are saved. Run briefroom disconnect inside a linked repository, or use --all.',
+    );
+  }
+  return own;
+}
+
+/**
+ * Revokes the token on the install, then removes it locally. The local copy goes even when the
+ * server cannot be reached: a token that is still stored can leak, a failed revoke is only warned about.
+ */
+/** Claude Code's own config is left alone: the command is printed, never run. */
+function printPluginUninstall(ctx: Context): void {
+  ctx.out(
+    `To remove the Claude Code plugin, run:\n  claude plugin uninstall ${PLUGIN_NAME}@${MARKETPLACE_NAME}\n`,
+  );
+}
+
+export async function disconnect(ctx: Context, options: { all?: boolean } = {}): Promise<void> {
+  const list = await targets(ctx, options.all === true);
+  if (list.length === 0) {
+    ctx.out('Nothing to disconnect.\n');
+    return;
+  }
+  let outdated: CliError | null = null;
+  for (const target of list) {
+    const host = new URL(target.baseUrl).host;
+    try {
+      await assertCompatible(ctx, target.baseUrl);
+      const res = await request(ctx, target.baseUrl, '/api/v1/tokens/self', {
+        method: 'DELETE',
+        token: target.token,
+      });
+      // 401 means the token was already revoked or removed, which is the state we want.
+      if (!res.ok && res.status !== 401) {
+        ctx.err(
+          `Warning: ${host} answered HTTP ${res.status}. The token may still be active there.\n`,
+        );
+      }
+    } catch (err) {
+      if (!(err instanceof CliError)) throw err;
+      if (err.exitCode === 2) outdated = err;
+      ctx.err(`Warning: could not revoke the token on ${host}. ${err.message}\n`);
+    }
+    await removeWorkspaceToken(ctx.home, target.baseUrl, target.workspaceId);
+    await removeLinksFor(ctx.home, target.baseUrl, target.workspaceId).catch((err: unknown) => {
+      ctx.err(`Warning: could not update the local link records. ${(err as Error).message}\n`);
+    });
+    ctx.out(`Disconnected from ${target.name} on ${host}.\n`);
+  }
+  if (options.all) printPluginUninstall(ctx);
+  if (outdated) throw outdated;
+}

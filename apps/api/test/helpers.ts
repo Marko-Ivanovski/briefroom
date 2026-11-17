@@ -11,6 +11,7 @@ import { AUTH } from '../src/auth/auth.module.ts';
 import type { Auth } from '../src/auth/auth.ts';
 import { configureApp } from '../src/bootstrap.ts';
 import { loadEnv } from '../src/config/env.ts';
+import { RefusedAttemptLimiter } from '../src/rate-limit/rate-limit.ts';
 import { InstallService } from '../src/install/install.service.ts';
 
 const FIXTURE_WEB_DIR = fileURLToPath(new URL('./fixtures/web', import.meta.url));
@@ -27,6 +28,7 @@ export function resetThrottle(t: TestApp): void {
   const storage = t.app.get<ThrottlerStorageService>(ThrottlerStorage);
   storage.storage.clear();
   (storage as unknown as { hitExpirations: Map<string, unknown> }).hitExpirations.clear();
+  t.app.get(RefusedAttemptLimiter).reset();
 }
 
 export async function makeInstallOwner(t: TestApp, userId: string): Promise<void> {

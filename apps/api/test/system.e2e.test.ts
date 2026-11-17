@@ -42,9 +42,12 @@ describe('system routes', () => {
     expect(res.headers['content-type']).toMatch(/application\/json/);
   });
 
-  it.each(['/api', '/mcp'])('does not fall back to index.html for bare %s', async (path) => {
+  it.each([
+    ['/api', 404],
+    ['/mcp', 401],
+  ])('does not fall back to index.html for bare %s', async (path, status) => {
     const res = await request(t.app.getHttpServer()).get(path);
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(status);
     expect(res.headers['content-type']).toMatch(/application\/json/);
   });
 

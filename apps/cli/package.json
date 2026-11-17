@@ -1,0 +1,31 @@
+{
+  "name": "briefroom",
+  "version": "0.0.0",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Marko-Ivanovski/briefroom.git"
+  },
+  "type": "module",
+  "bin": {
+    "briefroom": "./bin/briefroom.js"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "node ../../scripts/run-vitest.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/client": "2.4.0",
+    "@modelcontextprotocol/server": "2.4.0",
+    "commander": "15.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "vite": "8.3.8",
+    "vitest": "5.1.0"
+  }
+}
