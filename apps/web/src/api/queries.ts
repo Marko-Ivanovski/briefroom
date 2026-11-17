@@ -22,6 +22,12 @@ export const meQuery = queryOptions({
   staleTime: 30_000,
 });
 
+export const installQuery = queryOptions({
+  queryKey: ['install'],
+  queryFn: api.install,
+  staleTime: 0,
+});
+
 export const workspacesQuery = queryOptions({
   queryKey: ['workspaces'],
   queryFn: api.workspaces,

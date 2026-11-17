@@ -16,11 +16,15 @@ export default defineConfig({
   plugins: [swc.vite({ module: { type: 'es6' } })],
   ssr: { noExternal: [/^@briefroom\//] },
   build: {
-    ssr: 'src/main.ts',
+    ssr: true,
     outDir: 'dist',
     target: 'node24',
     minify: false,
     sourcemap: true,
-    rollupOptions: { output: { entryFileNames: 'main.js' } },
+    // admin-cli.js is what `briefroom reset-password` runs inside the container.
+    rollupOptions: {
+      input: { main: 'src/main.ts', 'admin-cli': 'src/admin-cli.ts' },
+      output: { entryFileNames: '[name].js' },
+    },
   },
 });

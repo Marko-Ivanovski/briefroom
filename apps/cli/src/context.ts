@@ -26,6 +26,8 @@ export interface Context {
   networkInterfaces: typeof networkInterfaces;
   /** Runs a program with an argument array and no shell. Rejects on a non-zero exit. */
   exec(file: string, args: string[], cwd: string): Promise<void>;
+  /** Like exec, but the program shares this terminal's output. Resolves with its exit code. */
+  runInherited(file: string, args: string[], cwd: string): Promise<number>;
   /** Absolute path of a program found in the absolute PATH entries, never in the working directory. */
   resolveCommand(name: string): string | null;
 }
@@ -106,6 +108,14 @@ function exec(file: string, args: string[], cwd: string): Promise<void> {
   });
 }
 
+function runInherited(file: string, args: string[], cwd: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(file, args, { cwd, stdio: 'inherit', windowsHide: true });
+    child.once('error', reject);
+    child.once('close', (code) => resolve(code ?? 1));
+  });
+}
+
 export function defaultContext(): Context {
   return {
     home: homedir(),
@@ -123,6 +133,7 @@ export function defaultContext(): Context {
     ask,
     networkInterfaces,
     exec,
+    runInherited,
     resolveCommand: (name) => resolveCommand(name, process.env, process.platform),
   };
 }

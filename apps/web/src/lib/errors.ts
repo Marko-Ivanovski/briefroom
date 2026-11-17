@@ -69,6 +69,10 @@ export const TOKEN_ERRORS: Record<number, string> = {
   404: 'That token no longer exists.',
 };
 
+export const INSTALL_ERRORS: Record<number, string> = {
+  403: 'Only the install owner can see this page.',
+};
+
 export const CONNECT_INVALID_CODE = "That code isn't valid or has expired.";
 
 export const CONNECT_ERRORS: Record<number, string> = {

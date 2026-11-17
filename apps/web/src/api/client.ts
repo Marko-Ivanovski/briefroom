@@ -3,6 +3,7 @@ import {
   BookmarkCreated,
   BookmarkSummary,
   ChecklistItem,
+  InstallInfo,
   InviteCreated,
   InviteSummary,
   JoinLookup,
@@ -117,6 +118,7 @@ export const api = {
   setupStatus: () => request(SetupStatus, 'GET', '/api/v1/setup'),
   setup: (body: SetupRequest) => request(SetupResponse, 'POST', '/api/v1/setup', body),
   me: () => request(MeResponse, 'GET', '/api/v1/me'),
+  install: () => request(InstallInfo, 'GET', '/api/v1/install'),
   workspaces: () => request(WorkspaceSummary.array(), 'GET', '/api/v1/workspaces'),
   createWorkspace: (name: string, modules?: string[]) =>
     request(WorkspaceSummary, 'POST', '/api/v1/workspaces', { name, modules }),

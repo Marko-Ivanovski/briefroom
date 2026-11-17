@@ -5,6 +5,7 @@ import { init, type InitOptions } from './commands/init.ts';
 import { link } from './commands/link.ts';
 import { login } from './commands/login.ts';
 import { mcpProxy } from './commands/mcp-proxy.ts';
+import { resetPassword } from './commands/reset-password.ts';
 import type { Context } from './context.ts';
 import { CliError } from './errors.ts';
 
@@ -29,6 +30,15 @@ export function buildProgram(ctx: Context): Command {
       'address other devices use, with --lan. Default: the first LAN address of this machine',
     )
     .action((dir: string | undefined, opts: InitOptions) => init(ctx, dir, opts));
+
+  program
+    .command('reset-password')
+    .description(
+      'Print a password reset link for an account, run on the machine that hosts Briefroom',
+    )
+    .argument('<email>', 'email of the account')
+    .option('--dir <dir>', 'install folder that holds compose.yml, default the current folder')
+    .action((email: string, opts: { dir?: string }) => resetPassword(ctx, email, opts));
 
   program
     .command('login')

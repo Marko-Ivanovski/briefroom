@@ -51,6 +51,7 @@ function schemaFor(production: boolean, defaultDataDir: string | undefined) {
       : z.string().min(1).default(DEV_AUTH_SECRET),
     PORT: Port.default(4300),
     HOST: z.string().min(1).default('127.0.0.1'),
+    BRIEFROOM_BIND: z.string().min(1).default('127.0.0.1'),
     BRIEFROOM_WEB_DIR: z.string().min(1).default(DEFAULT_WEB_DIR),
     BRIEFROOM_DATA_DIR:
       production || defaultDataDir === undefined ? DataDir : DataDir.default(defaultDataDir),
@@ -72,6 +73,8 @@ export interface Env {
   usingDevAuthSecret: boolean;
   port: number;
   host: string;
+  /** Host interface the compose file publishes the app port on. The app cannot see this itself. */
+  bind: string;
   webDir: string;
   /** Addresses and CIDR ranges of reverse proxies whose X-Forwarded-For is believed. */
   trustedProxies: string[];
@@ -109,6 +112,7 @@ export function loadEnv(
     usingDevAuthSecret: v.BETTER_AUTH_SECRET === DEV_AUTH_SECRET,
     port: v.PORT,
     host: v.HOST,
+    bind: v.BRIEFROOM_BIND,
     webDir: v.BRIEFROOM_WEB_DIR,
     trustedProxies: v.BRIEFROOM_TRUSTED_PROXIES,
     dataDir: resolve(v.BRIEFROOM_DATA_DIR),

@@ -15,3 +15,14 @@ export type SetupRequest = z.infer<typeof SetupRequest>;
 
 export const SetupResponse = z.object({ userId: z.string(), workspaceId: z.string() });
 export type SetupResponse = z.infer<typeof SetupResponse>;
+
+export const InstallReach = z.enum(['local', 'lan', 'tailscale', 'funnel', 'cloudflare']);
+export type InstallReach = z.infer<typeof InstallReach>;
+
+export const InstallInfo = z.object({
+  installId: z.string(),
+  publicUrl: z.string(),
+  reach: InstallReach,
+  changeCommand: z.string(),
+});
+export type InstallInfo = z.infer<typeof InstallInfo>;

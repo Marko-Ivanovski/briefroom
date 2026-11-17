@@ -97,6 +97,15 @@ function WorkspaceLayout() {
           >
             Tokens
           </Link>
+          {me?.isInstallOwner ? (
+            <Link
+              to="/w/$workspaceId/settings/install"
+              params={{ workspaceId }}
+              className="[&.active]:font-semibold"
+            >
+              Install
+            </Link>
+          ) : null}
           {isAdminRole(workspaces.find((w) => w.id === workspaceId)?.role) ? (
             <>
               <Link

@@ -62,6 +62,11 @@ describe('loadEnv', () => {
     expect(env.databaseUrl).toBe(DEV_DATABASE_URL);
     expect(env.publicUrl).toBe('http://localhost:5173');
     expect(env.host).toBe('127.0.0.1');
+    expect(env.bind).toBe('127.0.0.1');
+  });
+
+  it('reads the host port binding from BRIEFROOM_BIND', () => {
+    expect(loadEnv({ BRIEFROOM_BIND: '0.0.0.0' }).bind).toBe('0.0.0.0');
   });
 
   it('lists every missing variable in one error in production', () => {

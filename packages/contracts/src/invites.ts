@@ -16,6 +16,7 @@ export const InviteCreated = z.object({
   id: z.string(),
   url: z.string(),
   expiresAt: z.string(),
+  warning: z.literal('install_not_reachable').optional(),
 });
 export type InviteCreated = z.infer<typeof InviteCreated>;
 

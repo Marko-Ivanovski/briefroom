@@ -10,6 +10,8 @@ import { createTestApp, type TestApp } from './helpers.ts';
  */
 const OUTSIDE_A_WORKSPACE: ReadonlySet<string> = new Set([
   'GET /api/v1/me',
+  // Install-wide settings, limited to the install owner in the controller.
+  'GET /api/v1/install',
   'GET /api/v1/workspaces',
   'POST /api/v1/workspaces',
   // Personal to the signed-in user on this install, not workspace content.

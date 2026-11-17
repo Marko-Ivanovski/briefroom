@@ -16,6 +16,7 @@ import { useState, type FormEvent } from 'react';
 import { api } from '../../../api/client.ts';
 import { invitesQuery, projectsQuery, workspacesQuery } from '../../../api/queries.ts';
 import { FormError } from '../../../components/form-error.tsx';
+import { CopyCommand } from '../../../components/copy-command.tsx';
 import { QrCode } from '../../../components/qr-code.tsx';
 import { INVITE_CODES, INVITE_ERRORS, messageFor } from '../../../lib/errors.ts';
 import { isAdminRole } from '../../../lib/roles.ts';
@@ -52,7 +53,9 @@ function InvitesPage() {
   const [maxUses, setMaxUses] = useState('');
   const [approval, setApproval] = useState(false);
   const [projectIds, setProjectIds] = useState<string[]>([]);
-  const [created, setCreated] = useState<{ id: string; url: string } | null>(null);
+  const [created, setCreated] = useState<{ id: string; url: string; unreachable: boolean } | null>(
+    null,
+  );
   const [links, setLinks] = useState<Record<string, string>>({});
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [copyFailed, setCopyFailed] = useState(false);
@@ -71,7 +74,7 @@ function InvitesPage() {
       }),
     onSuccess: async (invite) => {
       const url = invite.url;
-      setCreated({ id: invite.id, url });
+      setCreated({ id: invite.id, url, unreachable: invite.warning === 'install_not_reachable' });
       setLinks((prev) => ({ ...prev, [invite.id]: url }));
       setCopiedId(null);
       await queryClient.invalidateQueries({ queryKey: invitesQuery(workspaceId).queryKey });
@@ -195,6 +198,16 @@ function InvitesPage() {
             </p>
           ) : null}
           <QrCode value={created.url} label="QR code for the invite link" />
+          {created.unreachable ? (
+            <div role="note" className="grid gap-2 border-t pt-3">
+              <p className="text-sm font-medium">Only this computer can open this link yet.</p>
+              <p className="text-muted-foreground text-sm">
+                To let other people reach this install, run this command on the machine that hosts
+                it and pick how they will connect.
+              </p>
+              <CopyCommand command="npx briefroom init" label="Command to open the install" />
+            </div>
+          ) : null}
         </section>
       ) : null}
 
