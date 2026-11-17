@@ -1,5 +1,4 @@
 import { mkdir, readFile, stat, symlink, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import pkg from '../package.json' with { type: 'json' };
@@ -154,8 +153,7 @@ describe('init', () => {
 
   it('asks the questions with defaults when interactive', async () => {
     const asked: string[] = [];
-    const dir = join(tmpdir(), `briefroom-init-asked-${process.pid}`);
-    const answers = [dir, '4700', '2', ''];
+    const answers: string[] = [];
     t = await testContext({
       fetch: fakeFetch([]),
       interactive: true,
@@ -165,6 +163,8 @@ describe('init', () => {
         return Promise.resolve(answers.shift() ?? '');
       },
     });
+    const dir = join(t.home, 'asked');
+    answers.push(dir, '4700', '2', '');
     expect(await run(['init'], t.ctx)).toBe(0);
     expect(asked).toHaveLength(4);
     expect(asked[0]).toContain('./briefroom');
