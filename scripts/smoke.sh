@@ -20,6 +20,7 @@ export BRIEFROOM_HTTPS_PORT="$https_port"
 export BRIEFROOM_HOST=localhost
 export POSTGRES_PASSWORD=$(node -p "require('crypto').randomBytes(16).toString('hex')")
 export BETTER_AUTH_SECRET=$(node -p "require('crypto').randomBytes(32).toString('hex')")
+export BRIEFROOM_SECRET_KEY=$(node -p "require('crypto').randomBytes(32).toString('hex')")
 
 compose() { docker compose -p "$project" -f docker/compose.yml --profile lan "$@"; }
 fail() { echo "SMOKE FAIL: $*" >&2; compose logs --no-color --tail 60 >&2 || true; exit 1; }
@@ -52,10 +53,16 @@ for service in app worker; do
 done
 ok "app and worker run as non-root with no capabilities"
 
+compose exec -T app sh -c '[ "$(id -u)" != 0 ] && tailscale version && tailscaled --version && cloudflared --version' >/dev/null \
+  || fail "tunnel binaries do not run as non-root in the app container"
+compose exec -T app tailscale version | head -1 | grep -qx '1.104.7' || fail "tailscale is not 1.104.7"
+compose exec -T app cloudflared --version | grep -q 'version 2026.11.0' || fail "cloudflared is not 2026.11.0"
+ok "tailscale and cloudflared run as non-root in the app container"
+
 compose exec -T app sh -c '! grep -rli testkit /app/apps/web/dist' || fail "web bundle contains testkit code"
 ok "web bundle has no testkit"
 
-compose exec -T app sh -c '! grep -q testkit_notes /app/apps/api/dist/main.js /app/apps/worker/dist/main.js' || fail "api or worker bundle contains testkit code"
+compose exec -T app sh -c '! grep -q testkit_notes /app/apps/api/dist/*.js /app/apps/worker/dist/*.js' || fail "api or worker bundle contains testkit code"
 ok "api and worker bundles have no testkit"
 
 compose exec -T app printenv BRIEFROOM_TRUSTED_PROXIES | grep -q '198.51.100.2' || fail "caddy not trusted"

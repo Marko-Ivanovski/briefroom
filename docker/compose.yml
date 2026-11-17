@@ -10,6 +10,8 @@ x-briefroom: &briefroom
     NODE_ENV: production
     DATABASE_URL: postgres://briefroom:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/briefroom
     BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Set BETTER_AUTH_SECRET in .env}
+    # Seals the remote access credential stored in the database.
+    BRIEFROOM_SECRET_KEY: ${BRIEFROOM_SECRET_KEY:?Set BRIEFROOM_SECRET_KEY in .env}
     BRIEFROOM_PUBLIC_URL: ${BRIEFROOM_PUBLIC_URL:-http://localhost:${PORT:-4300}}
     # Only read to tell the Settings page whether the port is open to the network.
     BRIEFROOM_BIND: ${BRIEFROOM_BIND:-127.0.0.1}
