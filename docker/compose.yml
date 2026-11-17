@@ -1,0 +1,92 @@
+name: briefroom
+
+x-briefroom: &briefroom
+  image: ghcr.io/marko-ivanovski/briefroom:${BRIEFROOM_VERSION:-latest}
+  init: true
+  restart: unless-stopped
+  cap_drop: [ALL]
+  security_opt: ['no-new-privileges:true']
+  environment:
+    NODE_ENV: production
+    DATABASE_URL: postgres://briefroom:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/briefroom
+    BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Set BETTER_AUTH_SECRET in .env}
+    BRIEFROOM_PUBLIC_URL: ${BRIEFROOM_PUBLIC_URL:-http://localhost:${PORT:-4300}}
+    # Caddy's fixed address is always trusted. Add your own reverse proxy in .env.
+    BRIEFROOM_TRUSTED_PROXIES: 198.51.100.2${BRIEFROOM_TRUSTED_PROXIES:+,${BRIEFROOM_TRUSTED_PROXIES}}
+  volumes:
+    - briefroom-data:/data
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: briefroom
+      POSTGRES_USER: briefroom
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U briefroom -d briefroom']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # The only service that migrates the database and creates the install.
+  app:
+    <<: *briefroom
+    command: ['node', 'apps/api/dist/main.js']
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - '${BRIEFROOM_BIND:-127.0.0.1}:${PORT:-4300}:4300'
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:4300/api/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+
+  worker:
+    <<: *briefroom
+    command: ['node', 'apps/worker/dist/main.js']
+    depends_on:
+      app:
+        condition: service_healthy
+    # The worker waits up to 25s (STOP_TIMEOUT_MS) for running jobs, so Docker must not kill it sooner.
+    stop_grace_period: 35s
+
+  caddy:
+    image: caddy:2
+    profiles: [lan]
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    ports:
+      - '${BRIEFROOM_HTTPS_PORT:-443}:443'
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    networks:
+      default:
+        ipv4_address: 198.51.100.2
+
+networks:
+  default:
+    ipam:
+      config:
+        # TEST-NET-2 is never routed, so it cannot clash with a home network or VPN. The range
+        # keeps dynamic addresses away from Caddy's fixed one, which the app trusts.
+        - subnet: 198.51.100.0/24
+          ip_range: 198.51.100.128/25
+
+volumes:
+  db-data:
+  briefroom-data:
+  caddy-data:

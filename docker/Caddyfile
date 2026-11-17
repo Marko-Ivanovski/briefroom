@@ -1,0 +1,12 @@
+{
+	admin off
+}
+
+# Any name or address the LAN uses to reach this machine gets a certificate from Caddy's own CA,
+# so clients trust that one root once instead of clicking through a warning per host.
+https:// {
+	tls internal {
+		on_demand
+	}
+	reverse_proxy app:4300
+}

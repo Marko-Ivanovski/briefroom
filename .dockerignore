@@ -1,0 +1,17 @@
+**/node_modules
+**/dist
+.git
+.claude
+.superpowers
+.github
+.husky
+.env
+.env.*
+!.env.example
+.data
+data
+coverage
+**/test-results
+**/playwright-report
+apps/cli/bin
+*.log
