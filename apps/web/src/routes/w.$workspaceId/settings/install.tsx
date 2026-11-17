@@ -1,6 +1,6 @@
 import type { InstallReach } from '@briefroom/contracts';
 import { useQuery } from '@tanstack/react-query';
-import { createFileRoute, redirect } from '@tanstack/react-router';
+import { createFileRoute, Link, redirect } from '@tanstack/react-router';
 import { installQuery, meQuery } from '../../../api/queries.ts';
 import { CopyCommand } from '../../../components/copy-command.tsx';
 import { FormError } from '../../../components/form-error.tsx';
@@ -24,6 +24,7 @@ const REACH_LABELS: Record<InstallReach, string> = {
 };
 
 function InstallPage() {
+  const { workspaceId } = Route.useParams();
   const { data: info, error } = useQuery(installQuery);
 
   return (
@@ -57,6 +58,21 @@ function InstallPage() {
               Run this on the machine that hosts Briefroom.
             </p>
             <CopyCommand command={info.changeCommand} label="Command to change access" />
+          </div>
+          <div className="grid gap-2">
+            <h2 className="text-lg font-semibold">Reach it from anywhere</h2>
+            <p className="text-muted-foreground text-sm">
+              Switch on a Tailscale or Cloudflare tunnel from here, with no restart.
+            </p>
+            <p className="text-sm">
+              <Link
+                to="/w/$workspaceId/settings/remote-access"
+                params={{ workspaceId }}
+                className="underline"
+              >
+                Remote access settings
+              </Link>
+            </p>
           </div>
         </>
       ) : null}

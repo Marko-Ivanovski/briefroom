@@ -13,9 +13,9 @@ import { BadRequestException, Inject, Injectable, NotFoundException } from '@nes
 import { and, desc, eq, inArray, isNull, gt, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Scope } from '../access/scope.ts';
-import { ENV, type Env } from '../config/env.ts';
 import { DB } from '../database/database.module.ts';
 import { ReachService } from '../install/reach.service.ts';
+import { TunnelState } from '../remote-access/tunnel-state.ts';
 import { revokeLinks } from './revoke-links.ts';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -37,8 +37,8 @@ export const isActive = () =>
 export class InvitesService {
   constructor(
     @Inject(DB) private readonly db: Db,
-    @Inject(ENV) private readonly env: Env,
     private readonly reach: ReachService,
+    private readonly tunnel: TunnelState,
   ) {}
 
   async create(scope: Scope, input: InviteCreate): Promise<InviteCreated> {
@@ -137,7 +137,7 @@ export class InvitesService {
       .returning({ id: inviteLinks.id, expiresAt: inviteLinks.expiresAt });
     return {
       id: row!.id,
-      url: `${this.env.publicUrl}/join/${token}`,
+      url: `${this.tunnel.publicUrl()}/join/${token}`,
       expiresAt: row!.expiresAt.toISOString(),
       ...(this.reach.isReachableByOthers() ? {} : { warning: 'install_not_reachable' as const }),
     };

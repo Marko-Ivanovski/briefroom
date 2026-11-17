@@ -26,6 +26,7 @@ import { Route as WWorkspaceIdSettingsInvitesRouteImport } from './routes/w.$wor
 import { Route as WWorkspaceIdSettingsJoinRequestsRouteImport } from './routes/w.$workspaceId/settings/join-requests'
 import { Route as WWorkspaceIdSettingsMembersRouteImport } from './routes/w.$workspaceId/settings/members'
 import { Route as WWorkspaceIdSettingsModulesRouteImport } from './routes/w.$workspaceId/settings/modules'
+import { Route as WWorkspaceIdSettingsRemoteAccessRouteImport } from './routes/w.$workspaceId/settings/remote-access'
 import { Route as WWorkspaceIdSettingsTokensRouteImport } from './routes/w.$workspaceId/settings/tokens'
 import { Route as WWorkspaceIdProjectsProjectIdIndexRouteImport } from './routes/w.$workspaceId/projects/$projectId.index'
 import { Route as WWorkspaceIdProjectsProjectIdMembersRouteImport } from './routes/w.$workspaceId/projects/$projectId.members'
@@ -123,6 +124,12 @@ const WWorkspaceIdSettingsModulesRoute =
     path: '/settings/modules',
     getParentRoute: () => WWorkspaceIdRouteRoute,
   } as any)
+const WWorkspaceIdSettingsRemoteAccessRoute =
+  WWorkspaceIdSettingsRemoteAccessRouteImport.update({
+    id: '/settings/remote-access',
+    path: '/settings/remote-access',
+    getParentRoute: () => WWorkspaceIdRouteRoute,
+  } as any)
 const WWorkspaceIdSettingsTokensRoute =
   WWorkspaceIdSettingsTokensRouteImport.update({
     id: '/settings/tokens',
@@ -159,6 +166,7 @@ export interface FileRoutesByFullPath {
   '/w/$workspaceId/settings/join-requests': typeof WWorkspaceIdSettingsJoinRequestsRoute
   '/w/$workspaceId/settings/members': typeof WWorkspaceIdSettingsMembersRoute
   '/w/$workspaceId/settings/modules': typeof WWorkspaceIdSettingsModulesRoute
+  '/w/$workspaceId/settings/remote-access': typeof WWorkspaceIdSettingsRemoteAccessRoute
   '/w/$workspaceId/settings/tokens': typeof WWorkspaceIdSettingsTokensRoute
   '/w/$workspaceId/projects/': typeof WWorkspaceIdProjectsIndexRoute
   '/w/$workspaceId/projects/$projectId/members': typeof WWorkspaceIdProjectsProjectIdMembersRoute
@@ -179,6 +187,7 @@ export interface FileRoutesByTo {
   '/w/$workspaceId/settings/join-requests': typeof WWorkspaceIdSettingsJoinRequestsRoute
   '/w/$workspaceId/settings/members': typeof WWorkspaceIdSettingsMembersRoute
   '/w/$workspaceId/settings/modules': typeof WWorkspaceIdSettingsModulesRoute
+  '/w/$workspaceId/settings/remote-access': typeof WWorkspaceIdSettingsRemoteAccessRoute
   '/w/$workspaceId/settings/tokens': typeof WWorkspaceIdSettingsTokensRoute
   '/w/$workspaceId/projects': typeof WWorkspaceIdProjectsIndexRoute
   '/w/$workspaceId/projects/$projectId/members': typeof WWorkspaceIdProjectsProjectIdMembersRoute
@@ -202,6 +211,7 @@ export interface FileRoutesById {
   '/w/$workspaceId/settings/join-requests': typeof WWorkspaceIdSettingsJoinRequestsRoute
   '/w/$workspaceId/settings/members': typeof WWorkspaceIdSettingsMembersRoute
   '/w/$workspaceId/settings/modules': typeof WWorkspaceIdSettingsModulesRoute
+  '/w/$workspaceId/settings/remote-access': typeof WWorkspaceIdSettingsRemoteAccessRoute
   '/w/$workspaceId/settings/tokens': typeof WWorkspaceIdSettingsTokensRoute
   '/w/$workspaceId/projects/': typeof WWorkspaceIdProjectsIndexRoute
   '/w/$workspaceId/projects/$projectId/members': typeof WWorkspaceIdProjectsProjectIdMembersRoute
@@ -226,6 +236,7 @@ export interface FileRouteTypes {
     | '/w/$workspaceId/settings/join-requests'
     | '/w/$workspaceId/settings/members'
     | '/w/$workspaceId/settings/modules'
+    | '/w/$workspaceId/settings/remote-access'
     | '/w/$workspaceId/settings/tokens'
     | '/w/$workspaceId/projects/'
     | '/w/$workspaceId/projects/$projectId/members'
@@ -246,6 +257,7 @@ export interface FileRouteTypes {
     | '/w/$workspaceId/settings/join-requests'
     | '/w/$workspaceId/settings/members'
     | '/w/$workspaceId/settings/modules'
+    | '/w/$workspaceId/settings/remote-access'
     | '/w/$workspaceId/settings/tokens'
     | '/w/$workspaceId/projects'
     | '/w/$workspaceId/projects/$projectId/members'
@@ -268,6 +280,7 @@ export interface FileRouteTypes {
     | '/w/$workspaceId/settings/join-requests'
     | '/w/$workspaceId/settings/members'
     | '/w/$workspaceId/settings/modules'
+    | '/w/$workspaceId/settings/remote-access'
     | '/w/$workspaceId/settings/tokens'
     | '/w/$workspaceId/projects/'
     | '/w/$workspaceId/projects/$projectId/members'
@@ -405,6 +418,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WWorkspaceIdSettingsModulesRouteImport
       parentRoute: typeof WWorkspaceIdRouteRoute
     }
+    '/w/$workspaceId/settings/remote-access': {
+      id: '/w/$workspaceId/settings/remote-access'
+      path: '/settings/remote-access'
+      fullPath: '/w/$workspaceId/settings/remote-access'
+      preLoaderRoute: typeof WWorkspaceIdSettingsRemoteAccessRouteImport
+      parentRoute: typeof WWorkspaceIdRouteRoute
+    }
     '/w/$workspaceId/settings/tokens': {
       id: '/w/$workspaceId/settings/tokens'
       path: '/settings/tokens'
@@ -457,6 +477,7 @@ interface WWorkspaceIdRouteRouteChildren {
   WWorkspaceIdSettingsJoinRequestsRoute: typeof WWorkspaceIdSettingsJoinRequestsRoute
   WWorkspaceIdSettingsMembersRoute: typeof WWorkspaceIdSettingsMembersRoute
   WWorkspaceIdSettingsModulesRoute: typeof WWorkspaceIdSettingsModulesRoute
+  WWorkspaceIdSettingsRemoteAccessRoute: typeof WWorkspaceIdSettingsRemoteAccessRoute
   WWorkspaceIdSettingsTokensRoute: typeof WWorkspaceIdSettingsTokensRoute
   WWorkspaceIdProjectsIndexRoute: typeof WWorkspaceIdProjectsIndexRoute
 }
@@ -472,6 +493,7 @@ const WWorkspaceIdRouteRouteChildren: WWorkspaceIdRouteRouteChildren = {
   WWorkspaceIdSettingsJoinRequestsRoute: WWorkspaceIdSettingsJoinRequestsRoute,
   WWorkspaceIdSettingsMembersRoute: WWorkspaceIdSettingsMembersRoute,
   WWorkspaceIdSettingsModulesRoute: WWorkspaceIdSettingsModulesRoute,
+  WWorkspaceIdSettingsRemoteAccessRoute: WWorkspaceIdSettingsRemoteAccessRoute,
   WWorkspaceIdSettingsTokensRoute: WWorkspaceIdSettingsTokensRoute,
   WWorkspaceIdProjectsIndexRoute: WWorkspaceIdProjectsIndexRoute,
 }

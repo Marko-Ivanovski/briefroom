@@ -2,7 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { authSchema, createdStamp, passwordResetLinks, type Actor, type Db } from '@briefroom/db';
 import { Inject, Injectable, InternalServerErrorException } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
-import { ENV, type Env } from '../config/env.ts';
+import { TunnelState } from '../remote-access/tunnel-state.ts';
 import { DB } from '../database/database.module.ts';
 
 export const RESET_LINK_TTL_MS = 24 * 60 * 60 * 1000;
@@ -21,7 +21,7 @@ export function hashResetToken(token: string): string {
 export class PasswordResetLinks {
   constructor(
     @Inject(DB) private readonly db: Db,
-    @Inject(ENV) private readonly env: Env,
+    private readonly tunnel: TunnelState,
   ) {}
 
   /** `workspaceId` is null for install-level links made by the host command. */
@@ -39,7 +39,7 @@ export class PasswordResetLinks {
     } catch {
       throw new InternalServerErrorException('Could not create the reset link');
     }
-    return { url: `${this.env.publicUrl}/reset/${token}`, expiresAt };
+    return { url: `${this.tunnel.publicUrl()}/reset/${token}`, expiresAt };
   }
 
   async userIdByEmail(email: string): Promise<string | null> {

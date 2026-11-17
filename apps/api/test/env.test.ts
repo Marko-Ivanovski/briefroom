@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { DEV_AUTH_SECRET, loadEnv } from '../src/config/env.ts';
+import { DEV_AUTH_SECRET, DEV_SECRET_KEY, loadEnv } from '../src/config/env.ts';
 
 const PROD = { NODE_ENV: 'production' };
 const BASE = {
@@ -32,7 +32,7 @@ describe('loadEnv BETTER_AUTH_SECRET', () => {
   });
 
   it('is used as given in production', () => {
-    const env = loadEnv({ ...PROD, ...BASE, BETTER_AUTH_SECRET: LONG });
+    const env = loadEnv({ ...PROD, ...BASE, BETTER_AUTH_SECRET: LONG, BRIEFROOM_SECRET_KEY: LONG });
     expect(env.authSecret).toBe(LONG);
     expect(env.usingDevAuthSecret).toBe(false);
   });
@@ -115,8 +115,31 @@ describe('loadEnv', () => {
   });
 });
 
+describe('loadEnv BRIEFROOM_SECRET_KEY', () => {
+  const AUTH = { BETTER_AUTH_SECRET: 'x'.repeat(32) };
+
+  it('is required in production', () => {
+    expect(() => loadEnv({ ...PROD, ...BASE, ...AUTH })).toThrow(
+      /BRIEFROOM_SECRET_KEY is required/,
+    );
+  });
+
+  it('must be at least 32 characters and not the dev-only key in production', () => {
+    expect(() => loadEnv({ ...PROD, ...BASE, ...AUTH, BRIEFROOM_SECRET_KEY: 'short' })).toThrow(
+      /BRIEFROOM_SECRET_KEY: .*32/,
+    );
+    expect(() =>
+      loadEnv({ ...PROD, ...BASE, ...AUTH, BRIEFROOM_SECRET_KEY: DEV_SECRET_KEY }),
+    ).toThrow(/BRIEFROOM_SECRET_KEY: .*dev-only/);
+  });
+
+  it('falls back to the dev-only key outside production', () => {
+    expect(loadEnv(BASE).secretKey).toBe(DEV_SECRET_KEY);
+  });
+});
+
 describe('loadEnv BRIEFROOM_TESTKIT', () => {
-  const SECRET = { BETTER_AUTH_SECRET: 'x'.repeat(32) };
+  const SECRET = { BETTER_AUTH_SECRET: 'x'.repeat(32), BRIEFROOM_SECRET_KEY: 'k'.repeat(32) };
 
   it('refuses the testkit in production with a clear message', () => {
     expect(() => loadEnv({ ...PROD, ...BASE, ...SECRET, BRIEFROOM_TESTKIT: '1' })).toThrow(
@@ -132,7 +155,7 @@ describe('loadEnv BRIEFROOM_TESTKIT', () => {
 });
 
 describe('loadEnv BRIEFROOM_DATA_DIR', () => {
-  const SECRET = { BETTER_AUTH_SECRET: 'x'.repeat(32) };
+  const SECRET = { BETTER_AUTH_SECRET: 'x'.repeat(32), BRIEFROOM_SECRET_KEY: 'k'.repeat(32) };
   const WITHOUT_DIR = {
     DATABASE_URL: BASE.DATABASE_URL,
     BRIEFROOM_PUBLIC_URL: BASE.BRIEFROOM_PUBLIC_URL,

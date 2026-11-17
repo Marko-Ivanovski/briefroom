@@ -4,7 +4,7 @@ import type { Env } from '../config/env.ts';
 const SAFE_METHODS: ReadonlySet<string> = new Set(['GET', 'HEAD', 'OPTIONS']);
 const CROSS_SITE: ReadonlySet<string> = new Set(['cross-site', 'same-site']);
 
-/** The one list both Better Auth and our own mutation check trust. */
+/** The origins BRIEFROOM_PUBLIC_URL alone gives. TunnelState adds the tunnel address to these. */
 export function trustedOrigins(env: Env): string[] {
   return [new URL(env.publicUrl).origin];
 }
@@ -14,15 +14,14 @@ export function trustedOrigins(env: Env): string[] {
  * origin is refused (CSRF). Requests with neither header come from the CLI or another server and
  * pass: they cannot carry the user's cookie. Better Auth checks its own /api/auth routes the same way.
  */
-export function originCheckMiddleware(allowed: readonly string[]) {
-  const trusted = new Set(allowed);
+export function originCheckMiddleware(allowed: () => readonly string[]) {
   return (req: IncomingMessage, res: ServerResponse, next: () => void): void => {
     // No path test on purpose: a percent-encoded path can route to /api while looking like another one.
     if (SAFE_METHODS.has(req.method ?? 'GET')) return next();
 
     const origin = req.headers.origin;
     const site = req.headers['sec-fetch-site'];
-    const badOrigin = origin !== undefined && !trusted.has(origin);
+    const badOrigin = origin !== undefined && !allowed().includes(origin);
     const badSite = typeof site === 'string' && CROSS_SITE.has(site);
     if (!badOrigin && !badSite) return next();
 

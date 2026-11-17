@@ -170,7 +170,10 @@ describe('auth', () => {
       const auth = createAuth(t.db.db, env, async () => false);
       expect(auth.options.advanced?.useSecureCookies).toBe(true);
       expect(auth.options.baseURL).toBe('https://briefroom.example');
-      expect(auth.options.trustedOrigins).toEqual(['https://briefroom.example']);
+      // A function, so Better Auth reads the active public address on every request (R183).
+      const origins = auth.options.trustedOrigins as () => string[];
+      expect(typeof origins).toBe('function');
+      expect(origins()).toEqual(['https://briefroom.example']);
     });
 
     it('reads the https scheme case-insensitively', () => {

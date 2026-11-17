@@ -1,6 +1,10 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { describe, expect, it } from 'vitest';
-import { CLIENT_IP_HEADER, createClientIpMiddleware } from '../src/auth/client-ip.middleware.ts';
+import {
+  CLIENT_IP_HEADER,
+  CLIENT_PROTO_HEADER,
+  createClientIpMiddleware,
+} from '../src/auth/client-ip.middleware.ts';
 
 function run(
   trusted: string[],
@@ -95,5 +99,77 @@ describe('clientIpMiddleware', () => {
 
   it('sets an empty value when the socket has no address', () => {
     expect(run([], undefined)).toBe('');
+  });
+});
+
+describe('clientIpMiddleware while a tunnel forwards from loopback', () => {
+  function runWith(
+    hop: 'tailscale' | 'funnel' | 'cloudflare' | null,
+    socket: string,
+    headers: Record<string, string> = {},
+  ) {
+    const req = { headers: { ...headers }, socket: { remoteAddress: socket } } as IncomingMessage;
+    createClientIpMiddleware([], () => hop)(req, {} as ServerResponse, () => undefined);
+    return { ip: req.headers[CLIENT_IP_HEADER], proto: req.headers[CLIENT_PROTO_HEADER] };
+  }
+
+  it('does not trust loopback while no tunnel runs', () => {
+    expect(
+      runWith(null, '127.0.0.1', {
+        'x-forwarded-for': '198.51.100.1',
+        'x-forwarded-proto': 'https',
+      }),
+    ).toEqual({ ip: '127.0.0.1', proto: 'http' });
+  });
+
+  it.each(['127.0.0.1', '::1', '::ffff:127.0.0.1'])(
+    'trusts loopback %s while tailscale forwards',
+    (socket) => {
+      expect(
+        runWith('tailscale', socket, {
+          'x-forwarded-for': '100.64.0.7',
+          'x-forwarded-proto': 'https',
+        }),
+      ).toEqual({ ip: '100.64.0.7', proto: 'https' });
+    },
+  );
+
+  it('still ignores a non-loopback socket', () => {
+    expect(runWith('tailscale', '203.0.113.9', { 'x-forwarded-for': '198.51.100.1' }).ip).toBe(
+      '203.0.113.9',
+    );
+  });
+
+  it('prefers CF-Connecting-IP behind cloudflared and falls back to X-Forwarded-For', () => {
+    expect(
+      runWith('cloudflare', '127.0.0.1', {
+        'cf-connecting-ip': '203.0.113.77',
+        'x-forwarded-for': '198.51.100.1',
+      }).ip,
+    ).toBe('203.0.113.77');
+    expect(
+      runWith('cloudflare', '127.0.0.1', {
+        'cf-connecting-ip': 'garbage',
+        'x-forwarded-for': '198.51.100.1',
+      }).ip,
+    ).toBe('198.51.100.1');
+  });
+
+  it('ignores CF-Connecting-IP when cloudflared is not the tunnel', () => {
+    expect(
+      runWith('funnel', '127.0.0.1', {
+        'cf-connecting-ip': '203.0.113.77',
+        'x-forwarded-for': '198.51.100.1',
+      }).ip,
+    ).toBe('198.51.100.1');
+  });
+
+  it('reads the protocol the nearest hop wrote', () => {
+    expect(runWith('tailscale', '127.0.0.1', { 'x-forwarded-proto': 'http, https' }).proto).toBe(
+      'https',
+    );
+    expect(runWith('tailscale', '127.0.0.1', { 'x-forwarded-proto': 'https, http' }).proto).toBe(
+      'http',
+    );
   });
 });

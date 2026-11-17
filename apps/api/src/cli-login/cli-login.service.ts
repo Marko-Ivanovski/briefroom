@@ -28,11 +28,11 @@ import {
 } from '@nestjs/common';
 import { and, eq, gt, inArray, lt } from 'drizzle-orm';
 import { AccessService } from '../access/access.service.ts';
-import { ENV, type Env } from '../config/env.ts';
 import { DB } from '../database/database.module.ts';
 import { hasPgCode } from '../errors/pg-error.ts';
 import { RevocationService } from '../members/revocation.service.ts';
 import { InstallService } from '../install/install.service.ts';
+import { TunnelState } from '../remote-access/tunnel-state.ts';
 import { TokensService } from '../tokens/tokens.service.ts';
 
 // No 0, O, 1, I or L, so a code read aloud or typed from a screen is not misread.
@@ -80,7 +80,7 @@ export interface StartOrigin {
 export class CliLoginService implements OnModuleInit {
   constructor(
     @Inject(DB) private readonly db: Db,
-    @Inject(ENV) private readonly env: Env,
+    private readonly tunnel: TunnelState,
     private readonly access: AccessService,
     private readonly tokens: TokensService,
     private readonly installs: InstallService,
@@ -129,7 +129,7 @@ export class CliLoginService implements OnModuleInit {
       }
       return {
         code,
-        approveUrl: `${this.env.publicUrl}/connect`,
+        approveUrl: `${this.tunnel.publicUrl()}/connect`,
         pollToken,
         expiresAt: expiresAt.toISOString(),
         interval: CLI_LOGIN_POLL_INTERVAL_SECONDS,
@@ -293,7 +293,7 @@ export class CliLoginService implements OnModuleInit {
       workspaceId: row.workspaceId,
       workspaceName: workspace?.name ?? '',
       installId: (await this.installs.getRow()).id,
-      baseUrl: this.env.publicUrl,
+      baseUrl: this.tunnel.publicUrl(),
     };
   }
 }

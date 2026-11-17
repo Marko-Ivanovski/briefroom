@@ -15,3 +15,4 @@ export * from './history.ts';
 export * from './files.ts';
 export * from './token-cutoffs.ts';
 export * from './usage.ts';
+export * from './remote-access.ts';

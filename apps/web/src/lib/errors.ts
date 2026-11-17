@@ -73,6 +73,10 @@ export const INSTALL_ERRORS: Record<number, string> = {
   403: 'Only the install owner can see this page.',
 };
 
+export const REMOTE_ACCESS_ERRORS: Record<number, string> = {
+  403: 'Only the install owner can change remote access.',
+};
+
 export const CONNECT_INVALID_CODE = "That code isn't valid or has expired.";
 
 export const CONNECT_ERRORS: Record<number, string> = {

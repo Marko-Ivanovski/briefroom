@@ -42,42 +42,50 @@ async function setup(env: Record<string, string>): Promise<Fixture> {
 }
 
 describe.each([
-  { bind: undefined, reach: 'local', warns: true },
-  { bind: '127.0.0.1', reach: 'local', warns: true },
-  { bind: '0.0.0.0', reach: 'lan', warns: false },
-  { bind: '192.168.1.20', reach: 'lan', warns: false },
-])('install info with BRIEFROOM_BIND=$bind', ({ bind, reach, warns }) => {
-  let f: Fixture;
-  const http = () => request(f.t.app.getHttpServer());
+  { bind: undefined, url: undefined, reach: 'local', warns: true },
+  { bind: '127.0.0.1', url: undefined, reach: 'local', warns: true },
+  { bind: '0.0.0.0', url: undefined, reach: 'lan', warns: false },
+  { bind: '192.168.1.20', url: undefined, reach: 'lan', warns: false },
+  // R182: a loopback bind behind the owner's own reverse proxy is still reachable by others.
+  { bind: '127.0.0.1', url: 'https://briefroom.example', reach: 'lan', warns: false },
+])(
+  'install info with BRIEFROOM_BIND=$bind and BRIEFROOM_PUBLIC_URL=$url',
+  ({ bind, url, reach, warns }) => {
+    let f: Fixture;
+    const http = () => request(f.t.app.getHttpServer());
 
-  beforeAll(async () => {
-    f = await setup(bind === undefined ? {} : { BRIEFROOM_BIND: bind });
-  });
-  afterAll(async () => {
-    await f.t.close();
-  });
-
-  it('gives the install owner the install details', async () => {
-    const res = await http().get('/api/v1/install').set({ cookie: f.cookies.owner! });
-    expect(res.status).toBe(200);
-    expect(res.body).toEqual({
-      installId: f.installId,
-      publicUrl: 'http://localhost:4300',
-      reach,
-      changeCommand: 'npx briefroom init',
+    beforeAll(async () => {
+      f = await setup({
+        ...(bind === undefined ? {} : { BRIEFROOM_BIND: bind }),
+        ...(url === undefined ? {} : { BRIEFROOM_PUBLIC_URL: url }),
+      });
     });
-  });
+    afterAll(async () => {
+      await f.t.close();
+    });
 
-  it(`${warns ? 'warns' : 'does not warn'} about reach when an invite is created`, async () => {
-    const res = await http()
-      .post(`/api/v1/workspaces/${f.workspaceId}/invites`)
-      .set({ cookie: f.cookies.admin! })
-      .send({});
-    expect(res.status).toBe(201);
-    if (warns) expect(res.body.warning).toBe('install_not_reachable');
-    else expect(res.body).not.toHaveProperty('warning');
-  });
-});
+    it('gives the install owner the install details', async () => {
+      const res = await http().get('/api/v1/install').set({ cookie: f.cookies.owner! });
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        installId: f.installId,
+        publicUrl: url ?? 'http://localhost:4300',
+        reach,
+        changeCommand: 'npx briefroom init',
+      });
+    });
+
+    it(`${warns ? 'warns' : 'does not warn'} about reach when an invite is created`, async () => {
+      const res = await http()
+        .post(`/api/v1/workspaces/${f.workspaceId}/invites`)
+        .set({ cookie: f.cookies.admin! })
+        .send({});
+      expect(res.status).toBe(201);
+      if (warns) expect(res.body.warning).toBe('install_not_reachable');
+      else expect(res.body).not.toHaveProperty('warning');
+    });
+  },
+);
 
 describe('install info access', () => {
   let f: Fixture;

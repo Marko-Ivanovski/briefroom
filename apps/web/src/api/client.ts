@@ -18,6 +18,7 @@ import {
   ProjectDetail,
   ProjectMemberSummary,
   ProjectSummary,
+  RemoteAccessSettings,
   RemovalResult,
   SetupResponse,
   SetupStatus,
@@ -30,6 +31,7 @@ import {
   type JoinSignUp,
   type ProjectInput,
   type ProjectPatch,
+  type RemoteAccessUpdate,
   type SetChecklistItemInput,
   type SetPermissionRequest,
   type SetupRequest,
@@ -119,6 +121,9 @@ export const api = {
   setup: (body: SetupRequest) => request(SetupResponse, 'POST', '/api/v1/setup', body),
   me: () => request(MeResponse, 'GET', '/api/v1/me'),
   install: () => request(InstallInfo, 'GET', '/api/v1/install'),
+  remoteAccess: () => request(RemoteAccessSettings, 'GET', '/api/v1/install/remote-access'),
+  updateRemoteAccess: (body: RemoteAccessUpdate) =>
+    request(RemoteAccessSettings, 'PUT', '/api/v1/install/remote-access', body),
   workspaces: () => request(WorkspaceSummary.array(), 'GET', '/api/v1/workspaces'),
   createWorkspace: (name: string, modules?: string[]) =>
     request(WorkspaceSummary, 'POST', '/api/v1/workspaces', { name, modules }),

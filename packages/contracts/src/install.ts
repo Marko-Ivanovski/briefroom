@@ -26,3 +26,29 @@ export const InstallInfo = z.object({
   changeCommand: z.string(),
 });
 export type InstallInfo = z.infer<typeof InstallInfo>;
+
+export const TunnelMode = z.enum(['tailscale', 'funnel', 'cloudflare']);
+export type TunnelMode = z.infer<typeof TunnelMode>;
+
+export const RemoteAccessMode = z.enum(['off', ...TunnelMode.options]);
+export type RemoteAccessMode = z.infer<typeof RemoteAccessMode>;
+
+export const RemoteAccessStatus = z.enum(['off', 'starting', 'running', 'restarting', 'error']);
+export type RemoteAccessStatus = z.infer<typeof RemoteAccessStatus>;
+
+export const RemoteAccessUpdate = z.object({
+  mode: RemoteAccessMode,
+  // Write-only. Left out, the stored secret is kept when the provider stays the same.
+  secret: z.string().trim().min(1).max(4096).optional(),
+  publicUrl: z.url().max(2048).optional(),
+});
+export type RemoteAccessUpdate = z.infer<typeof RemoteAccessUpdate>;
+
+export const RemoteAccessSettings = z.object({
+  mode: RemoteAccessMode,
+  publicUrl: z.string().nullable(),
+  status: RemoteAccessStatus,
+  lastError: z.string().nullable(),
+  hasSecret: z.boolean(),
+});
+export type RemoteAccessSettings = z.infer<typeof RemoteAccessSettings>;

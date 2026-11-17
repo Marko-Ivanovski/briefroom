@@ -4,8 +4,10 @@ import { Module } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { EnvModule } from './config/env.module.ts';
 import { loadEnv } from './config/env.ts';
-import { DatabaseModule } from './database/database.module.ts';
+import { DB, DatabaseModule } from './database/database.module.ts';
 import { PasswordResetLinks } from './members/password-reset-links.service.ts';
+import { readActiveTunnel } from './remote-access/remote-access.service.ts';
+import { TunnelState } from './remote-access/tunnel-state.ts';
 
 const CLI_ACTOR = { userId: 'host-cli', via: 'cli' } as const;
 const USAGE = 'Usage: admin-cli reset-password <email>';
@@ -32,7 +34,7 @@ class CliModule {
     return {
       module: CliModule,
       imports: [EnvModule.register(env), DatabaseModule],
-      providers: [PasswordResetLinks],
+      providers: [PasswordResetLinks, TunnelState],
     };
   }
 }
@@ -47,6 +49,8 @@ async function main(argv: string[]): Promise<number> {
     logger: false,
   });
   try {
+    // This process has no supervisor, so a running tunnel is read from the database.
+    ctx.get(TunnelState).update(await readActiveTunnel(ctx.get(DB)), null);
     const out = await runResetPassword(ctx.get(PasswordResetLinks), email);
     if (out.stdout) console.log(out.stdout);
     if (out.stderr) console.error(out.stderr);

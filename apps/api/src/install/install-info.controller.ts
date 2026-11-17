@@ -1,7 +1,7 @@
 import type { InstallInfo } from '@briefroom/contracts';
-import { Controller, ForbiddenException, Get, Inject } from '@nestjs/common';
+import { Controller, ForbiddenException, Get } from '@nestjs/common';
 import { CurrentUser, type CurrentUserData } from '../auth/current-user.decorator.ts';
-import { ENV, type Env } from '../config/env.ts';
+import { TunnelState } from '../remote-access/tunnel-state.ts';
 import { InstallService } from './install.service.ts';
 import { ReachService } from './reach.service.ts';
 
@@ -12,7 +12,7 @@ export class InstallInfoController {
   constructor(
     private readonly installs: InstallService,
     private readonly reach: ReachService,
-    @Inject(ENV) private readonly env: Env,
+    private readonly tunnel: TunnelState,
   ) {}
 
   @Get()
@@ -22,7 +22,7 @@ export class InstallInfoController {
     }
     return {
       installId: (await this.installs.getRow()).id,
-      publicUrl: this.env.publicUrl,
+      publicUrl: this.tunnel.publicUrl(),
       reach: this.reach.current(),
       changeCommand: CHANGE_COMMAND,
     };

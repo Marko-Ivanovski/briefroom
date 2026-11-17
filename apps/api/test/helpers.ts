@@ -13,6 +13,7 @@ import { configureApp } from '../src/bootstrap.ts';
 import { loadEnv } from '../src/config/env.ts';
 import { RefusedAttemptLimiter } from '../src/rate-limit/rate-limit.ts';
 import { InstallService } from '../src/install/install.service.ts';
+import type { SpawnChild } from '../src/remote-access/supervisor.ts';
 
 const FIXTURE_WEB_DIR = fileURLToPath(new URL('./fixtures/web', import.meta.url));
 
@@ -21,6 +22,7 @@ export interface TestApp {
   db: TestDb;
   auth: Auth;
   close(): Promise<void>;
+  reopen(spawnChild?: SpawnChild): Promise<TestApp>;
 }
 
 /** Forgets every throttle hit, so a test starts with full headroom instead of the last test's leftovers. */
@@ -40,6 +42,7 @@ export async function createTestApp(
   extraControllers: Type[] = [],
   extraImports: Type[] = [],
   accessAtRoot = true,
+  spawnChild?: SpawnChild,
 ): Promise<TestApp> {
   const db = await createTestDb({
     extraSqlFiles: process.env.BRIEFROOM_TESTKIT === '1' ? [TESTKIT_SQL_PATH] : [],
@@ -50,9 +53,9 @@ export async function createTestApp(
     BRIEFROOM_WEB_DIR: FIXTURE_WEB_DIR,
     ...envOverrides,
   });
-  try {
+  const open = async (spawn: SpawnChild | undefined): Promise<TestApp> => {
     const app = await NestFactory.create(
-      AppModule.register(env, extraControllers, extraImports, accessAtRoot),
+      AppModule.register(env, extraControllers, extraImports, accessAtRoot, spawn),
       new NodeAdapter(),
       {
         logger: false,
@@ -70,7 +73,12 @@ export async function createTestApp(
         await app.close();
         await db.close();
       },
+      // A new app on the same database, as after a restart. Close this app first with app.close().
+      reopen: open,
     };
+  };
+  try {
+    return await open(spawnChild);
   } catch (err) {
     await db.close();
     throw err;

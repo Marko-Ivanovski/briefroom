@@ -11,10 +11,10 @@ import {
   TableRow,
 } from '@briefroom/ui';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { createFileRoute, redirect } from '@tanstack/react-router';
+import { createFileRoute, Link, redirect } from '@tanstack/react-router';
 import { useState, type FormEvent } from 'react';
 import { api } from '../../../api/client.ts';
-import { invitesQuery, projectsQuery, workspacesQuery } from '../../../api/queries.ts';
+import { invitesQuery, meQuery, projectsQuery, workspacesQuery } from '../../../api/queries.ts';
 import { FormError } from '../../../components/form-error.tsx';
 import { CopyCommand } from '../../../components/copy-command.tsx';
 import { QrCode } from '../../../components/qr-code.tsx';
@@ -49,6 +49,7 @@ function InvitesPage() {
   const queryClient = useQueryClient();
   const { data: invites = [] } = useQuery(invitesQuery(workspaceId));
   const { data: projects = [] } = useQuery(projectsQuery(workspaceId));
+  const { data: me } = useQuery(meQuery);
   const [role, setRole] = useState<InviteRole>('member');
   const [maxUses, setMaxUses] = useState('');
   const [approval, setApproval] = useState(false);
@@ -206,6 +207,19 @@ function InvitesPage() {
                 it and pick how they will connect.
               </p>
               <CopyCommand command="npx briefroom init" label="Command to open the install" />
+              {me?.isInstallOwner ? (
+                <p className="text-sm">
+                  Or reach it from anywhere through a tunnel:{' '}
+                  <Link
+                    to="/w/$workspaceId/settings/remote-access"
+                    params={{ workspaceId }}
+                    className="underline"
+                  >
+                    set up remote access
+                  </Link>
+                  .
+                </p>
+              ) : null}
             </div>
           ) : null}
         </section>

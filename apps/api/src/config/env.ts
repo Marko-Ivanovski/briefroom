@@ -8,6 +8,7 @@ import { isProxyEntry } from '../auth/client-ip.middleware.ts';
 const DEFAULT_WEB_DIR = fileURLToPath(new URL('../../../web/dist', import.meta.url));
 const DEV_PUBLIC_URL = 'http://localhost:5173';
 export const DEV_AUTH_SECRET = 'briefroom-dev-only-secret-never-use-in-production';
+export const DEV_SECRET_KEY = 'briefroom-dev-only-secret-key-never-use-in-production';
 
 const PublicUrl = z
   .url()
@@ -49,6 +50,12 @@ function schemaFor(production: boolean, defaultDataDir: string | undefined) {
           .min(32, 'must be at least 32 characters')
           .refine((v) => v !== DEV_AUTH_SECRET, 'must not be the dev-only secret')
       : z.string().min(1).default(DEV_AUTH_SECRET),
+    BRIEFROOM_SECRET_KEY: production
+      ? z
+          .string()
+          .min(32, 'must be at least 32 characters')
+          .refine((v) => v !== DEV_SECRET_KEY, 'must not be the dev-only key')
+      : z.string().min(1).default(DEV_SECRET_KEY),
     PORT: Port.default(4300),
     HOST: z.string().min(1).default('127.0.0.1'),
     BRIEFROOM_BIND: z.string().min(1).default('127.0.0.1'),
@@ -71,6 +78,8 @@ export interface Env {
   publicUrl: string;
   authSecret: string;
   usingDevAuthSecret: boolean;
+  /** Seals stored credentials such as a tunnel token. Never used raw: secret-box derives the key. */
+  secretKey: string;
   port: number;
   host: string;
   /** Host interface the compose file publishes the app port on. The app cannot see this itself. */
@@ -110,6 +119,7 @@ export function loadEnv(
     publicUrl: v.BRIEFROOM_PUBLIC_URL,
     authSecret: v.BETTER_AUTH_SECRET,
     usingDevAuthSecret: v.BETTER_AUTH_SECRET === DEV_AUTH_SECRET,
+    secretKey: v.BRIEFROOM_SECRET_KEY,
     port: v.PORT,
     host: v.HOST,
     bind: v.BRIEFROOM_BIND,

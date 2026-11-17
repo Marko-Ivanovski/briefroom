@@ -28,6 +28,12 @@ export const installQuery = queryOptions({
   staleTime: 0,
 });
 
+export const remoteAccessQuery = queryOptions({
+  queryKey: ['install', 'remote-access'],
+  queryFn: api.remoteAccess,
+  staleTime: 0,
+});
+
 export const workspacesQuery = queryOptions({
   queryKey: ['workspaces'],
   queryFn: api.workspaces,
