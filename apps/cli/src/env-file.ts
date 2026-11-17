@@ -21,7 +21,8 @@ export const ENV_KEYS = [
   'COMPOSE_PROFILES',
 ] as const;
 
-const LINE = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$/;
+// Compose's dotenv parser accepts an `export ` prefix, so this one must too or a key looks absent.
+const LINE = /^(\s*(?:export\s+)?)([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$/;
 
 function unquote(value: string): string {
   const v = value.trim();
@@ -35,7 +36,7 @@ export function parseEnv(text: string): Record<string, string> {
   const values: Record<string, string> = {};
   for (const line of text.split(/\r?\n/)) {
     const match = LINE.exec(line);
-    if (match?.[1] !== undefined) values[match[1]] = unquote(match[2] ?? '');
+    if (match?.[2] !== undefined) values[match[2]] = unquote(match[3] ?? '');
   }
   return values;
 }
@@ -48,10 +49,11 @@ export function mergeEnv(existing: string | null, set: Record<string, string>): 
   const lines = existing === null ? [] : existing.replace(/\r?\n$/, '').split(/\r?\n/);
   const seen = new Set<string>();
   const merged = lines.map((line) => {
-    const key = LINE.exec(line)?.[1];
+    const match = LINE.exec(line);
+    const key = match?.[2];
     if (key === undefined) return line;
     seen.add(key);
-    return key in set ? `${key}=${set[key]}` : line;
+    return key in set ? `${match?.[1] ?? ''}${key}=${set[key]}` : line;
   });
   for (const key of new Set([...ENV_KEYS, ...Object.keys(set)])) {
     if (!seen.has(key)) merged.push(`${key}=${set[key] ?? ''}`);

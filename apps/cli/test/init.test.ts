@@ -112,11 +112,11 @@ describe('init', () => {
     expect((await readEnv(dir)).BRIEFROOM_PUBLIC_URL).toBe('http://localhost:4600');
   });
 
-  it('--lan binds all interfaces, turns on the lan profile and uses the first LAN address', async () => {
+  it('--lan keeps the app port on loopback, turns on the lan profile and uses the first LAN address', async () => {
     const { dir } = await setup();
     await run(['init', dir, '--yes', '--lan'], t!.ctx);
     expect(await readEnv(dir)).toMatchObject({
-      BRIEFROOM_BIND: '0.0.0.0',
+      BRIEFROOM_BIND: '127.0.0.1',
       COMPOSE_PROFILES: 'lan',
       BRIEFROOM_HOST: '192.168.1.20',
       BRIEFROOM_HTTPS_PORT: '443',
@@ -191,5 +191,184 @@ describe('init', () => {
     }
     expect(await run(['init', dir, '--yes'], t!.ctx)).toBe(1);
     expect(await readFile(join(t!.home, 'target'), 'utf8')).toBe('x');
+  });
+
+  describe('inside an existing install', () => {
+    it('reuses the folder and keeps its secrets when no folder is given', async () => {
+      const { dir } = await setup();
+      await run(['init', dir, '--yes'], t!.ctx);
+      const first = await readEnv(dir);
+      t!.ctx.cwd = dir;
+      expect(await run(['init', '--yes', '--port', '4800'], t!.ctx)).toBe(0);
+      const second = await readEnv(dir);
+      for (const key of SECRETS) expect(second[key]).toBe(first[key]);
+      expect(second.PORT).toBe('4800');
+      await expect(stat(join(dir, 'briefroom'))).rejects.toThrow();
+    });
+
+    it('offers . as the default folder when asking', async () => {
+      const { dir } = await setup();
+      await run(['init', dir, '--yes'], t!.ctx);
+      const asked: string[] = [];
+      t!.ctx.cwd = dir;
+      t!.ctx.interactive = true;
+      t!.ctx.ask = (prompt) => {
+        asked.push(prompt);
+        return Promise.resolve('');
+      };
+      await run(['init'], t!.ctx);
+      expect(asked[0]).toContain('[.]');
+    });
+
+    it('still defaults to ./briefroom in a folder that is not an install', async () => {
+      const { dir } = await setup();
+      await mkdir(dir, { recursive: true });
+      t!.ctx.cwd = dir;
+      await run(['init', '--yes'], t!.ctx);
+      expect((await readEnv(join(dir, 'briefroom'))).BETTER_AUTH_SECRET).toMatch(BASE64URL_43);
+    });
+  });
+
+  describe('secrets on an existing .env', () => {
+    it('keeps secrets written with an export prefix and does not append a second line', async () => {
+      const { dir } = await setup();
+      await run(['init', dir, '--yes'], t!.ctx);
+      const first = await readEnv(dir);
+      const text = await readFile(join(dir, '.env'), 'utf8');
+      await writeFile(join(dir, '.env'), text.replace(/^(POSTGRES_PASSWORD=)/m, 'export $1'));
+      await run(['init', dir, '--yes', '--port', '4900'], t!.ctx);
+      const after = await readFile(join(dir, '.env'), 'utf8');
+      expect(parseEnv(after).POSTGRES_PASSWORD).toBe(first.POSTGRES_PASSWORD);
+      expect(after.match(/POSTGRES_PASSWORD=/g)).toHaveLength(1);
+      expect(after).toContain('export POSTGRES_PASSWORD=');
+    });
+
+    it.each(SECRETS)('stops and names %s when it is empty', async (key) => {
+      const { dir } = await setup();
+      await run(['init', dir, '--yes'], t!.ctx);
+      const text = await readFile(join(dir, '.env'), 'utf8');
+      const broken = text.replace(new RegExp(`^${key}=.*$`, 'm'), `${key}=`);
+      await writeFile(join(dir, '.env'), broken);
+      expect(await run(['init', dir, '--yes'], t!.ctx)).toBe(1);
+      expect(t!.stderr.join('')).toContain(key);
+      expect(await readFile(join(dir, '.env'), 'utf8')).toBe(broken);
+    });
+
+    it('stops when a secret is absent from an .env that already exists', async () => {
+      const { dir } = await setup();
+      await mkdir(dir, { recursive: true });
+      await writeFile(join(dir, '.env'), 'PORT=4300\n');
+      expect(await run(['init', dir, '--yes'], t!.ctx)).toBe(1);
+      expect(t!.stderr.join('')).toContain('POSTGRES_PASSWORD');
+    });
+  });
+
+  describe('switching from the local network back to this computer', () => {
+    const DOCKER = '/usr/bin/docker';
+
+    async function lanInstall(overrides: Parameters<typeof testContext>[0]) {
+      t = await testContext({
+        fetch: fakeFetch([]),
+        networkInterfaces: lanInterfaces,
+        ...overrides,
+      });
+      const dir = join(t.home, 'install');
+      await run(['init', dir, '--yes', '--lan'], t.ctx);
+      t.stdout.length = 0;
+      return dir;
+    }
+
+    it('removes the caddy container through docker compose in the install folder', async () => {
+      const calls: { file: string; args: string[]; cwd: string }[] = [];
+      const dir = await lanInstall({
+        resolveCommand: (name) => (name === 'docker' ? DOCKER : null),
+        runInherited: (file, args, cwd) => {
+          calls.push({ file, args, cwd });
+          return Promise.resolve(0);
+        },
+      });
+      expect(await run(['init', dir, '--yes', '--local'], t!.ctx)).toBe(0);
+      expect(calls).toEqual([{ file: DOCKER, args: ['compose', 'rm', '-sf', 'caddy'], cwd: dir }]);
+      expect(t!.stdout.join('')).toContain('Stopped Caddy');
+    });
+
+    it('prints the exact command when docker is not found', async () => {
+      const calls: string[] = [];
+      const dir = await lanInstall({
+        resolveCommand: () => null,
+        runInherited: (file) => {
+          calls.push(file);
+          return Promise.resolve(0);
+        },
+      });
+      expect(await run(['init', dir, '--yes', '--local'], t!.ctx)).toBe(0);
+      expect(calls).toEqual([]);
+      expect(t!.stdout.join('')).toContain('docker compose rm -sf caddy');
+    });
+
+    it('prints the command when docker fails', async () => {
+      const dir = await lanInstall({
+        resolveCommand: () => DOCKER,
+        runInherited: () => Promise.resolve(1),
+      });
+      expect(await run(['init', dir, '--yes', '--local'], t!.ctx)).toBe(0);
+      expect(t!.stdout.join('')).toContain('docker compose rm -sf caddy');
+    });
+
+    it('does not touch docker when caddy was never on', async () => {
+      const calls: string[] = [];
+      const { dir } = await setup();
+      t!.ctx.resolveCommand = () => DOCKER;
+      t!.ctx.runInherited = (file) => {
+        calls.push(file);
+        return Promise.resolve(0);
+      };
+      await run(['init', dir, '--yes'], t!.ctx);
+      await run(['init', dir, '--yes', '--local'], t!.ctx);
+      expect(calls).toEqual([]);
+    });
+  });
+
+  describe('output', () => {
+    const QR_BLOCKS = /[▀▄█]/;
+
+    it('tells LAN installs how to get and trust the Caddy root certificate', async () => {
+      const { dir } = await setup();
+      await run(['init', dir, '--yes', '--lan'], t!.ctx);
+      const out = t!.stdout.join('');
+      expect(out).toContain(
+        'docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt ./briefroom-root.crt',
+      );
+      expect(out).toContain('NODE_EXTRA_CA_CERTS');
+      expect(out).toMatch(QR_BLOCKS);
+    });
+
+    it('prints the address without a QR code when the host is loopback', async () => {
+      const { dir } = await setup();
+      await run(['init', dir, '--yes'], t!.ctx);
+      const out = t!.stdout.join('');
+      expect(out).toContain('http://localhost:4300');
+      expect(out).not.toMatch(QR_BLOCKS);
+      expect(out).not.toContain('NODE_EXTRA_CA_CERTS');
+      t!.stdout.length = 0;
+      await run(['init', dir, '--yes', '--lan', '--host', '127.0.0.1'], t!.ctx);
+      expect(t!.stdout.join('')).not.toMatch(QR_BLOCKS);
+    });
+
+    it('asks again for an answer it does not recognise and never reads it as local', async () => {
+      const { dir } = await setup();
+      await run(['init', dir, '--yes', '--lan'], t!.ctx);
+      const answers = [dir, '', 'lan', 'network', '1'];
+      t!.ctx.interactive = true;
+      const asked: string[] = [];
+      t!.ctx.ask = (prompt) => {
+        asked.push(prompt);
+        return Promise.resolve(answers.shift() ?? '');
+      };
+      expect(await run(['init'], t!.ctx)).toBe(0);
+      expect(asked.filter((p) => p.includes('Who needs to reach'))).toHaveLength(3);
+      expect(t!.stderr.join('')).toContain('"lan" is not an answer');
+      expect((await readEnv(dir)).COMPOSE_PROFILES).toBe('');
+    });
   });
 });
