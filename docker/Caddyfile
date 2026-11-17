@@ -2,11 +2,9 @@
 	admin off
 }
 
-# Any name or address the LAN uses to reach this machine gets a certificate from Caddy's own CA,
-# so clients trust that one root once instead of clicking through a warning per host.
-https:// {
-	tls internal {
-		on_demand
-	}
+# Only the install's own host gets a certificate, from Caddy's own CA, so a client trusts that one
+# root once and a stranger's SNI cannot make Caddy issue anything.
+{$BRIEFROOM_HOST} {
+	tls internal
 	reverse_proxy app:4300
 }

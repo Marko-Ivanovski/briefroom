@@ -68,6 +68,8 @@ services:
     depends_on:
       app:
         condition: service_healthy
+    environment:
+      BRIEFROOM_HOST: ${BRIEFROOM_HOST:-localhost}
     ports:
       - '${BRIEFROOM_HTTPS_PORT:-443}:443'
     volumes:

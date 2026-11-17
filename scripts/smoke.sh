@@ -17,6 +17,7 @@ https_port=$(free_port)
 export BRIEFROOM_VERSION="$version"
 export PORT="$port"
 export BRIEFROOM_HTTPS_PORT="$https_port"
+export BRIEFROOM_HOST=localhost
 export POSTGRES_PASSWORD=$(node -p "require('crypto').randomBytes(16).toString('hex')")
 export BETTER_AUTH_SECRET=$(node -p "require('crypto').randomBytes(32).toString('hex')")
 
@@ -54,10 +55,23 @@ ok "app and worker run as non-root with no capabilities"
 compose exec -T app sh -c '! grep -rli testkit /app/apps/web/dist' || fail "web bundle contains testkit code"
 ok "web bundle has no testkit"
 
+compose exec -T app sh -c '! grep -q testkit_notes /app/apps/api/dist/main.js /app/apps/worker/dist/main.js' || fail "api or worker bundle contains testkit code"
+ok "api and worker bundles have no testkit"
+
 compose exec -T app printenv BRIEFROOM_TRUSTED_PROXIES | grep -q '198.51.100.2' || fail "caddy not trusted"
 compose up -d --wait --wait-timeout 120 caddy || fail "caddy did not start"
 curl -fsSk "https://localhost:$https_port/api/health" | grep -q '"ok":true' || fail "health through caddy"
 ok "caddy proxies https to the app"
+
+signin=$(curl -sSk -o /dev/null -w '%{http_code}' -X POST "https://localhost:$https_port/api/auth/sign-in/email"   -H 'content-type: application/json' --data '{"email":"nobody@example.com","password":"wrong-password"}')
+case "$signin" in 400|401) ;; *) fail "sign-in through caddy answered $signin, expected Better Auth's 401 or 400" ;; esac
+ok "sign-in POST through caddy reaches Better Auth ($signin)"
+
+# A handshake for a name other than BRIEFROOM_HOST must not get a certificate.
+if curl -sSk --resolve "stranger.invalid:$https_port:127.0.0.1" "https://stranger.invalid:$https_port/api/health" >/dev/null 2>&1; then
+  fail "caddy served a name other than BRIEFROOM_HOST"
+fi
+ok "caddy refuses an unknown name"
 
 started=$(date +%s)
 compose stop worker || fail "worker did not stop"
