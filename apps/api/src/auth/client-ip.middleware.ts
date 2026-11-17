@@ -29,16 +29,20 @@ export function isProxyEntry(entry: string): boolean {
   const family = isIP(address);
   if (family === 0 || rest.length > 0) return false;
   if (prefix === undefined) return true;
+  // A range written as IPv4-mapped IPv6 would need its prefix rebased onto IPv4, so it is refused.
+  if (MAPPED_V4.test(address)) return false;
   return /^\d{1,3}$/.test(prefix) && Number(prefix) <= (family === 4 ? 32 : 128);
 }
 
 function trustList(entries: readonly string[]): BlockList {
   const list = new BlockList();
   for (const entry of entries) {
-    const [address = '', prefix] = entry.split('/');
+    const [rawAddress = '', prefix] = entry.split('/');
+    // The family is taken after normalizing, because a mapped address is stored as plain IPv4.
+    const address = normalize(rawAddress);
     const family = isIP(address) === 4 ? 'ipv4' : 'ipv6';
-    if (prefix === undefined) list.addAddress(normalize(address), family);
-    else list.addSubnet(normalize(address), Number(prefix), family);
+    if (prefix === undefined) list.addAddress(address, family);
+    else list.addSubnet(address, Number(prefix), family);
   }
   return list;
 }

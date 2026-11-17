@@ -69,6 +69,12 @@ describe('clientIpMiddleware', () => {
     ).toBe('172.30.9.9');
   });
 
+  it('trusts a proxy configured as an IPv4-mapped IPv6 address instead of crashing', () => {
+    expect(run(['::ffff:172.30.0.2'], '172.30.0.2', { 'x-forwarded-for': '198.51.100.1' })).toBe(
+      '198.51.100.1',
+    );
+  });
+
   it('matches an IPv4-mapped IPv6 socket address against an IPv4 entry', () => {
     expect(run(['172.30.0.2'], '::ffff:172.30.0.2', { 'x-forwarded-for': '198.51.100.1' })).toBe(
       '198.51.100.1',
