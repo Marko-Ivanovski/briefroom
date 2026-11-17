@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
+import { isProxyEntry } from '../auth/client-ip.middleware.ts';
 
 const DEFAULT_WEB_DIR = fileURLToPath(new URL('../../../web/dist', import.meta.url));
 const DEV_PUBLIC_URL = 'http://localhost:5173';
@@ -22,6 +23,16 @@ function findRepoRoot(from: string): string | undefined {
     if (dirname(dir) === dir) return undefined;
   }
 }
+
+const TrustedProxies = z
+  .string()
+  .default('')
+  .transform((v) => v.split(',').map((entry) => entry.trim()))
+  .transform((entries) => (entries.length === 1 && entries[0] === '' ? [] : entries))
+  .refine(
+    (entries) => entries.every(isProxyEntry),
+    'must be a comma list of IP addresses or CIDR ranges',
+  );
 
 const DataDir = z
   .string()
@@ -43,6 +54,7 @@ function schemaFor(production: boolean, defaultDataDir: string | undefined) {
     BRIEFROOM_WEB_DIR: z.string().min(1).default(DEFAULT_WEB_DIR),
     BRIEFROOM_DATA_DIR:
       production || defaultDataDir === undefined ? DataDir : DataDir.default(defaultDataDir),
+    BRIEFROOM_TRUSTED_PROXIES: TrustedProxies,
     BRIEFROOM_TESTKIT: z
       .string()
       .optional()
@@ -61,6 +73,8 @@ export interface Env {
   port: number;
   host: string;
   webDir: string;
+  /** Addresses and CIDR ranges of reverse proxies whose X-Forwarded-For is believed. */
+  trustedProxies: string[];
   /** Absolute path of the folder that holds uploaded files. */
   dataDir: string;
 }
@@ -96,6 +110,7 @@ export function loadEnv(
     port: v.PORT,
     host: v.HOST,
     webDir: v.BRIEFROOM_WEB_DIR,
+    trustedProxies: v.BRIEFROOM_TRUSTED_PROXIES,
     dataDir: resolve(v.BRIEFROOM_DATA_DIR),
   };
 }

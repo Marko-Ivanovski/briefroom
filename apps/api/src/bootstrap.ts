@@ -1,14 +1,17 @@
 import type { INestApplication } from '@nestjs/common';
 import { ENV, type Env } from './config/env.ts';
-import { clientIpMiddleware } from './auth/client-ip.middleware.ts';
+import { createClientIpMiddleware } from './auth/client-ip.middleware.ts';
+import { bodyLimitMiddleware } from './auth/body-limit.middleware.ts';
 import { originCheckMiddleware, trustedOrigins } from './auth/origin.middleware.ts';
 import { referrerPolicyMiddleware } from './auth/referrer-policy.middleware.ts';
 
 export function configureApp(app: INestApplication): void {
+  const env = app.get<Env>(ENV);
   // Registered on the adapter before init, so it runs ahead of the Better Auth handler mounted in AuthModule.configure.
-  app.use(clientIpMiddleware);
+  app.use(createClientIpMiddleware(env.trustedProxies));
+  app.use(bodyLimitMiddleware);
   app.use(referrerPolicyMiddleware);
-  app.use(originCheckMiddleware(trustedOrigins(app.get<Env>(ENV))));
+  app.use(originCheckMiddleware(trustedOrigins(env)));
   app.setGlobalPrefix('api', { exclude: ['mcp', 'mcp/{*path}', '.well-known/{*path}'] });
   app.enableShutdownHooks();
 

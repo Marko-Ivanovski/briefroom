@@ -158,3 +158,28 @@ describe('loadEnv BRIEFROOM_DATA_DIR', () => {
     );
   });
 });
+
+describe('loadEnv BRIEFROOM_TRUSTED_PROXIES', () => {
+  const env = (value?: string) =>
+    loadEnv({ ...BASE, ...(value === undefined ? {} : { BRIEFROOM_TRUSTED_PROXIES: value }) });
+
+  it('is empty by default', () => {
+    expect(env().trustedProxies).toEqual([]);
+    expect(env('').trustedProxies).toEqual([]);
+  });
+
+  it('reads a comma list of addresses and CIDR ranges', () => {
+    expect(env('172.30.0.0/16, 10.0.0.1 ,fd00::/8').trustedProxies).toEqual([
+      '172.30.0.0/16',
+      '10.0.0.1',
+      'fd00::/8',
+    ]);
+  });
+
+  it.each(['nope', '10.0.0.1/33', '10.0.0.0/', 'fd00::/129', '10.0.0.1,,x'])(
+    'rejects %s',
+    (value) => {
+      expect(() => env(value)).toThrow(/BRIEFROOM_TRUSTED_PROXIES/);
+    },
+  );
+});

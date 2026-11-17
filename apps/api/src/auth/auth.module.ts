@@ -6,6 +6,7 @@ import { DB } from '../database/database.module.ts';
 import { RevocationModule } from '../members/revocation.module.ts';
 import { RevocationService } from '../members/revocation.service.ts';
 import { InstallService } from '../install/install.service.ts';
+import { JSON_BODY_LIMIT } from './body-limit.middleware.ts';
 import { createAuth, type Auth } from './auth.ts';
 
 export const AUTH = Symbol('AUTH');
@@ -52,7 +53,7 @@ class AuthCoreModule {}
       // Our API is JSON only, so form bodies are left unparsed on non-auth routes.
       useFactory: (auth: Auth) => ({
         auth,
-        bodyParser: { urlencoded: { enabled: false } },
+        bodyParser: { json: { limit: JSON_BODY_LIMIT }, urlencoded: { enabled: false } },
       }),
     }),
   ],
