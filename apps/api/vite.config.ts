@@ -24,7 +24,9 @@ export default defineConfig({
     // admin-cli.js is what `briefroom reset-password` runs inside the container.
     rollupOptions: {
       input: { main: 'src/main.ts', 'admin-cli': 'src/admin-cli.ts' },
-      output: { entryFileNames: '[name].js' },
+      // Shared chunks sit next to the entries: the db package finds its migrations at
+      // ../migrations from whichever file holds it, which the Dockerfile puts at apps/api/migrations.
+      output: { entryFileNames: '[name].js', chunkFileNames: '[name]-[hash].js' },
     },
   },
 });
