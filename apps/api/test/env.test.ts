@@ -204,10 +204,33 @@ describe('loadEnv BRIEFROOM_TRUSTED_PROXIES', () => {
     ]);
   });
 
-  it.each(['nope', '10.0.0.1/33', '10.0.0.0/', 'fd00::/129', '10.0.0.1,,x'])(
+  it('accepts a single IPv4-mapped IPv6 address', () => {
+    expect(env('::ffff:10.0.0.1').trustedProxies).toEqual(['::ffff:10.0.0.1']);
+  });
+
+  it.each(['nope', '10.0.0.1/33', '10.0.0.0/', 'fd00::/129', '10.0.0.1,,x', '::ffff:10.0.0.0/104'])(
     'rejects %s',
     (value) => {
       expect(() => env(value)).toThrow(/BRIEFROOM_TRUSTED_PROXIES/);
     },
   );
+});
+
+describe('loadEnv tunnelSocket', () => {
+  it.skipIf(process.platform === 'win32')(
+    'is a fixed app-only path in production, whatever the data dir',
+    () => {
+      const env = loadEnv({
+        ...PROD,
+        ...BASE,
+        BETTER_AUTH_SECRET: 'x'.repeat(32),
+        BRIEFROOM_SECRET_KEY: 'y'.repeat(32),
+      });
+      expect(env.tunnelSocket).toBe('/run/briefroom/tunnel.sock');
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')('stays under the data dir outside production', () => {
+    expect(loadEnv(BASE).tunnelSocket).toBe(join(BASE.BRIEFROOM_DATA_DIR, 'run', 'tunnel.sock'));
+  });
 });

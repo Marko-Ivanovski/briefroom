@@ -19,7 +19,10 @@ const isWindowsPipe = (path: string) => path.startsWith('\\');
  */
 export async function listenOnTunnelSocket(httpServer: HttpServer, path: string): Promise<Server> {
   if (!isWindowsPipe(path)) {
-    mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+    const dir = dirname(path);
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    // mkdir leaves an existing folder's mode alone, and the socket's folder must stay owner-only.
+    chmodSync(dir, 0o700);
     rmSync(path, { force: true });
   }
   const server = createServer((socket) => {
@@ -36,4 +39,21 @@ export async function listenOnTunnelSocket(httpServer: HttpServer, path: string)
   if (!isWindowsPipe(path)) chmodSync(path, 0o600);
   httpServer.once('close', () => server.close());
   return server;
+}
+
+/**
+ * The tunnel socket is optional, so a failure to listen must never take the app down. It is
+ * reported through `onError` and the app keeps serving TCP. Resolves with null in that case.
+ */
+export async function tryListenOnTunnelSocket(
+  httpServer: HttpServer,
+  path: string,
+  onError: (err: unknown) => void,
+): Promise<Server | null> {
+  try {
+    return await listenOnTunnelSocket(httpServer, path);
+  } catch (err) {
+    onError(err);
+    return null;
+  }
 }

@@ -63,9 +63,9 @@ ok "tailscale and cloudflared run as non-root in the app container"
 compose exec -T app sh -c 'test -s /etc/ssl/certs/ca-certificates.crt' || fail "no CA bundle for cloudflared"
 ok "CA bundle present for cloudflared"
 
-perms=$(compose exec -T app sh -c "stat -c '%a %U %F' /data/run/tunnel.sock" 2>/dev/null | tr -d '\r')
+perms=$(compose exec -T app sh -c "stat -c '%a %U %F' /run/briefroom/tunnel.sock" 2>/dev/null | tr -d '\r')
 [ "$perms" = "600 node socket" ] || fail "tunnel socket is '$perms', expected '600 node socket'"
-compose exec -T app node -e "require('http').get({ socketPath: '/data/run/tunnel.sock', path: '/api/health' }, (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))" \
+compose exec -T app node -e "require('http').get({ socketPath: '/run/briefroom/tunnel.sock', path: '/api/health' }, (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))" \
   || fail "health does not answer on the tunnel socket"
 ok "tunnel socket is owner-only and answers"
 

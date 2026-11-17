@@ -18,7 +18,7 @@ function harness(onSpawn?: (call: SpawnCall) => void) {
   let clock = 0;
   const supervisor = new Supervisor({
     spawn: spawned.spawn,
-    tunnelSocket: '/data/run/tunnel.sock',
+    tunnelSocket: '/run/briefroom/tunnel.sock',
     stateDir: '/data/tailscale',
     env: { PATH: '/usr/bin', HOME: '/home/node' },
     now: () => clock,
@@ -252,7 +252,14 @@ describe('supervisor with tailscale', () => {
         '--timeout=60s',
       ],
       ['/usr/local/bin/tailscale', sock, 'serve', 'reset'],
-      ['/usr/local/bin/tailscale', sock, verb, '--bg', '--https=443', 'unix:/data/run/tunnel.sock'],
+      [
+        '/usr/local/bin/tailscale',
+        sock,
+        verb,
+        '--bg',
+        '--https=443',
+        'unix:/run/briefroom/tunnel.sock',
+      ],
     ]);
     expect(h.calls[1]!.child.stdinText).toBe(TS_KEY);
     for (const call of h.calls) {

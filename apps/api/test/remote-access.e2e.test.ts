@@ -3,6 +3,7 @@ import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { fakeSpawn, flush, healthyTunnels } from './fake-child.ts';
 import { listenOnTunnelSocket } from '../src/auth/proxy-socket.ts';
+import { RemoteAccessService } from '../src/remote-access/remote-access.service.ts';
 import { createTestApp, makeInstallOwner, resetThrottle, type TestApp } from './helpers.ts';
 import { testTunnelSocket, viaTunnel } from './tunnel-request.ts';
 
@@ -466,6 +467,44 @@ describe('remote access at boot', () => {
       expect(again.last().options.env.TUNNEL_TOKEN).toBe(TOKEN);
     } finally {
       await second.close();
+    }
+  });
+});
+
+describe('remote access when the tunnel socket cannot be opened', () => {
+  it('reports an error, stops the tunnel and keeps serving TCP', async () => {
+    const spawned = fakeSpawn(healthyTunnels);
+    const t = await createTestApp({}, [], [], true, spawned.spawn);
+    try {
+      const { user } = await t.auth.api.createUser({
+        body: { email: 'nosock@example.com', password: PASSWORD, name: 'No socket' },
+      });
+      await makeInstallOwner(t, user.id);
+      const signedIn = await t.auth.api.signInEmail({
+        body: { email: 'nosock@example.com', password: PASSWORD },
+        asResponse: true,
+      });
+      const cookie = signedIn.headers
+        .getSetCookie()
+        .map((c) => c.split(';')[0])
+        .join('; ');
+      const http = () => request(t.app.getHttpServer());
+      const body = { mode: 'cloudflare', secret: TOKEN, publicUrl: TUNNEL };
+      expect((await http().put(ENDPOINT).set({ cookie }).send(body)).status).toBe(200);
+      const child = spawned.last().child;
+
+      await t.app.get(RemoteAccessService).tunnelSocketUnavailable('socket is gone');
+      expect(child.signals).toContain('SIGTERM');
+      const settings = await http().get(ENDPOINT).set({ cookie });
+      expect(settings.body).toMatchObject({ status: 'error', lastError: 'socket is gone' });
+
+      const calls = spawned.calls.length;
+      const again = await http().put(ENDPOINT).set({ cookie }).send(body);
+      expect(again.body).toMatchObject({ status: 'error', lastError: 'socket is gone' });
+      expect(spawned.calls).toHaveLength(calls);
+      expect((await http().get('/api/health')).status).toBe(200);
+    } finally {
+      await t.close();
     }
   });
 });

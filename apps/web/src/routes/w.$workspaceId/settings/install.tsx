@@ -23,6 +23,9 @@ const REACH_LABELS: Record<InstallReach, string> = {
   cloudflare: 'Cloudflare Tunnel',
 };
 
+const ROOT_CERT_COMMAND =
+  'docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt ./briefroom-root.crt';
+
 function InstallPage() {
   const { workspaceId } = Route.useParams();
   const { data: info, error } = useQuery(installQuery);
@@ -59,6 +62,17 @@ function InstallPage() {
             </p>
             <CopyCommand command={info.changeCommand} label="Command to change access" />
           </div>
+          {info.reach === 'lan' ? (
+            <div className="grid gap-2">
+              <h2 className="text-lg font-semibold">Trust the local certificate</h2>
+              <p className="text-muted-foreground text-sm">
+                Caddy signs the address with its own CA. After the first start, run this in the
+                install folder to copy the root certificate out, then install it on each device. For
+                the CLI and agents, set NODE_EXTRA_CA_CERTS to the file's path.
+              </p>
+              <CopyCommand command={ROOT_CERT_COMMAND} label="Command to export the certificate" />
+            </div>
+          ) : null}
           <div className="grid gap-2">
             <h2 className="text-lg font-semibold">Reach it from anywhere</h2>
             <p className="text-muted-foreground text-sm">

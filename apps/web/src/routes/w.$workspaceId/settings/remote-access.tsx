@@ -47,7 +47,7 @@ const MODES: Record<Exclude<RemoteAccessMode, 'off'>, ModeCopy> = {
     secretLabel: 'Cloudflare tunnel token',
     urlHint: 'https://briefroom.example.com',
     steps:
-      'In the Cloudflare dashboard, create a tunnel and add a public hostname with service type UNIX and path /data/run/tunnel.sock, then copy the tunnel token. Pointed at the TCP port instead, every visitor shares one rate limit and cookies lose Secure.',
+      'In the Cloudflare dashboard, create a tunnel and add a public hostname with service type UNIX and path /run/briefroom/tunnel.sock, then copy the tunnel token. Pointed at the TCP port instead, every visitor shares one rate limit and cookies lose Secure.',
   },
 };
 

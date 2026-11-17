@@ -47,6 +47,7 @@ export class RemoteAccessService implements OnApplicationBootstrap, BeforeApplic
   private readonly key: Buffer;
   private readonly stateDir: string;
   private publicUrl: string | null = null;
+  private socketError: string | null = null;
   // Status writes run one after another, so a late write can never overwrite a newer one.
   private writes: Promise<void> = Promise.resolve();
 
@@ -78,6 +79,15 @@ export class RemoteAccessService implements OnApplicationBootstrap, BeforeApplic
   async beforeApplicationShutdown(): Promise<void> {
     await this.supervisor.stop();
     await this.writes;
+  }
+
+  /** Tunnels forward to the socket, so without it a tunnel can never work. The app itself keeps serving. */
+  async tunnelSocketUnavailable(message: string): Promise<void> {
+    this.socketError = message;
+    const row = await this.row();
+    if (!row || row.mode === 'off') return;
+    await this.supervisor.stop();
+    this.write('error', message);
   }
 
   async settings(): Promise<RemoteAccessSettings> {
@@ -117,6 +127,10 @@ export class RemoteAccessService implements OnApplicationBootstrap, BeforeApplic
   }
 
   private launch(mode: TunnelMode, secret: string, publicUrl: string): void {
+    if (this.socketError) {
+      this.write('error', this.socketError);
+      return;
+    }
     this.publicUrl = publicUrl;
     if (mode !== 'cloudflare') {
       try {

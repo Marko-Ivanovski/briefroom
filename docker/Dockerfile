@@ -66,6 +66,8 @@ COPY --from=tunnels /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certifi
 COPY --chmod=755 docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 # tailscaled runs in userspace networking as this same non-root user, with its state in /data/tailscale.
 RUN mkdir /data && chown node:node /data
+# The tunnel socket lives here, off the data volume the worker shares. Only the app's user may enter.
+RUN mkdir -m 0700 /run/briefroom && chown node:node /run/briefroom
 VOLUME /data
 USER node
 EXPOSE 4300

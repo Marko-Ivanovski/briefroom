@@ -90,7 +90,7 @@ export interface Env {
   trustedProxies: string[];
   /** Absolute path of the folder that holds uploaded files. */
   dataDir: string;
-  /** Unix socket the tunnels forward to, `<dataDir>/run/tunnel.sock`. A named pipe on Windows. */
+  /** Unix socket the tunnels forward to. Outside the data volume in production. A named pipe on Windows. */
   tunnelSocket: string;
 }
 
@@ -129,12 +129,17 @@ export function loadEnv(
     webDir: v.BRIEFROOM_WEB_DIR,
     trustedProxies: v.BRIEFROOM_TRUSTED_PROXIES,
     dataDir: resolve(v.BRIEFROOM_DATA_DIR),
-    tunnelSocket: tunnelSocketFor(resolve(v.BRIEFROOM_DATA_DIR)),
+    tunnelSocket: tunnelSocketFor(production, resolve(v.BRIEFROOM_DATA_DIR)),
   };
 }
 
-function tunnelSocketFor(dataDir: string): string {
-  if (process.platform !== 'win32') return join(dataDir, 'run', 'tunnel.sock');
+/** Part of the user-facing Cloudflare setup, so it is a fixed path that does not follow BRIEFROOM_DATA_DIR. */
+export const PRODUCTION_TUNNEL_SOCKET = '/run/briefroom/tunnel.sock';
+
+function tunnelSocketFor(production: boolean, dataDir: string): string {
+  if (process.platform !== 'win32') {
+    return production ? PRODUCTION_TUNNEL_SOCKET : join(dataDir, 'run', 'tunnel.sock');
+  }
   const id = createHash('sha256').update(dataDir).digest('hex').slice(0, 12);
   return `\\\\.\\pipe\\briefroom-tunnel-${id}`;
 }
