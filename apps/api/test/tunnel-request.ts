@@ -1,14 +1,18 @@
 import { randomBytes } from 'node:crypto';
+import { mkdtempSync } from 'node:fs';
 import { request, type IncomingHttpHeaders } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-/** A fresh socket path per app, so parallel test files never share one. */
+/**
+ * A fresh socket path per app, so parallel test files never share one. On POSIX it gets its own
+ * folder, because the listener makes the socket's folder owner-only and must never chmod /tmp.
+ */
 export function testTunnelSocket(): string {
-  const id = randomBytes(6).toString('hex');
-  return process.platform === 'win32'
-    ? `\\\\.\\pipe\\briefroom-test-${id}`
-    : join(tmpdir(), `briefroom-test-${id}.sock`);
+  if (process.platform === 'win32') {
+    return `\\\\.\\pipe\\briefroom-test-${randomBytes(6).toString('hex')}`;
+  }
+  return join(mkdtempSync(join(tmpdir(), 'briefroom-test-')), 'tunnel.sock');
 }
 
 export interface TunnelResponse {
