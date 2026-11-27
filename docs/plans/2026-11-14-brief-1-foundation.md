@@ -978,6 +978,10 @@ Branch: `feature/BRIEF-13-install-and-remote-access`.
 
 **Deviation from the spec:** the spec puts a "local network" switch in Settings. The app can't change Docker's port binding from inside its container, so local network access is set through `briefroom init`, and Settings shows that command. Tunnels only need outbound connections, so they can still switch on from Settings (Task 8.4). Marko was told on 2026-11-14.
 
+**Changed during the build (2026-11-17):**
+- `--lan` keeps the app's plain-http port on `127.0.0.1`, and only Caddy publishes to the network over HTTPS. Task 8.2's "`--lan` sets `BRIEFROOM_BIND=0.0.0.0`" no longer holds. `reach` comes from the public address instead. The reason is that bearer tokens would otherwise cross the LAN in clear.
+- Tunnels reach the app through an owner-only Unix socket at `/run/briefroom/tunnel.sock`. Forwarded headers are trusted only on that socket. Tailscale's userspace networking forwards every tailnet port to localhost, so trusting loopback would let any tailnet peer spoof its address.
+
 ### Task 8.1: Production image and compose
 
 **Files:**

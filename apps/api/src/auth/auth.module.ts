@@ -6,6 +6,8 @@ import { DB } from '../database/database.module.ts';
 import { RevocationModule } from '../members/revocation.module.ts';
 import { RevocationService } from '../members/revocation.service.ts';
 import { InstallService } from '../install/install.service.ts';
+import { TunnelState } from '../remote-access/tunnel-state.ts';
+import { JSON_BODY_LIMIT } from './body-limit.middleware.ts';
 import { createAuth, type Auth } from './auth.ts';
 
 export const AUTH = Symbol('AUTH');
@@ -21,6 +23,7 @@ export const AUTH = Symbol('AUTH');
         env: Env,
         installs: InstallService,
         revocation: RevocationService,
+        tunnel: TunnelState,
       ): Auth => {
         if (env.usingDevAuthSecret) {
           new Logger('Auth').warn(
@@ -32,9 +35,10 @@ export const AUTH = Symbol('AUTH');
           env,
           (userId) => installs.canCreateWorkspace(userId),
           (userId) => revocation.sessionsRevoked(userId),
+          () => tunnel.origins(),
         );
       },
-      inject: [DB, ENV, InstallService, RevocationService],
+      inject: [DB, ENV, InstallService, RevocationService, TunnelState],
     },
   ],
   exports: [AUTH],
@@ -52,7 +56,10 @@ class AuthCoreModule {}
       // Our API is JSON only, so form bodies are left unparsed on non-auth routes.
       useFactory: (auth: Auth) => ({
         auth,
-        bodyParser: { urlencoded: { enabled: false } },
+        bodyParser: { json: { limit: JSON_BODY_LIMIT }, urlencoded: { enabled: false } },
+        // The package refuses function-form trustedOrigins unless its CORS is off. The web app is
+        // same-origin (served by the API, or through the Vite proxy in dev), so it needs no CORS.
+        disableTrustedOriginsCors: true,
       }),
     }),
   ],

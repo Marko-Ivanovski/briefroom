@@ -1,12 +1,15 @@
 import { DEV_DATABASE_URL } from '@briefroom/db';
+import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
+import { isProxyEntry } from '../auth/client-ip.middleware.ts';
 
 const DEFAULT_WEB_DIR = fileURLToPath(new URL('../../../web/dist', import.meta.url));
 const DEV_PUBLIC_URL = 'http://localhost:5173';
 export const DEV_AUTH_SECRET = 'briefroom-dev-only-secret-never-use-in-production';
+export const DEV_SECRET_KEY = 'briefroom-dev-only-secret-key-never-use-in-production';
 
 const PublicUrl = z
   .url()
@@ -23,6 +26,16 @@ function findRepoRoot(from: string): string | undefined {
   }
 }
 
+const TrustedProxies = z
+  .string()
+  .default('')
+  .transform((v) => v.split(',').map((entry) => entry.trim()))
+  .transform((entries) => (entries.length === 1 && entries[0] === '' ? [] : entries))
+  .refine(
+    (entries) => entries.every(isProxyEntry),
+    'must be a comma list of IP addresses or CIDR ranges',
+  );
+
 const DataDir = z
   .string()
   .min(1)
@@ -38,11 +51,19 @@ function schemaFor(production: boolean, defaultDataDir: string | undefined) {
           .min(32, 'must be at least 32 characters')
           .refine((v) => v !== DEV_AUTH_SECRET, 'must not be the dev-only secret')
       : z.string().min(1).default(DEV_AUTH_SECRET),
+    BRIEFROOM_SECRET_KEY: production
+      ? z
+          .string()
+          .min(32, 'must be at least 32 characters')
+          .refine((v) => v !== DEV_SECRET_KEY, 'must not be the dev-only key')
+      : z.string().min(1).default(DEV_SECRET_KEY),
     PORT: Port.default(4300),
     HOST: z.string().min(1).default('127.0.0.1'),
+    BRIEFROOM_BIND: z.string().min(1).default('127.0.0.1'),
     BRIEFROOM_WEB_DIR: z.string().min(1).default(DEFAULT_WEB_DIR),
     BRIEFROOM_DATA_DIR:
       production || defaultDataDir === undefined ? DataDir : DataDir.default(defaultDataDir),
+    BRIEFROOM_TRUSTED_PROXIES: TrustedProxies,
     BRIEFROOM_TESTKIT: z
       .string()
       .optional()
@@ -58,11 +79,19 @@ export interface Env {
   publicUrl: string;
   authSecret: string;
   usingDevAuthSecret: boolean;
+  /** Seals stored credentials such as a tunnel token. Never used raw: secret-box derives the key. */
+  secretKey: string;
   port: number;
   host: string;
+  /** Host interface the compose file publishes the app port on. The app cannot see this itself. */
+  bind: string;
   webDir: string;
+  /** Addresses and CIDR ranges of reverse proxies whose X-Forwarded-For is believed. */
+  trustedProxies: string[];
   /** Absolute path of the folder that holds uploaded files. */
   dataDir: string;
+  /** Unix socket the tunnels forward to. Outside the data volume in production. A named pipe on Windows. */
+  tunnelSocket: string;
 }
 
 export const ENV = Symbol('ENV');
@@ -93,9 +122,24 @@ export function loadEnv(
     publicUrl: v.BRIEFROOM_PUBLIC_URL,
     authSecret: v.BETTER_AUTH_SECRET,
     usingDevAuthSecret: v.BETTER_AUTH_SECRET === DEV_AUTH_SECRET,
+    secretKey: v.BRIEFROOM_SECRET_KEY,
     port: v.PORT,
     host: v.HOST,
+    bind: v.BRIEFROOM_BIND,
     webDir: v.BRIEFROOM_WEB_DIR,
+    trustedProxies: v.BRIEFROOM_TRUSTED_PROXIES,
     dataDir: resolve(v.BRIEFROOM_DATA_DIR),
+    tunnelSocket: tunnelSocketFor(production, resolve(v.BRIEFROOM_DATA_DIR)),
   };
+}
+
+/** Part of the user-facing Cloudflare setup, so it is a fixed path that does not follow BRIEFROOM_DATA_DIR. */
+export const PRODUCTION_TUNNEL_SOCKET = '/run/briefroom/tunnel.sock';
+
+function tunnelSocketFor(production: boolean, dataDir: string): string {
+  if (process.platform !== 'win32') {
+    return production ? PRODUCTION_TUNNEL_SOCKET : join(dataDir, 'run', 'tunnel.sock');
+  }
+  const id = createHash('sha256').update(dataDir).digest('hex').slice(0, 12);
+  return `\\\\.\\pipe\\briefroom-tunnel-${id}`;
 }

@@ -1,0 +1,20 @@
+CREATE TABLE "remote_access" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+	"singleton" boolean DEFAULT true NOT NULL CONSTRAINT "remote_access_singleton_key" UNIQUE,
+	"mode" text DEFAULT 'off' NOT NULL,
+	"secret_ciphertext" text,
+	"public_url" text,
+	"status" text DEFAULT 'off' NOT NULL,
+	"last_error" text,
+	"created_by" text NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"created_via" text NOT NULL,
+	"created_agent" text,
+	"updated_by" text NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_via" text NOT NULL,
+	"updated_agent" text,
+	CONSTRAINT "remote_access_singleton_true" CHECK ("singleton"),
+	CONSTRAINT "remote_access_mode_known" CHECK ("mode" in ('off', 'tailscale', 'funnel', 'cloudflare')),
+	CONSTRAINT "remote_access_status_known" CHECK ("status" in ('off', 'starting', 'running', 'restarting', 'error'))
+);

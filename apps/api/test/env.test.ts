@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { DEV_AUTH_SECRET, loadEnv } from '../src/config/env.ts';
+import { DEV_AUTH_SECRET, DEV_SECRET_KEY, loadEnv } from '../src/config/env.ts';
 
 const PROD = { NODE_ENV: 'production' };
 const BASE = {
@@ -32,7 +32,7 @@ describe('loadEnv BETTER_AUTH_SECRET', () => {
   });
 
   it('is used as given in production', () => {
-    const env = loadEnv({ ...PROD, ...BASE, BETTER_AUTH_SECRET: LONG });
+    const env = loadEnv({ ...PROD, ...BASE, BETTER_AUTH_SECRET: LONG, BRIEFROOM_SECRET_KEY: LONG });
     expect(env.authSecret).toBe(LONG);
     expect(env.usingDevAuthSecret).toBe(false);
   });
@@ -62,6 +62,11 @@ describe('loadEnv', () => {
     expect(env.databaseUrl).toBe(DEV_DATABASE_URL);
     expect(env.publicUrl).toBe('http://localhost:5173');
     expect(env.host).toBe('127.0.0.1');
+    expect(env.bind).toBe('127.0.0.1');
+  });
+
+  it('reads the host port binding from BRIEFROOM_BIND', () => {
+    expect(loadEnv({ BRIEFROOM_BIND: '0.0.0.0' }).bind).toBe('0.0.0.0');
   });
 
   it('lists every missing variable in one error in production', () => {
@@ -110,8 +115,31 @@ describe('loadEnv', () => {
   });
 });
 
+describe('loadEnv BRIEFROOM_SECRET_KEY', () => {
+  const AUTH = { BETTER_AUTH_SECRET: 'x'.repeat(32) };
+
+  it('is required in production', () => {
+    expect(() => loadEnv({ ...PROD, ...BASE, ...AUTH })).toThrow(
+      /BRIEFROOM_SECRET_KEY is required/,
+    );
+  });
+
+  it('must be at least 32 characters and not the dev-only key in production', () => {
+    expect(() => loadEnv({ ...PROD, ...BASE, ...AUTH, BRIEFROOM_SECRET_KEY: 'short' })).toThrow(
+      /BRIEFROOM_SECRET_KEY: .*32/,
+    );
+    expect(() =>
+      loadEnv({ ...PROD, ...BASE, ...AUTH, BRIEFROOM_SECRET_KEY: DEV_SECRET_KEY }),
+    ).toThrow(/BRIEFROOM_SECRET_KEY: .*dev-only/);
+  });
+
+  it('falls back to the dev-only key outside production', () => {
+    expect(loadEnv(BASE).secretKey).toBe(DEV_SECRET_KEY);
+  });
+});
+
 describe('loadEnv BRIEFROOM_TESTKIT', () => {
-  const SECRET = { BETTER_AUTH_SECRET: 'x'.repeat(32) };
+  const SECRET = { BETTER_AUTH_SECRET: 'x'.repeat(32), BRIEFROOM_SECRET_KEY: 'k'.repeat(32) };
 
   it('refuses the testkit in production with a clear message', () => {
     expect(() => loadEnv({ ...PROD, ...BASE, ...SECRET, BRIEFROOM_TESTKIT: '1' })).toThrow(
@@ -127,7 +155,7 @@ describe('loadEnv BRIEFROOM_TESTKIT', () => {
 });
 
 describe('loadEnv BRIEFROOM_DATA_DIR', () => {
-  const SECRET = { BETTER_AUTH_SECRET: 'x'.repeat(32) };
+  const SECRET = { BETTER_AUTH_SECRET: 'x'.repeat(32), BRIEFROOM_SECRET_KEY: 'k'.repeat(32) };
   const WITHOUT_DIR = {
     DATABASE_URL: BASE.DATABASE_URL,
     BRIEFROOM_PUBLIC_URL: BASE.BRIEFROOM_PUBLIC_URL,
@@ -156,5 +184,53 @@ describe('loadEnv BRIEFROOM_DATA_DIR', () => {
     expect(() => loadEnv({ ...BASE, BRIEFROOM_DATA_DIR: 'relative/dir' })).toThrow(
       /BRIEFROOM_DATA_DIR: must be an absolute path/,
     );
+  });
+});
+
+describe('loadEnv BRIEFROOM_TRUSTED_PROXIES', () => {
+  const env = (value?: string) =>
+    loadEnv({ ...BASE, ...(value === undefined ? {} : { BRIEFROOM_TRUSTED_PROXIES: value }) });
+
+  it('is empty by default', () => {
+    expect(env().trustedProxies).toEqual([]);
+    expect(env('').trustedProxies).toEqual([]);
+  });
+
+  it('reads a comma list of addresses and CIDR ranges', () => {
+    expect(env('172.30.0.0/16, 10.0.0.1 ,fd00::/8').trustedProxies).toEqual([
+      '172.30.0.0/16',
+      '10.0.0.1',
+      'fd00::/8',
+    ]);
+  });
+
+  it('accepts a single IPv4-mapped IPv6 address', () => {
+    expect(env('::ffff:10.0.0.1').trustedProxies).toEqual(['::ffff:10.0.0.1']);
+  });
+
+  it.each(['nope', '10.0.0.1/33', '10.0.0.0/', 'fd00::/129', '10.0.0.1,,x', '::ffff:10.0.0.0/104'])(
+    'rejects %s',
+    (value) => {
+      expect(() => env(value)).toThrow(/BRIEFROOM_TRUSTED_PROXIES/);
+    },
+  );
+});
+
+describe('loadEnv tunnelSocket', () => {
+  it.skipIf(process.platform === 'win32')(
+    'is a fixed app-only path in production, whatever the data dir',
+    () => {
+      const env = loadEnv({
+        ...PROD,
+        ...BASE,
+        BETTER_AUTH_SECRET: 'x'.repeat(32),
+        BRIEFROOM_SECRET_KEY: 'y'.repeat(32),
+      });
+      expect(env.tunnelSocket).toBe('/run/briefroom/tunnel.sock');
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')('stays under the data dir outside production', () => {
+    expect(loadEnv(BASE).tunnelSocket).toBe(join(BASE.BRIEFROOM_DATA_DIR, 'run', 'tunnel.sock'));
   });
 });

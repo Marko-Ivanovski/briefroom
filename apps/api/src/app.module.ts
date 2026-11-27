@@ -18,6 +18,8 @@ import { BriefroomMcpModule } from './mcp/mcp.module.ts';
 import { ModuleRegistryModule } from './module-registry/module-registry.module.ts';
 import { REGISTERED_MODULES } from './module-registry/registered-modules.ts';
 import { ProjectsModule } from './projects/projects.module.ts';
+import { RemoteAccessModule } from './remote-access/remote-access.module.ts';
+import type { SpawnChild } from './remote-access/supervisor.ts';
 import { SystemController } from './system/system.controller.ts';
 import { TokensModule } from './tokens/tokens.module.ts';
 import { UsageModule } from './usage/usage.module.ts';
@@ -25,12 +27,13 @@ import { WorkspacesModule } from './workspaces/workspaces.module.ts';
 
 @Module({})
 export class AppModule {
-  // extraControllers, extraImports and accessAtRoot exist for tests; production passes none.
+  // extraControllers, extraImports, accessAtRoot and spawnChild exist for tests; production passes none.
   static register(
     env: Env,
     extraControllers: Type[] = [],
     extraImports: Type[] = [],
     accessAtRoot = true,
+    spawnChild?: SpawnChild,
   ): DynamicModule {
     return {
       module: AppModule,
@@ -38,6 +41,7 @@ export class AppModule {
         EnvModule.register(env),
         DatabaseModule,
         InstallModule,
+        RemoteAccessModule.register(spawnChild),
         ModuleRegistryModule,
         HistoryModule,
         UsageModule,

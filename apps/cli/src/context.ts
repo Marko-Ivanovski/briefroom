@@ -1,6 +1,6 @@
 import { execFile, spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { homedir, hostname } from 'node:os';
+import { homedir, hostname, networkInterfaces } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { CliError } from './errors.ts';
@@ -21,8 +21,13 @@ export interface Context {
   /** True when both input and output are a terminal, so a question can be asked. */
   interactive: boolean;
   confirm(prompt: string): Promise<boolean>;
+  /** Asks one free-text question and returns the raw answer. */
+  ask(prompt: string): Promise<string>;
+  networkInterfaces: typeof networkInterfaces;
   /** Runs a program with an argument array and no shell. Rejects on a non-zero exit. */
   exec(file: string, args: string[], cwd: string): Promise<void>;
+  /** Like exec, but the program shares this terminal's output. Resolves with its exit code. */
+  runInherited(file: string, args: string[], cwd: string): Promise<number>;
   /** Absolute path of a program found in the absolute PATH entries, never in the working directory. */
   resolveCommand(name: string): string | null;
 }
@@ -88,9 +93,26 @@ async function confirm(prompt: string): Promise<boolean> {
   }
 }
 
+async function ask(prompt: string): Promise<string> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    return await rl.question(prompt);
+  } finally {
+    rl.close();
+  }
+}
+
 function exec(file: string, args: string[], cwd: string): Promise<void> {
   return new Promise((resolve, reject) => {
     execFile(file, args, { cwd, windowsHide: true }, (err) => (err ? reject(err) : resolve()));
+  });
+}
+
+function runInherited(file: string, args: string[], cwd: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(file, args, { cwd, stdio: 'inherit', windowsHide: true });
+    child.once('error', reject);
+    child.once('close', (code) => resolve(code ?? 1));
   });
 }
 
@@ -108,7 +130,10 @@ export function defaultContext(): Context {
     choose,
     interactive: process.stdin.isTTY && process.stdout.isTTY,
     confirm,
+    ask,
+    networkInterfaces,
     exec,
+    runInherited,
     resolveCommand: (name) => resolveCommand(name, process.env, process.platform),
   };
 }

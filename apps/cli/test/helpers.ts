@@ -89,7 +89,10 @@ export async function testContext(overrides: Partial<Context> = {}): Promise<Tes
     choose: () => Promise.reject(new Error('choose was not expected')),
     interactive: false,
     confirm: () => Promise.reject(new Error('confirm was not expected')),
+    ask: () => Promise.reject(new Error('ask was not expected')),
+    networkInterfaces: () => ({}),
     exec: () => Promise.reject(new Error('exec was not expected')),
+    runInherited: () => Promise.reject(new Error('runInherited was not expected')),
     resolveCommand: () => null,
     ...overrides,
   };

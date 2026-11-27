@@ -40,7 +40,17 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm typecheck
-      - run: pnpm --filter @briefroom/worker build
+      - run: pnpm --filter @briefroom/api --filter @briefroom/worker build
       - run: pnpm test
       - run: pnpm --filter @briefroom/web exec playwright install --with-deps chromium
       - run: pnpm test:e2e
+
+  compose-build:
+    name: compose build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: sh scripts/smoke.sh

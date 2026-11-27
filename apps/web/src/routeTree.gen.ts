@@ -21,10 +21,12 @@ import { Route as WWorkspaceIdNewWorkspaceRouteImport } from './routes/w.$worksp
 import { Route as WWorkspaceIdProjectsIndexRouteImport } from './routes/w.$workspaceId/projects/index'
 import { Route as WWorkspaceIdProjectsProjectIdRouteImport } from './routes/w.$workspaceId/projects/$projectId'
 import { Route as WWorkspaceIdProjectsNewRouteImport } from './routes/w.$workspaceId/projects/new'
+import { Route as WWorkspaceIdSettingsInstallRouteImport } from './routes/w.$workspaceId/settings/install'
 import { Route as WWorkspaceIdSettingsInvitesRouteImport } from './routes/w.$workspaceId/settings/invites'
 import { Route as WWorkspaceIdSettingsJoinRequestsRouteImport } from './routes/w.$workspaceId/settings/join-requests'
 import { Route as WWorkspaceIdSettingsMembersRouteImport } from './routes/w.$workspaceId/settings/members'
 import { Route as WWorkspaceIdSettingsModulesRouteImport } from './routes/w.$workspaceId/settings/modules'
+import { Route as WWorkspaceIdSettingsRemoteAccessRouteImport } from './routes/w.$workspaceId/settings/remote-access'
 import { Route as WWorkspaceIdSettingsTokensRouteImport } from './routes/w.$workspaceId/settings/tokens'
 import { Route as WWorkspaceIdProjectsProjectIdIndexRouteImport } from './routes/w.$workspaceId/projects/$projectId.index'
 import { Route as WWorkspaceIdProjectsProjectIdMembersRouteImport } from './routes/w.$workspaceId/projects/$projectId.members'
@@ -92,6 +94,12 @@ const WWorkspaceIdProjectsNewRoute = WWorkspaceIdProjectsNewRouteImport.update({
   path: '/projects/new',
   getParentRoute: () => WWorkspaceIdRouteRoute,
 } as any)
+const WWorkspaceIdSettingsInstallRoute =
+  WWorkspaceIdSettingsInstallRouteImport.update({
+    id: '/settings/install',
+    path: '/settings/install',
+    getParentRoute: () => WWorkspaceIdRouteRoute,
+  } as any)
 const WWorkspaceIdSettingsInvitesRoute =
   WWorkspaceIdSettingsInvitesRouteImport.update({
     id: '/settings/invites',
@@ -114,6 +122,12 @@ const WWorkspaceIdSettingsModulesRoute =
   WWorkspaceIdSettingsModulesRouteImport.update({
     id: '/settings/modules',
     path: '/settings/modules',
+    getParentRoute: () => WWorkspaceIdRouteRoute,
+  } as any)
+const WWorkspaceIdSettingsRemoteAccessRoute =
+  WWorkspaceIdSettingsRemoteAccessRouteImport.update({
+    id: '/settings/remote-access',
+    path: '/settings/remote-access',
     getParentRoute: () => WWorkspaceIdRouteRoute,
   } as any)
 const WWorkspaceIdSettingsTokensRoute =
@@ -147,10 +161,12 @@ export interface FileRoutesByFullPath {
   '/w/$workspaceId/': typeof WWorkspaceIdIndexRoute
   '/w/$workspaceId/projects/$projectId': typeof WWorkspaceIdProjectsProjectIdRouteWithChildren
   '/w/$workspaceId/projects/new': typeof WWorkspaceIdProjectsNewRoute
+  '/w/$workspaceId/settings/install': typeof WWorkspaceIdSettingsInstallRoute
   '/w/$workspaceId/settings/invites': typeof WWorkspaceIdSettingsInvitesRoute
   '/w/$workspaceId/settings/join-requests': typeof WWorkspaceIdSettingsJoinRequestsRoute
   '/w/$workspaceId/settings/members': typeof WWorkspaceIdSettingsMembersRoute
   '/w/$workspaceId/settings/modules': typeof WWorkspaceIdSettingsModulesRoute
+  '/w/$workspaceId/settings/remote-access': typeof WWorkspaceIdSettingsRemoteAccessRoute
   '/w/$workspaceId/settings/tokens': typeof WWorkspaceIdSettingsTokensRoute
   '/w/$workspaceId/projects/': typeof WWorkspaceIdProjectsIndexRoute
   '/w/$workspaceId/projects/$projectId/members': typeof WWorkspaceIdProjectsProjectIdMembersRoute
@@ -166,10 +182,12 @@ export interface FileRoutesByTo {
   '/w/$workspaceId/new-workspace': typeof WWorkspaceIdNewWorkspaceRoute
   '/w/$workspaceId': typeof WWorkspaceIdIndexRoute
   '/w/$workspaceId/projects/new': typeof WWorkspaceIdProjectsNewRoute
+  '/w/$workspaceId/settings/install': typeof WWorkspaceIdSettingsInstallRoute
   '/w/$workspaceId/settings/invites': typeof WWorkspaceIdSettingsInvitesRoute
   '/w/$workspaceId/settings/join-requests': typeof WWorkspaceIdSettingsJoinRequestsRoute
   '/w/$workspaceId/settings/members': typeof WWorkspaceIdSettingsMembersRoute
   '/w/$workspaceId/settings/modules': typeof WWorkspaceIdSettingsModulesRoute
+  '/w/$workspaceId/settings/remote-access': typeof WWorkspaceIdSettingsRemoteAccessRoute
   '/w/$workspaceId/settings/tokens': typeof WWorkspaceIdSettingsTokensRoute
   '/w/$workspaceId/projects': typeof WWorkspaceIdProjectsIndexRoute
   '/w/$workspaceId/projects/$projectId/members': typeof WWorkspaceIdProjectsProjectIdMembersRoute
@@ -188,10 +206,12 @@ export interface FileRoutesById {
   '/w/$workspaceId/': typeof WWorkspaceIdIndexRoute
   '/w/$workspaceId/projects/$projectId': typeof WWorkspaceIdProjectsProjectIdRouteWithChildren
   '/w/$workspaceId/projects/new': typeof WWorkspaceIdProjectsNewRoute
+  '/w/$workspaceId/settings/install': typeof WWorkspaceIdSettingsInstallRoute
   '/w/$workspaceId/settings/invites': typeof WWorkspaceIdSettingsInvitesRoute
   '/w/$workspaceId/settings/join-requests': typeof WWorkspaceIdSettingsJoinRequestsRoute
   '/w/$workspaceId/settings/members': typeof WWorkspaceIdSettingsMembersRoute
   '/w/$workspaceId/settings/modules': typeof WWorkspaceIdSettingsModulesRoute
+  '/w/$workspaceId/settings/remote-access': typeof WWorkspaceIdSettingsRemoteAccessRoute
   '/w/$workspaceId/settings/tokens': typeof WWorkspaceIdSettingsTokensRoute
   '/w/$workspaceId/projects/': typeof WWorkspaceIdProjectsIndexRoute
   '/w/$workspaceId/projects/$projectId/members': typeof WWorkspaceIdProjectsProjectIdMembersRoute
@@ -211,10 +231,12 @@ export interface FileRouteTypes {
     | '/w/$workspaceId/'
     | '/w/$workspaceId/projects/$projectId'
     | '/w/$workspaceId/projects/new'
+    | '/w/$workspaceId/settings/install'
     | '/w/$workspaceId/settings/invites'
     | '/w/$workspaceId/settings/join-requests'
     | '/w/$workspaceId/settings/members'
     | '/w/$workspaceId/settings/modules'
+    | '/w/$workspaceId/settings/remote-access'
     | '/w/$workspaceId/settings/tokens'
     | '/w/$workspaceId/projects/'
     | '/w/$workspaceId/projects/$projectId/members'
@@ -230,10 +252,12 @@ export interface FileRouteTypes {
     | '/w/$workspaceId/new-workspace'
     | '/w/$workspaceId'
     | '/w/$workspaceId/projects/new'
+    | '/w/$workspaceId/settings/install'
     | '/w/$workspaceId/settings/invites'
     | '/w/$workspaceId/settings/join-requests'
     | '/w/$workspaceId/settings/members'
     | '/w/$workspaceId/settings/modules'
+    | '/w/$workspaceId/settings/remote-access'
     | '/w/$workspaceId/settings/tokens'
     | '/w/$workspaceId/projects'
     | '/w/$workspaceId/projects/$projectId/members'
@@ -251,10 +275,12 @@ export interface FileRouteTypes {
     | '/w/$workspaceId/'
     | '/w/$workspaceId/projects/$projectId'
     | '/w/$workspaceId/projects/new'
+    | '/w/$workspaceId/settings/install'
     | '/w/$workspaceId/settings/invites'
     | '/w/$workspaceId/settings/join-requests'
     | '/w/$workspaceId/settings/members'
     | '/w/$workspaceId/settings/modules'
+    | '/w/$workspaceId/settings/remote-access'
     | '/w/$workspaceId/settings/tokens'
     | '/w/$workspaceId/projects/'
     | '/w/$workspaceId/projects/$projectId/members'
@@ -357,6 +383,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WWorkspaceIdProjectsNewRouteImport
       parentRoute: typeof WWorkspaceIdRouteRoute
     }
+    '/w/$workspaceId/settings/install': {
+      id: '/w/$workspaceId/settings/install'
+      path: '/settings/install'
+      fullPath: '/w/$workspaceId/settings/install'
+      preLoaderRoute: typeof WWorkspaceIdSettingsInstallRouteImport
+      parentRoute: typeof WWorkspaceIdRouteRoute
+    }
     '/w/$workspaceId/settings/invites': {
       id: '/w/$workspaceId/settings/invites'
       path: '/settings/invites'
@@ -383,6 +416,13 @@ declare module '@tanstack/react-router' {
       path: '/settings/modules'
       fullPath: '/w/$workspaceId/settings/modules'
       preLoaderRoute: typeof WWorkspaceIdSettingsModulesRouteImport
+      parentRoute: typeof WWorkspaceIdRouteRoute
+    }
+    '/w/$workspaceId/settings/remote-access': {
+      id: '/w/$workspaceId/settings/remote-access'
+      path: '/settings/remote-access'
+      fullPath: '/w/$workspaceId/settings/remote-access'
+      preLoaderRoute: typeof WWorkspaceIdSettingsRemoteAccessRouteImport
       parentRoute: typeof WWorkspaceIdRouteRoute
     }
     '/w/$workspaceId/settings/tokens': {
@@ -432,10 +472,12 @@ interface WWorkspaceIdRouteRouteChildren {
   WWorkspaceIdIndexRoute: typeof WWorkspaceIdIndexRoute
   WWorkspaceIdProjectsProjectIdRoute: typeof WWorkspaceIdProjectsProjectIdRouteWithChildren
   WWorkspaceIdProjectsNewRoute: typeof WWorkspaceIdProjectsNewRoute
+  WWorkspaceIdSettingsInstallRoute: typeof WWorkspaceIdSettingsInstallRoute
   WWorkspaceIdSettingsInvitesRoute: typeof WWorkspaceIdSettingsInvitesRoute
   WWorkspaceIdSettingsJoinRequestsRoute: typeof WWorkspaceIdSettingsJoinRequestsRoute
   WWorkspaceIdSettingsMembersRoute: typeof WWorkspaceIdSettingsMembersRoute
   WWorkspaceIdSettingsModulesRoute: typeof WWorkspaceIdSettingsModulesRoute
+  WWorkspaceIdSettingsRemoteAccessRoute: typeof WWorkspaceIdSettingsRemoteAccessRoute
   WWorkspaceIdSettingsTokensRoute: typeof WWorkspaceIdSettingsTokensRoute
   WWorkspaceIdProjectsIndexRoute: typeof WWorkspaceIdProjectsIndexRoute
 }
@@ -446,10 +488,12 @@ const WWorkspaceIdRouteRouteChildren: WWorkspaceIdRouteRouteChildren = {
   WWorkspaceIdProjectsProjectIdRoute:
     WWorkspaceIdProjectsProjectIdRouteWithChildren,
   WWorkspaceIdProjectsNewRoute: WWorkspaceIdProjectsNewRoute,
+  WWorkspaceIdSettingsInstallRoute: WWorkspaceIdSettingsInstallRoute,
   WWorkspaceIdSettingsInvitesRoute: WWorkspaceIdSettingsInvitesRoute,
   WWorkspaceIdSettingsJoinRequestsRoute: WWorkspaceIdSettingsJoinRequestsRoute,
   WWorkspaceIdSettingsMembersRoute: WWorkspaceIdSettingsMembersRoute,
   WWorkspaceIdSettingsModulesRoute: WWorkspaceIdSettingsModulesRoute,
+  WWorkspaceIdSettingsRemoteAccessRoute: WWorkspaceIdSettingsRemoteAccessRoute,
   WWorkspaceIdSettingsTokensRoute: WWorkspaceIdSettingsTokensRoute,
   WWorkspaceIdProjectsIndexRoute: WWorkspaceIdProjectsIndexRoute,
 }

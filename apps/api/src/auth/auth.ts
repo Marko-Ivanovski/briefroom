@@ -36,13 +36,17 @@ export function createAuth(
   env: Env,
   canCreateWorkspace: CanCreateWorkspace,
   onSignOut: (userId: string) => Promise<void> = async () => undefined,
+  origins: () => string[] = () => trustedOrigins(env),
 ) {
   const log = new Logger('BetterAuth');
   const signingOut = new WeakMap<Request, string>();
   return betterAuth({
     secret: env.authSecret,
+    // baseURL stays BRIEFROOM_PUBLIC_URL. Of what it feeds, only the origin check matters for the
+    // three open routes, and the function form of trustedOrigins is read on every request, so a
+    // tunnel address is trusted the moment it is up, without a restart.
     baseURL: env.publicUrl,
-    trustedOrigins: trustedOrigins(env),
+    trustedOrigins: () => origins(),
     database: drizzleAdapter(db, { provider: 'pg', schema: authSchema }),
     // Better Auth passes the caught error as an extra argument, and a failed query carries its SQL
     // parameters (emails, hashes, tokens). Only the level and the message are forwarded.
